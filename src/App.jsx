@@ -506,8 +506,8 @@ function StatCard({ title, value, subtitle = '', icon: Icon }) {
 }
 
 function Login({ onLogin, users, resetDemo, language, setLanguage }) {
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('admin123');
+  const [username, setUsername] = useState('');
+const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
   const submit = (e) => {
