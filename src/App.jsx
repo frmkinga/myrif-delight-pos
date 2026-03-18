@@ -3074,7 +3074,7 @@ const [syncMessage, setSyncMessage] = useState('');
 
   useEffect(() => {
   readData().then((loaded) => {
-    setData(loaded);
+    setData({ ...loaded, currentUser: null });
   });
 }, []);
 
