@@ -703,7 +703,7 @@ function OwnerDashboard({ data, openShop, logout, exportBackup, importBackup, ow
   );
 }
 
-function ShopDashboard({ shop, data, saveData, backToOwner, logout, canBack, language, setLanguage }) {
+function ShopDashboard({ shop, data, saveData, backToOwner, logout, canBack, language, setLanguage, exportBackup }) {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [quickSearch, setQuickSearch] = useState('');
   const [scanCode, setScanCode] = useState('');
@@ -837,8 +837,6 @@ const todayProfit = todaySales - todayExpenses + todayGasProfit;
   const totalExpenses = filteredExpenses.reduce((a, e) => a + Number(e.amount || 0), 0);
   const totalProfit = totalSales - totalExpenses;
 const todayRetailProfit = todaySales - todayExpenses;
-const expiringSoonCount = expiringProducts.filter((p) => p.daysLeft >= 0 && p.daysLeft <= 7).length;
-const expiredCount = expiringProducts.filter((p) => p.daysLeft < 0).length;
 
 const todayWakalaCommission = (data.mobileMoneyEntries || [])
   .filter((x) => x.date === todayISO())
@@ -944,6 +942,8 @@ const expiringProducts = useMemo(() => {
     .filter((p) => p.daysLeft !== null && p.daysLeft <= 30)
     .sort((a, b) => a.daysLeft - b.daysLeft);
 }, [products]);
+const expiringSoonCount = expiringProducts.filter((p) => p.daysLeft >= 0 && p.daysLeft <= 7).length;
+const expiredCount = expiringProducts.filter((p) => p.daysLeft < 0).length;
   const stockTotals = useMemo(
     () => ({
       totalBalance: stockValueRows.reduce((a, r) => a + Number(r.stockBaseQty || 0), 0),
@@ -3470,6 +3470,7 @@ const importBackup = () => {
       backToOwner={() => setActiveShopId(null)}
       language={language}
       setLanguage={setLanguage}
+<ShopDashboard
     />
   </>
 );
