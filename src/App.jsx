@@ -1863,7 +1863,7 @@ supabase.from('mobileMoneyEntries').insert([record]);
                       <Input type="number" placeholder={t(language, 'Selling price *', 'Bei ya kuuza *')} value={row.sellPrice} onChange={(e) => updateProductRow(index, 'sellPrice', e.target.value)} />
                       <Input type="number" placeholder={t(language, 'Opening stock *', 'Stock ya mwanzo *')} value={row.stockQty} onChange={(e) => updateProductRow(index, 'stockQty', e.target.value)} />
                       <Input type="number" placeholder={t(language, 'Minimum stock', 'Kiwango cha chini')} value={row.minStockLevel} onChange={(e) => updateProductRow(index, 'minStockLevel', e.target.value)} />
-                      <Input placeholder={t(language, 'Expiry date', 'Tarehe ya mwisho wa matumizi')} value={row.expiryDate} onChange={(e) => updateProductRow(index, 'expiryDate', e.target.value)} />
+                      <Input type="date" value={row.expiryDate} onChange={(e) => updateProductRow(index, 'expiryDate', e.target.value)} />
                       <Input placeholder="QR code" value={row.qrCode} onChange={(e) => updateProductRow(index, 'qrCode', e.target.value)} />
                       <div className="md:col-span-2">
                         <Input
