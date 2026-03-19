@@ -213,7 +213,15 @@ const startOfMonth = (date) => {
   const d = new Date(date);
   return new Date(d.getFullYear(), d.getMonth(), 1);
 };
+const getDaysUntilExpiry = (expiryDate) => {
+  if (!expiryDate) return null;
 
+  const today = startOfDay(new Date());
+  const expiry = startOfDay(expiryDate);
+
+  const diffMs = expiry.getTime() - today.getTime();
+  return Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+};
 function filterByPreset(items, preset, customDate) {
   const now = startOfDay(new Date());
   return items.filter((item) => {
@@ -505,7 +513,7 @@ function StatCard({ title, value, subtitle = '', icon: Icon }) {
   );
 }
 
-function Login({ onLogin, users, resetDemo, language, setLanguage }) {
+function Login({ onLogin, users, language, setLanguage }) {
   const [username, setUsername] = useState('');
 const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -550,9 +558,6 @@ const [password, setPassword] = useState('');
               <div className="flex gap-2">
                 <Button type="submit" className="flex-1">
                   {t(language, 'Login', 'Ingia')}
-                </Button>
-                <Button type="button" variant="outline" onClick={resetDemo}>
-                  {t(language, 'Reset Demo', 'Rudisha Mfano')}
                 </Button>
               </div>
             </form>
@@ -923,7 +928,19 @@ const totalSalesAmount = rows.reduce((a, r) => a + Number(r.soldQty || 0) * Numb
       }),
     [products, sales],
   );
-
+const expiringProducts = useMemo(() => {
+  return products
+    .filter((p) => p.expiryDate)
+    .map((p) => {
+      const daysLeft = getDaysUntilExpiry(p.expiryDate);
+      return {
+        ...p,
+        daysLeft,
+      };
+    })
+    .filter((p) => p.daysLeft !== null && p.daysLeft <= 30)
+    .sort((a, b) => a.daysLeft - b.daysLeft);
+}, [products]);
   const stockTotals = useMemo(
     () => ({
       totalBalance: stockValueRows.reduce((a, r) => a + Number(r.stockBaseQty || 0), 0),
@@ -2562,6 +2579,7 @@ onDeleteGas={deleteGas}
               <div className="flex flex-wrap gap-2">
                 <select className="rounded-xl border border-slate-200 px-3 py-2 text-sm" value={reportType} onChange={(e) => setReportType(e.target.value)}>
                   <option value="stockValue">{t(language, 'Stock Value Report', 'Ripoti ya Thamani ya Stock')}</option>
+<option value="expiryAlert">{t(language, 'Lock Stock Alert', 'Tahadhari ya Bidhaa Zinazoisha Muda')}</option>
                   <option value="salesReport">{t(language, 'Sales Report', 'Ripoti ya Mauzo')}</option>
 <option value="profitLoss">{t(language, 'Profit & Loss Report', 'Ripoti ya Faida na Hasara')}</option>
                   <option value="wakala">{t(language, 'Wakala Summary', 'Muhtasari wa Wakala')}</option>
@@ -2644,6 +2662,41 @@ onDeleteGas={deleteGas}
   </tr>
 </tbody>
     </table>
+  </div>
+) : reportType === 'expiryAlert' ? (
+  <div className="space-y-3 text-sm">
+    {expiringProducts.length === 0 ? (
+      <div className="text-slate-500">
+        {t(language, 'No products nearing expiry.', 'Hakuna bidhaa zinazoisha muda karibuni.')}
+      </div>
+    ) : (
+      expiringProducts.map((p) => (
+        <div
+          key={p.id}
+          className={`rounded-2xl p-3 ${
+            p.daysLeft <= 0
+              ? 'bg-red-50 text-red-700'
+              : p.daysLeft <= 7
+              ? 'bg-amber-50 text-amber-700'
+              : 'bg-slate-50'
+          }`}
+        >
+          <div className="font-medium">{p.name}</div>
+
+          <div className="mt-1">
+            {t(language, 'Expiry Date', 'Tarehe ya Mwisho')}: {p.expiryDate || '-'}
+          </div>
+
+          <div>
+            {t(language, 'Days Remaining', 'Siku Zilizobaki')}: {p.daysLeft}
+          </div>
+
+          <div>
+            {t(language, 'Stock', 'Stock')}: {formatQty(p.stockBaseQty)} {p.baseUnit}
+          </div>
+        </div>
+      ))
+    )}
   </div>
 ) : reportType === 'salesReport' ? (
               <div className="overflow-x-auto">
@@ -3366,7 +3419,7 @@ const importBackup = () => {
   };
 
   if (!data.currentUser) {
-    return <Login onLogin={handleLogin} users={data.users} resetDemo={resetDemo} language={language} setLanguage={setLanguage} />;
+    return <Login onLogin={handleLogin} users={data.users} language={language} setLanguage={setLanguage} />;
   }
 
   const selectedShopId = data.currentUser.role === 'shop' ? data.currentUser.shopId : activeShopId;
