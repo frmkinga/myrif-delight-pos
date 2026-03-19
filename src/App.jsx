@@ -1725,27 +1725,35 @@ supabase.from('mobileMoneyEntries').insert([record]);
   ))}
 </TabsList>
 
-      <TabsContent value="dashboard" activeValue={activeTab}>
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-          <StatCard title={t(language, 'Today Sales', 'Mauzo ya Leo')} value={`TZS ${currency(todaySales)}`} icon={ShoppingCart} />
-<StatCard title={t(language, 'Today Expenses', 'Matumizi ya Leo')} value={`TZS ${currency(todayExpenses)}`} icon={AlertTriangle} />
-<StatCard title={t(language, 'Today Profit', 'Faida ya Leo')} value={`TZS ${currency(todayProfit)}`} icon={Wallet} />
-          <StatCard
-  title={t(language, 'Mobile Money Capital', 'Mtaji wa Simu')}
-  value={`TZS ${currency(mobileCapital)}`}
-  subtitle={
-    latestMobileEntry
-      ? getFloatStatus(
-          mobileCapital,
-          mobileFloat,
-          mobileCommission,
-          language
-        )
-      : ''
-  }
-  icon={HandCoins}
-/>
-          <StatCard
+     <TabsContent value="dashboard" activeValue={activeTab}>
+  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+    <StatCard title={t(language, 'Today Sales', 'Mauzo ya Leo')} value={`TZS ${currency(todaySales)}`} icon={ShoppingCart} />
+    <StatCard title={t(language, 'Today Expenses', 'Matumizi ya Leo')} value={`TZS ${currency(todayExpenses)}`} icon={AlertTriangle} />
+    <StatCard title={t(language, 'Today Profit', 'Faida ya Leo')} value={`TZS ${currency(todayProfit)}`} icon={Wallet} />
+
+    <StatCard
+      title={t(language, 'Expiry Alerts', 'Tahadhari za Muda wa Matumizi')}
+      value={`${expiredCount} ${t(language, 'expired', 'zilizoisha')} / ${expiringSoonCount} ${t(language, 'soon', 'zinakaribia')}`}
+      subtitle={t(language, 'Expired / due within 7 days', 'Zilizoisha / ndani ya siku 7')}
+      icon={AlertTriangle}
+    />
+
+    <StatCard
+      title={t(language, 'Mobile Money Capital', 'Mtaji wa Simu')}
+      value={`TZS ${currency(mobileCapital)}`}
+      subtitle={
+        latestMobileEntry
+          ? getFloatStatus(
+              mobileCapital,
+              mobileFloat,
+              mobileCommission,
+              language
+            )
+          : ''
+      }
+      icon={HandCoins}
+    />
+ <StatCard
   title={t(language, 'Bank Capital', 'Mtaji wa Benki')}
   value={`TZS ${currency(bankCapital)}`}
   subtitle={
