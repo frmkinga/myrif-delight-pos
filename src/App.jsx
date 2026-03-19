@@ -3453,24 +3453,27 @@ const importBackup = () => {
   }
 
   const shop = data.shops.find((s) => s.id === selectedShopId) || data.shops[0];
-  return (
+return (
   <>
-    <div className={`mx-4 mt-4 rounded-2xl px-4 py-2 text-sm font-medium ${
-      isOnline ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'
-    }`}>
+    <div
+      className={`mx-4 mt-4 rounded-2xl px-4 py-2 text-sm font-medium ${
+        isOnline ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'
+      }`}
+    >
       {isOnline ? 'Online' : 'Offline'} {syncMessage ? `- ${syncMessage}` : ''}
     </div>
 
     <ShopDashboard
-  shop={shop}
-  data={data}
-  saveData={saveData}
-  logout={logout}
-  canBack={data.currentUser.role === 'owner'}
-  backToOwner={() => setActiveShopId(null)}
-  language={language}
-  setLanguage={setLanguage}
-  exportBackup={exportBackup}
-/>
+      shop={shop}
+      data={data}
+      saveData={saveData}
+      logout={logout}
+      canBack={data.currentUser.role === 'owner'}
+      backToOwner={() => setActiveShopId(null)}
+      language={language}
+      setLanguage={setLanguage}
+      exportBackup={exportBackup}
+    />
+  </>
 );
 }
