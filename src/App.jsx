@@ -3194,7 +3194,8 @@ useEffect(() => {
   const loadCloudData = async () => {
     try {
 
-      const { data: sales } = await supabase.from('sales').select('*');
+ const { data: products } = await supabase.from('products').select('*');     
+const { data: sales } = await supabase.from('sales').select('*');
       const { data: purchases } = await supabase.from('purchases').select('*');
       const { data: expenses } = await supabase.from('expenses').select('*');
       const { data: creditSales } = await supabase.from('creditSales').select('*');
@@ -3203,6 +3204,7 @@ useEffect(() => {
 
       setData((prev) => ({
         ...prev,
+products: products || [],
         sales: sales || [],
         purchases: purchases || [],
         expenses: expenses || [],
@@ -3220,6 +3222,17 @@ useEffect(() => {
 
 }, []);
 useEffect(() => {
+const productsChannel = supabase
+  .channel('products-changes')
+  .on(
+    'postgres_changes',
+    { event: '*', schema: 'public', table: 'products' },
+    async () => {
+      const { data: products } = await supabase.from('products').select('*');
+      setData((prev) => ({ ...prev, products: products || [] }));
+    }
+  )
+  .subscribe();
   const salesChannel = supabase
     .channel('sales-changes')
     .on(
@@ -3293,7 +3306,8 @@ useEffect(() => {
     .subscribe();
 
   return () => {
-    supabase.removeChannel(salesChannel);
+    supabase.removeChannel(productsChannel);
+supabase.removeChannel(salesChannel);
     supabase.removeChannel(purchasesChannel);
     supabase.removeChannel(expensesChannel);
     supabase.removeChannel(creditChannel);
