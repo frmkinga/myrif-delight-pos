@@ -664,10 +664,16 @@ function OwnerDashboard({ data, openShop, logout, exportBackup, importBackup, ow
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <StatCard title={t(language, 'Total Sales Today', 'Jumla ya Mauzo Leo')} value={`TZS ${currency(totalSales)}`} icon={ShoppingCart} />
-        <StatCard title={t(language, 'Total Expenses Today', 'Jumla ya Matumizi Leo')} value={`TZS ${currency(totalExpenses)}`} icon={AlertTriangle} />
+        <StatCard title={t(language, 'Total Sales Today', 'Jumla ya Mauzo Leo')} value={`TZS ${currency(totalSales)}`} icon={ShoppingCart} />     
+<StatCard title={t(language, 'Total Expenses Today', 'Jumla ya Matumizi Leo')} value={`TZS ${currency(totalExpenses)}`} icon={AlertTriangle} />
         <StatCard title={t(language, 'Profit Today', 'Faida ya Leo')} value={`TZS ${currency(totalProfit)}`} icon={Wallet} />
-        <StatCard title={t(language, 'Total Capital for Mobile Money', 'Jumla ya Mtaji wa Simu')} value={`TZS ${currency(totalMobileCapital)}`} icon={HandCoins} />
+      <StatCard
+  title={t(language, 'Expiry Alerts', 'Tahadhari za Muda wa Matumizi')}
+  value={`${expiredCount} ${t(language, 'expired', 'zilizoisha')} / ${expiringSoonCount} ${t(language, 'soon', 'zinakaribia')}`}
+  subtitle={t(language, 'Expired / due within 7 days', 'Zilizoisha / ndani ya siku 7')}
+  icon={AlertTriangle}
+/>  
+<StatCard title={t(language, 'Total Capital for Mobile Money', 'Jumla ya Mtaji wa Simu')} value={`TZS ${currency(totalMobileCapital)}`} icon={HandCoins} />
         <StatCard title={t(language, 'Total Capital for Banks', 'Jumla ya Mtaji wa Benki')} value={`TZS ${currency(totalBankCapital)}`} icon={Building2} />
       </div>
 
@@ -836,6 +842,8 @@ const todayProfit = todaySales - todayExpenses + todayGasProfit;
   const totalExpenses = filteredExpenses.reduce((a, e) => a + Number(e.amount || 0), 0);
   const totalProfit = totalSales - totalExpenses;
 const todayRetailProfit = todaySales - todayExpenses;
+const expiringSoonCount = expiringProducts.filter((p) => p.daysLeft >= 0 && p.daysLeft <= 7).length;
+const expiredCount = expiringProducts.filter((p) => p.daysLeft < 0).length;
 
 const todayWakalaCommission = (data.mobileMoneyEntries || [])
   .filter((x) => x.date === todayISO())
