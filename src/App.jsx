@@ -3462,16 +3462,15 @@ const importBackup = () => {
     </div>
 
     <ShopDashboard
-      shop={shop}
-      data={data}
-      saveData={saveData}
-      logout={logout}
-      canBack={data.currentUser.role === 'owner'}
-      backToOwner={() => setActiveShopId(null)}
-      language={language}
-      setLanguage={setLanguage}
-<ShopDashboard
-    />
-  </>
+  shop={shop}
+  data={data}
+  saveData={saveData}
+  logout={logout}
+  canBack={data.currentUser.role === 'owner'}
+  backToOwner={() => setActiveShopId(null)}
+  language={language}
+  setLanguage={setLanguage}
+  exportBackup={exportBackup}
+/>
 );
 }
