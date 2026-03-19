@@ -944,6 +944,9 @@ const expiringProducts = useMemo(() => {
 }, [products]);
 const expiringSoonCount = expiringProducts.filter((p) => p.daysLeft >= 0 && p.daysLeft <= 7).length;
 const expiredCount = expiringProducts.filter((p) => p.daysLeft < 0).length;
+const lowStockCount = products.filter(
+  (p) => Number(p.stockBaseQty || 0) <= Number(p.minStockLevel || 0)
+).length;
   const stockTotals = useMemo(
     () => ({
       totalBalance: stockValueRows.reduce((a, r) => a + Number(r.stockBaseQty || 0), 0),
@@ -1737,7 +1740,12 @@ supabase.from('mobileMoneyEntries').insert([record]);
       subtitle={t(language, 'Expired / due within 7 days', 'Zilizoisha / ndani ya siku 7')}
       icon={AlertTriangle}
     />
-
+<StatCard
+  title={t(language, 'Low Stock Alerts', 'Tahadhari za Stock Ndogo')}
+  value={`${lowStockCount} ${t(language, 'items', 'bidhaa')}`}
+  subtitle={t(language, 'At or below minimum stock', 'Ziko chini au sawa na kiwango cha chini')}
+  icon={AlertTriangle}
+/>
     <StatCard
       title={t(language, 'Mobile Money Capital', 'Mtaji wa Simu')}
       value={`TZS ${currency(mobileCapital)}`}
