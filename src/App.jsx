@@ -667,12 +667,7 @@ function OwnerDashboard({ data, openShop, logout, exportBackup, importBackup, ow
         <StatCard title={t(language, 'Total Sales Today', 'Jumla ya Mauzo Leo')} value={`TZS ${currency(totalSales)}`} icon={ShoppingCart} />     
 <StatCard title={t(language, 'Total Expenses Today', 'Jumla ya Matumizi Leo')} value={`TZS ${currency(totalExpenses)}`} icon={AlertTriangle} />
         <StatCard title={t(language, 'Profit Today', 'Faida ya Leo')} value={`TZS ${currency(totalProfit)}`} icon={Wallet} />
-      <StatCard
-  title={t(language, 'Expiry Alerts', 'Tahadhari za Muda wa Matumizi')}
-  value={`${expiredCount} ${t(language, 'expired', 'zilizoisha')} / ${expiringSoonCount} ${t(language, 'soon', 'zinakaribia')}`}
-  subtitle={t(language, 'Expired / due within 7 days', 'Zilizoisha / ndani ya siku 7')}
-  icon={AlertTriangle}
-/>  
+  
 <StatCard title={t(language, 'Total Capital for Mobile Money', 'Jumla ya Mtaji wa Simu')} value={`TZS ${currency(totalMobileCapital)}`} icon={HandCoins} />
         <StatCard title={t(language, 'Total Capital for Banks', 'Jumla ya Mtaji wa Benki')} value={`TZS ${currency(totalBankCapital)}`} icon={Building2} />
       </div>
