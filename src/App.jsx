@@ -3182,6 +3182,7 @@ const [hasLoadedInitialData, setHasLoadedInitialData] = useState(false);
       console.error('readData init failed:', error);
     })
     .finally(() => {
+      setHasLoadedInitialData(true);
       setIsHydrating(false);
     });
 }, []);
