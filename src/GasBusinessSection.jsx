@@ -241,7 +241,6 @@ setShowGasPrices,
       className="h-10 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm"
       placeholder={t(language, 'Small Cylinders Total (6kg)', 'Jumla ya Mitungi Midogo (6kg)')}
       value={gasForm.smallCylindersTotal}
-      disabled={!isOwnerUser}
       onChange={(e) => setGasForm((prev) => ({ ...prev, smallCylindersTotal: e.target.value }))}
     />
 
@@ -250,7 +249,6 @@ setShowGasPrices,
       className="h-10 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm"
       placeholder={t(language, 'Big Cylinders Total (15kg)', 'Jumla ya Mitungi Mikubwa (15kg)')}
       value={gasForm.bigCylindersTotal}
-      disabled={!isOwnerUser}
       onChange={(e) => setGasForm((prev) => ({ ...prev, bigCylindersTotal: e.target.value }))}
     />
 
