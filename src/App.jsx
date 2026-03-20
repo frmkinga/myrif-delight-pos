@@ -753,9 +753,15 @@ const saveGas = async () => {
 
 addToSyncQueue('gas_created', record);
 
-await supabase
+const { error } = await supabase
   .from('gasEntries')
   .upsert([record], { onConflict: 'id' });
+
+if (error) {
+  console.error('Gas save error:', error);
+  alert(`Gas save error: ${error.message}`);
+  return;
+}
 
 setGasForm({ ...emptyGasForm, date: todayISO() });
 };
