@@ -2172,9 +2172,10 @@ alert('confirm button clicked');
       }
 
       const purchaseRows = purchasesToConfirm.map((purchase) => ({
-        ...purchase,
-        confirmed: true,
-      }));
+  ...purchase,
+  confirmed: true,
+  created_at: purchase.created_at || new Date().toISOString(),
+}));
 
       const { error: purchaseError } = await supabase
         .from('purchases')
