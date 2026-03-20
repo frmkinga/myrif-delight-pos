@@ -217,7 +217,6 @@ setShowGasPrices,
       <Input
         type="number"
         value={gasForm.totalCylinders}
-        disabled={!isOwnerUser}
         onChange={(e) => setGasForm((prev) => ({ ...prev, totalCylinders: e.target.value }))}
       />
     </div>
