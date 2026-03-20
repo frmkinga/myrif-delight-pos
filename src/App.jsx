@@ -2112,67 +2112,83 @@ supabase.from('mobileMoneyEntries').insert([record]);
             <CardContent className="space-y-2 text-sm">
 <div className="mb-3">
   <Button
-  type="button"
-  onClick={async () => {
-    const nextProducts = [...data.products];
+    type="button"
+    onClick={async () => {
+      const purchasesToConfirm = data.purchases.filter(
+        (purchase) => purchase.shopId === shop.id && !purchase.confirmed
+      );
 
-    const purchasesToConfirm = data.purchases.filter(
-      (purchase) => purchase.shopId === shop.id && !purchase.confirmed
-    );
-
-    const nextPurchases = data.purchases.map((purchase) => {
-      if (purchase.shopId !== shop.id || purchase.confirmed) return purchase;
-
-      const pIdx = nextProducts.findIndex((p) => p.id === purchase.productId);
-
-      if (pIdx >= 0) {
-        nextProducts[pIdx] = {
-          ...nextProducts[pIdx],
-          stockBaseQty:
-            Number(nextProducts[pIdx].stockBaseQty || 0) +
-            Number(purchase.quantity || 0),
-          buyPrice:
-            Number(purchase.unitCost || nextProducts[pIdx].buyPrice || 0),
-        };
+      if (!purchasesToConfirm.length) {
+        alert('No unconfirmed purchases found.');
+        return;
       }
 
-      return { ...purchase, confirmed: true };
-    });
+      const nextProducts = [...data.products];
 
-    saveData({
-      ...data,
-      products: nextProducts,
-      purchases: nextPurchases,
-    });
-const rowsToSync = nextProducts
-  .filter((p) => p.shopId === shop.id)
-  .map((p) => ({
-    id: p.id,
-    name: p.name,
-    buyingprice: Number(p.buyPrice || 0),
-    sellingprice: Number(p.sellPrice || 0),
-    stock: Number(p.stockBaseQty || 0),
-    shopid: p.shopId,
-  }));
+      const nextPurchases = data.purchases.map((purchase) => {
+        if (purchase.shopId !== shop.id || purchase.confirmed) return purchase;
 
-const { error } = await supabase
-  .from('products')
-  .upsert(rowsToSync, { onConflict: 'id' });
+        const pIdx = nextProducts.findIndex((p) => p.id === purchase.productId);
 
-if (error) {
-  console.error('❌ PRODUCT SAVE ERROR:', error);
-} else {
-  console.log('✅ Products saved to DB');
-}
-    for (const purchase of purchasesToConfirm.filter((p) => p.id)) {
-      await supabase
+        if (pIdx >= 0) {
+          nextProducts[pIdx] = {
+            ...nextProducts[pIdx],
+            stockBaseQty:
+              Number(nextProducts[pIdx].stockBaseQty || 0) +
+              Number(purchase.quantity || 0),
+            buyPrice:
+              Number(purchase.unitCost || nextProducts[pIdx].buyPrice || 0),
+          };
+        }
+
+        return { ...purchase, confirmed: true };
+      });
+
+      saveData({
+        ...data,
+        products: nextProducts,
+        purchases: nextPurchases,
+      });
+
+      const productRows = nextProducts
+        .filter((p) => p.shopId === shop.id)
+        .map((p) => ({
+          id: p.id,
+          name: p.name,
+          buyingprice: Number(p.buyPrice || 0),
+          sellingprice: Number(p.sellPrice || 0),
+          stock: Number(p.stockBaseQty || 0),
+          shopid: p.shopId,
+        }));
+
+      const { error: productError } = await supabase
+        .from('products')
+        .upsert(productRows, { onConflict: 'id' });
+
+      if (productError) {
+        alert(`Products sync failed: ${productError.message}`);
+        return;
+      }
+
+      const purchaseRows = purchasesToConfirm.map((purchase) => ({
+        ...purchase,
+        confirmed: true,
+      }));
+
+      const { error: purchaseError } = await supabase
         .from('purchases')
-        .upsert([{ ...purchase, confirmed: true }], { onConflict: 'id' });
-    }
-  }}
->
-  {t(language, 'Confirm Purchases', 'Thibitisha Manunuzi')}
-</Button>
+        .upsert(purchaseRows, { onConflict: 'id' });
+
+      if (purchaseError) {
+        alert(`Purchases sync failed: ${purchaseError.message}`);
+        return;
+      }
+
+      alert('Purchases confirmed successfully.');
+    }}
+  >
+    {t(language, 'Confirm Purchases', 'Thibitisha Manunuzi')}
+  </Button>
 </div>
               {todayPurchases.length === 0 ? (
                 <div className="text-slate-500">{t(language, 'No purchases recorded yet.', 'Hakuna manunuzi yaliyorekodiwa bado.')}</div>
