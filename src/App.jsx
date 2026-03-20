@@ -3240,10 +3240,15 @@ const { data: sales } = await supabase.from('sales').select('*');
       const { data: gasEntries } = await supabase.from('gasEntries').select('*');
 
             setData((prev) => ({
-        ...prev,
-        sales: sales?.length ? sales : prev.sales,
-        mobileMoneyEntries: mobileMoneyEntries?.length ? mobileMoneyEntries : prev.mobileMoneyEntries,
-      }));
+  ...prev,
+  products: products?.length ? products : prev.products,
+  sales: sales?.length ? sales : prev.sales,
+  purchases: purchases?.length ? purchases : prev.purchases,
+  expenses: expenses?.length ? expenses : prev.expenses,
+  creditSales: creditSales?.length ? creditSales : prev.creditSales,
+  mobileMoneyEntries: mobileMoneyEntries?.length ? mobileMoneyEntries : prev.mobileMoneyEntries,
+  gasEntries: gasEntries?.length ? gasEntries : prev.gasEntries,
+}));
 
     } catch (error) {
       console.error('Cloud load failed:', error);
@@ -3254,6 +3259,18 @@ const { data: sales } = await supabase.from('sales').select('*');
 
 }, []);
 useEffect(() => {
+  const productsChannel = supabase
+    .channel('products-changes')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'products' },
+      async () => {
+        const { data: products } = await supabase.from('products').select('*');
+        setData((prev) => ({ ...prev, products: products || [] }));
+      }
+    )
+    .subscribe();
+
   const salesChannel = supabase
     .channel('sales-changes')
     .on(
@@ -3262,6 +3279,42 @@ useEffect(() => {
       async () => {
         const { data: sales } = await supabase.from('sales').select('*');
         setData((prev) => ({ ...prev, sales: sales || [] }));
+      }
+    )
+    .subscribe();
+
+  const purchasesChannel = supabase
+    .channel('purchases-changes')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'purchases' },
+      async () => {
+        const { data: purchases } = await supabase.from('purchases').select('*');
+        setData((prev) => ({ ...prev, purchases: purchases || [] }));
+      }
+    )
+    .subscribe();
+
+  const expensesChannel = supabase
+    .channel('expenses-changes')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'expenses' },
+      async () => {
+        const { data: expenses } = await supabase.from('expenses').select('*');
+        setData((prev) => ({ ...prev, expenses: expenses || [] }));
+      }
+    )
+    .subscribe();
+
+  const creditChannel = supabase
+    .channel('credit-changes')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'creditSales' },
+      async () => {
+        const { data: creditSales } = await supabase.from('creditSales').select('*');
+        setData((prev) => ({ ...prev, creditSales: creditSales || [] }));
       }
     )
     .subscribe();
@@ -3278,9 +3331,26 @@ useEffect(() => {
     )
     .subscribe();
 
+  const gasChannel = supabase
+    .channel('gas-changes')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'gasEntries' },
+      async () => {
+        const { data: gasEntries } = await supabase.from('gasEntries').select('*');
+        setData((prev) => ({ ...prev, gasEntries: gasEntries || [] }));
+      }
+    )
+    .subscribe();
+
   return () => {
+    supabase.removeChannel(productsChannel);
     supabase.removeChannel(salesChannel);
+    supabase.removeChannel(purchasesChannel);
+    supabase.removeChannel(expensesChannel);
+    supabase.removeChannel(creditChannel);
     supabase.removeChannel(mobileMoneyChannel);
+    supabase.removeChannel(gasChannel);
   };
 }, []);
   const saveData = (next) => {
