@@ -3307,7 +3307,24 @@ const { data: sales } = await supabase.from('sales').select('*');
 
             setData((prev) => ({
   ...prev,
-  products: products?.length ? products : prev.products,
+  products: products?.length
+  ? products.map((p) => ({
+      id: p.id,
+      name: p.name,
+      buyPrice: Number(p.buyingprice || 0),
+      sellPrice: Number(p.sellingprice || 0),
+      stockBaseQty: Number(p.stock || 0),
+      stockQty: Number(p.stock || 0),
+      shopId: p.shopid,
+      baseUnit: 'pc',
+      minStockLevel: 5,
+      expiryDate: '',
+      qrCode: '',
+      subUnitsRaw: '',
+      createdAt: '',
+      confirmed: true,
+    }))
+  : prev.products,
   sales: sales?.length ? sales : prev.sales,
   purchases: purchases?.length ? purchases : prev.purchases,
   expenses: expenses?.length ? expenses : prev.expenses,
