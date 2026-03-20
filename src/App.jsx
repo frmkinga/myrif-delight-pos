@@ -28,6 +28,7 @@ const STORAGE_GAS_KEY = 'rafikiai_gas_business';
 const STORAGE_META_KEY = 'rafikiai_storage_meta';
 const STORAGE_SYNC_QUEUE_KEY = 'rafikiai_sync_queue';
 const STORAGE_LAST_SYNC_KEY = 'rafikiai_last_sync';
+const STORAGE_SESSION_KEY = 'rafikiai_current_user';
 const DB_NAME = 'rafikiai_pos_db';
 const DB_VERSION = 1;
 const DB_STORE = 'pos_data';
@@ -386,14 +387,8 @@ function normalizeData(parsed = {}) {
 
 async function readData() {
   try {
-    console.log('Reading data from IndexedDB first...');
+    console.log('Reading data from localStorage first...');
 
-    const dbData = await readFromDB(DB_DATA_KEY);
-    if (dbData) {
-      return normalizeData(dbData);
-    }
-
-    console.log('No IndexedDB data found, checking localStorage...');
     const raw = readStorage(STORAGE_KEY);
 
     if (raw) {
@@ -406,8 +401,11 @@ async function readData() {
       const separateMobileMoney = readStorage(STORAGE_MOBILE_MONEY_KEY, null);
       const separateGas = readStorage(STORAGE_GAS_KEY, null);
 
+           const savedSessionUser = readStorage(STORAGE_SESSION_KEY, null);
+
       const normalized = normalizeData({
         ...raw,
+        currentUser: savedSessionUser,
         products: separateProducts || raw.products,
         sales: separateSales || raw.sales,
         purchases: separatePurchases || raw.purchases,
@@ -422,16 +420,21 @@ async function readData() {
       return normalized;
     }
 
+    console.log('No localStorage data found, checking IndexedDB...');
+    const dbData = await readFromDB(DB_DATA_KEY);
+
+    if (dbData) {
+      return normalizeData(dbData);
+    }
+
     const fallbackData = normalizeData(seedData);
     await writeToDB(DB_DATA_KEY, fallbackData);
     return fallbackData;
-
   } catch (error) {
     console.error('readData failed:', error);
     return normalizeData(seedData);
   }
 }
-
 
 function AppShell({ children }) {
   return <div className="min-h-screen bg-slate-50 p-4 md:p-6">{children}</div>;
@@ -744,26 +747,15 @@ const saveGas = async () => {
   }
 
   saveData({
-    ...data,
-    gasEntries: nextGasEntries,
-  });
+  ...data,
+  gasEntries: nextGasEntries,
+});
 
-  addToSyncQueue('gas_created', record);
+addToSyncQueue('gas_created', record);
 
-  await supabase.from('gasEntries').upsert([record]);
+await supabase.from('gasEntries').upsert([record]);
 
-  setGasForm({ ...emptyGasForm, date: todayISO() });
-};
-
-  addToSyncQueue('gas_created', record);
-
-  const { error } = await supabase.from('gasEntries').upsert([record]);
-
-  if (error) {
-    console.error('Gas save error:', error);
-  }
-
-  setGasForm({ ...emptyGasForm, date: todayISO() });
+setGasForm({ ...emptyGasForm, date: todayISO() });
 };
 
 const editGas = (entry) => {
@@ -827,7 +819,7 @@ const sales = data.sales.filter((s) => s.shopId === shop.id);
   const expenseEntries = data.expenses
   .map((e, originalIndex) => ({ ...e, originalIndex }))
   .filter((e) => e.shopId === shop.id);
-const purchases = data.purchases.filter((p) => p.shopId === shop.id && !p.confirmed);
+const purchases = data.purchases.filter((p) => p.shopId === shop.id);
 const todayPurchases = purchases.filter((p) => p.date === todayISO());
 const todayProducts = data.products
   .filter((p) => p.shopId === shop.id && p.confirmed === false)
@@ -3178,11 +3170,20 @@ export default function MultiShopPOSFinal() {
   const [language, setLanguage] = useState(DEFAULT_LANGUAGE);
 const [isOnline, setIsOnline] = useState(navigator.onLine);
 const [syncMessage, setSyncMessage] = useState('');
+const [isHydrating, setIsHydrating] = useState(true);
+const [hasLoadedInitialData, setHasLoadedInitialData] = useState(false);
 
   useEffect(() => {
-  readData().then((loaded) => {
-    setData(loaded);
-  });
+  readData()
+    .then((loaded) => {
+      setData(loaded);
+    })
+    .catch((error) => {
+      console.error('readData init failed:', error);
+    })
+    .finally(() => {
+      setIsHydrating(false);
+    });
 }, []);
 
 useEffect(() => {
@@ -3237,16 +3238,11 @@ const { data: sales } = await supabase.from('sales').select('*');
       const { data: mobileMoneyEntries } = await supabase.from('mobileMoneyEntries').select('*');
       const { data: gasEntries } = await supabase.from('gasEntries').select('*');
 
-      setData((prev) => ({
-  ...prev,
-  products: products?.length ? products : prev.products,
-  sales: sales?.length ? sales : prev.sales,
-  purchases: purchases?.length ? purchases : prev.purchases,
-  expenses: expenses?.length ? expenses : prev.expenses,
-  creditSales: creditSales?.length ? creditSales : prev.creditSales,
-  mobileMoneyEntries: mobileMoneyEntries?.length ? mobileMoneyEntries : prev.mobileMoneyEntries,
-  gasEntries: gasEntries?.length ? gasEntries : prev.gasEntries,
-}));
+            setData((prev) => ({
+        ...prev,
+        sales: sales?.length ? sales : prev.sales,
+        mobileMoneyEntries: mobileMoneyEntries?.length ? mobileMoneyEntries : prev.mobileMoneyEntries,
+      }));
 
     } catch (error) {
       console.error('Cloud load failed:', error);
@@ -3257,17 +3253,6 @@ const { data: sales } = await supabase.from('sales').select('*');
 
 }, []);
 useEffect(() => {
-const productsChannel = supabase
-  .channel('products-changes')
-  .on(
-    'postgres_changes',
-    { event: '*', schema: 'public', table: 'products' },
-    async () => {
-      const { data: products } = await supabase.from('products').select('*');
-      setData((prev) => ({ ...prev, products: products || [] }));
-    }
-  )
-  .subscribe();
   const salesChannel = supabase
     .channel('sales-changes')
     .on(
@@ -3276,42 +3261,6 @@ const productsChannel = supabase
       async () => {
         const { data: sales } = await supabase.from('sales').select('*');
         setData((prev) => ({ ...prev, sales: sales || [] }));
-      }
-    )
-    .subscribe();
-
-  const purchasesChannel = supabase
-    .channel('purchases-changes')
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'purchases' },
-      async () => {
-        const { data: purchases } = await supabase.from('purchases').select('*');
-        setData((prev) => ({ ...prev, purchases: purchases || [] }));
-      }
-    )
-    .subscribe();
-
-  const expensesChannel = supabase
-    .channel('expenses-changes')
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'expenses' },
-      async () => {
-        const { data: expenses } = await supabase.from('expenses').select('*');
-        setData((prev) => ({ ...prev, expenses: expenses || [] }));
-      }
-    )
-    .subscribe();
-
-  const creditChannel = supabase
-    .channel('credit-changes')
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'creditSales' },
-      async () => {
-        const { data: creditSales } = await supabase.from('creditSales').select('*');
-        setData((prev) => ({ ...prev, creditSales: creditSales || [] }));
       }
     )
     .subscribe();
@@ -3328,26 +3277,9 @@ const productsChannel = supabase
     )
     .subscribe();
 
-  const gasChannel = supabase
-    .channel('gas-changes')
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'gasEntries' },
-      async () => {
-        const { data: gasEntries } = await supabase.from('gasEntries').select('*');
-        setData((prev) => ({ ...prev, gasEntries: gasEntries || [] }));
-      }
-    )
-    .subscribe();
-
   return () => {
-    supabase.removeChannel(productsChannel);
-supabase.removeChannel(salesChannel);
-    supabase.removeChannel(purchasesChannel);
-    supabase.removeChannel(expensesChannel);
-    supabase.removeChannel(creditChannel);
+    supabase.removeChannel(salesChannel);
     supabase.removeChannel(mobileMoneyChannel);
-    supabase.removeChannel(gasChannel);
   };
 }, []);
   const saveData = (next) => {
@@ -3477,15 +3409,37 @@ const importBackup = () => {
   };
 
   const handleLogin = (user) => {
-    saveData({ ...data, currentUser: user });
-    if (user.role === 'shop') setActiveShopId(user.shopId);
-  };
+  writeStorage(STORAGE_SESSION_KEY, user);
+  setData((prev) => ({
+    ...prev,
+    currentUser: user,
+  }));
+
+  if (user.role === 'shop') setActiveShopId(user.shopId);
+};
 
   const logout = () => {
-    saveData({ ...data, currentUser: null });
-    setActiveShopId(null);
-  };
-
+  writeStorage(STORAGE_SESSION_KEY, null);
+  setData((prev) => ({
+    ...prev,
+    currentUser: null,
+  }));
+  setActiveShopId(null);
+};
+if (!hasLoadedInitialData) {
+  return (
+    <div className="min-h-screen flex items-center justify-center text-sm text-slate-500">
+      Loading POS...
+    </div>
+  );
+}
+if (isHydrating) {
+  return (
+    <div className="min-h-screen flex items-center justify-center text-sm text-slate-500">
+      Loading POS...
+    </div>
+  );
+}
   if (!data.currentUser) {
     return <Login onLogin={handleLogin} users={data.users} language={language} setLanguage={setLanguage} />;
   }
