@@ -1376,15 +1376,16 @@ setSaleError('');
   id: row.id || `p-${Date.now()}-${idx}`,
   shopId: shop.id,
   name: row.name,
-  baseUnit: row.unit || 'pc',
-  baseQty: 1,
   buyPrice: Number(row.buyPrice),
   sellPrice: Number(row.sellPrice),
+  stock: Number(row.stockQty),
   stockBaseQty: Number(row.stockQty),
+  baseUnit: row.unit || 'pc',
   minStockLevel: Number(row.minStockLevel || 5),
   expiryDate: row.expiryDate || '',
   qrCode: row.qrCode || '',
   subUnitsRaw: row.unit === 'pc' ? '' : row.subUnits || '',
+  created_at: new Date().toISOString(),
   createdAt: row.id
     ? (nextProducts.find((p) => p.id === row.id)?.createdAt || todayISO())
     : todayISO(),
@@ -1402,7 +1403,17 @@ setSaleError('');
 
 const rowsToSync = nextProducts.filter((p) => p.shopId === shop.id);
 
-supabase.from('products').upsert(rowsToSync);
+supabase.from('products').upsert(
+  rowsToSync.map((p) => ({
+    id: p.id,
+    name: p.name,
+    buyingPrice: Number(p.buyPrice || 0),
+    sellingPrice: Number(p.sellPrice || 0),
+    stock: Number(p.stockBaseQty || 0),
+    shopId: p.shopId,
+  })),
+  { onConflict: 'id' }
+);
 
 setNewProductRows([{ ...emptyProductRow }]);
   };
@@ -2101,38 +2112,52 @@ supabase.from('mobileMoneyEntries').insert([record]);
             <CardContent className="space-y-2 text-sm">
 <div className="mb-3">
   <Button
-    type="button"
-    onClick={() => {
-      const nextProducts = [...data.products];
+  type="button"
+  onClick={async () => {
+    const nextProducts = [...data.products];
 
-      const nextPurchases = data.purchases.map((purchase) => {
-        if (purchase.shopId !== shop.id || purchase.confirmed) return purchase;
+    const purchasesToConfirm = data.purchases.filter(
+      (purchase) => purchase.shopId === shop.id && !purchase.confirmed
+    );
 
-        const pIdx = nextProducts.findIndex((p) => p.id === purchase.productId);
+    const nextPurchases = data.purchases.map((purchase) => {
+      if (purchase.shopId !== shop.id || purchase.confirmed) return purchase;
 
-        if (pIdx >= 0) {
-          nextProducts[pIdx] = {
-            ...nextProducts[pIdx],
-            stockBaseQty:
-              Number(nextProducts[pIdx].stockBaseQty || 0) +
-              Number(purchase.quantity || 0),
-            buyPrice:
-              Number(purchase.unitCost || nextProducts[pIdx].buyPrice || 0),
-          };
-        }
+      const pIdx = nextProducts.findIndex((p) => p.id === purchase.productId);
 
-        return { ...purchase, confirmed: true };
-      });
+      if (pIdx >= 0) {
+        nextProducts[pIdx] = {
+          ...nextProducts[pIdx],
+          stockBaseQty:
+            Number(nextProducts[pIdx].stockBaseQty || 0) +
+            Number(purchase.quantity || 0),
+          buyPrice:
+            Number(purchase.unitCost || nextProducts[pIdx].buyPrice || 0),
+        };
+      }
 
-      saveData({
-        ...data,
-        products: nextProducts,
-        purchases: nextPurchases,
-      });
-    }}
-  >
-    {t(language, 'Confirm Purchases', 'Thibitisha Manunuzi')}
-  </Button>
+      return { ...purchase, confirmed: true };
+    });
+
+    saveData({
+      ...data,
+      products: nextProducts,
+      purchases: nextPurchases,
+    });
+
+    for (const product of nextProducts.filter((p) => p.shopId === shop.id)) {
+      await supabase.from('products').upsert([product], { onConflict: 'id' });
+    }
+
+    for (const purchase of purchasesToConfirm) {
+      await supabase
+        .from('purchases')
+        .upsert([{ ...purchase, confirmed: true }], { onConflict: 'id' });
+    }
+  }}
+>
+  {t(language, 'Confirm Purchases', 'Thibitisha Manunuzi')}
+</Button>
 </div>
               {todayPurchases.length === 0 ? (
                 <div className="text-slate-500">{t(language, 'No purchases recorded yet.', 'Hakuna manunuzi yaliyorekodiwa bado.')}</div>
