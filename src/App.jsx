@@ -2144,12 +2144,27 @@ supabase.from('mobileMoneyEntries').insert([record]);
       products: nextProducts,
       purchases: nextPurchases,
     });
+const rowsToSync = nextProducts
+  .filter((p) => p.shopId === shop.id)
+  .map((p) => ({
+    id: p.id,
+    name: p.name,
+    buyingprice: Number(p.buyPrice || 0),
+    sellingprice: Number(p.sellPrice || 0),
+    stock: Number(p.stockBaseQty || 0),
+    shopid: p.shopId,
+  }));
 
-    for (const product of nextProducts.filter((p) => p.shopId === shop.id)) {
-      await supabase.from('products').upsert([product], { onConflict: 'id' });
-    }
+const { error } = await supabase
+  .from('products')
+  .upsert(rowsToSync, { onConflict: 'id' });
 
-    for (const purchase of purchasesToConfirm) {
+if (error) {
+  console.error('❌ PRODUCT SAVE ERROR:', error);
+} else {
+  console.log('✅ Products saved to DB');
+}
+    for (const purchase of purchasesToConfirm.filter((p) => p.id)) {
       await supabase
         .from('purchases')
         .upsert([{ ...purchase, confirmed: true }], { onConflict: 'id' });
