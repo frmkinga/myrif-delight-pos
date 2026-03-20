@@ -1398,7 +1398,12 @@ setSaleError('');
       else nextProducts.push(prepared);
     }
 
-    saveData({ ...data, products: nextProducts });
+   saveData({ ...data, products: nextProducts });
+
+const rowsToSync = nextProducts.filter((p) => p.shopId === shop.id);
+
+supabase.from('products').upsert(rowsToSync);
+
 setNewProductRows([{ ...emptyProductRow }]);
   };
 
@@ -3176,7 +3181,7 @@ const [syncMessage, setSyncMessage] = useState('');
 
   useEffect(() => {
   readData().then((loaded) => {
-    setData({ ...loaded, currentUser: null });
+    setData(loaded);
   });
 }, []);
 
@@ -3233,15 +3238,15 @@ const { data: sales } = await supabase.from('sales').select('*');
       const { data: gasEntries } = await supabase.from('gasEntries').select('*');
 
       setData((prev) => ({
-        ...prev,
-products: products || [],
-        sales: sales || [],
-        purchases: purchases || [],
-        expenses: expenses || [],
-        creditSales: creditSales || [],
-        mobileMoneyEntries: mobileMoneyEntries || [],
-        gasEntries: gasEntries || [],
-      }));
+  ...prev,
+  products: products?.length ? products : prev.products,
+  sales: sales?.length ? sales : prev.sales,
+  purchases: purchases?.length ? purchases : prev.purchases,
+  expenses: expenses?.length ? expenses : prev.expenses,
+  creditSales: creditSales?.length ? creditSales : prev.creditSales,
+  mobileMoneyEntries: mobileMoneyEntries?.length ? mobileMoneyEntries : prev.mobileMoneyEntries,
+  gasEntries: gasEntries?.length ? gasEntries : prev.gasEntries,
+}));
 
     } catch (error) {
       console.error('Cloud load failed:', error);
