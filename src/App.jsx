@@ -2114,6 +2114,7 @@ supabase.from('mobileMoneyEntries').insert([record]);
   <Button
     type="button"
     onClick={async () => {
+alert('confirm button clicked');
       const purchasesToConfirm = data.purchases.filter(
         (purchase) => purchase.shopId === shop.id && !purchase.confirmed
       );
