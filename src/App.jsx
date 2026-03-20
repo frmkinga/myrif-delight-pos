@@ -830,7 +830,7 @@ const sales = data.sales.filter((s) => s.shopId === shop.id);
 const purchases = data.purchases.filter((p) => p.shopId === shop.id);
 const todayPurchases = purchases.filter((p) => p.date === todayISO());
 const todayProducts = data.products
-  .filter((p) => p.shopId === shop.id && p.confirmed === false)
+  .filter((p) => p.shopId === shop.id && p.confirmed !== true)
   .map(normalizeProduct);
 const mobileMoneyEntries = data.mobileMoneyEntries.filter((m) => m.shopId === shop.id);
 const todayMobileMoneyEntries = mobileMoneyEntries.filter((m) => m.date === todayISO());
