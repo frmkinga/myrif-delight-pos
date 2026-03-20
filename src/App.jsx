@@ -828,7 +828,9 @@ const sales = data.sales.filter((s) => s.shopId === shop.id);
   .map((e, originalIndex) => ({ ...e, originalIndex }))
   .filter((e) => e.shopId === shop.id);
 const purchases = data.purchases.filter((p) => p.shopId === shop.id);
-const todayPurchases = purchases.filter((p) => p.date === todayISO());
+const todayPurchases = purchases.filter(
+  (p) => p.date === todayISO() && !p.confirmed
+);
 const todayProducts = data.products
   .filter((p) => p.shopId === shop.id && p.confirmed !== true)
   .map(normalizeProduct);
