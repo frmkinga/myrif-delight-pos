@@ -380,6 +380,7 @@ function normalizeData(parsed = {}) {
     expenses: Array.isArray(parsed.expenses) ? parsed.expenses : [],
     purchases: Array.isArray(parsed.purchases) ? parsed.purchases : [],
     mobileMoneyEntries: Array.isArray(parsed.mobileMoneyEntries) ? parsed.mobileMoneyEntries : [],
+    gasEntries: Array.isArray(parsed.gasEntries) ? parsed.gasEntries : [],
   };
 }
 
@@ -722,29 +723,45 @@ const [reportType, setReportType] = useState('stockValue');
   const [saleError, setSaleError] = useState('');
   const [creditReduceMap, setCreditReduceMap] = useState({});
   const [changeReduceMap, setChangeReduceMap] = useState({});
-const [gasEntries, setGasEntries] = useState([]);
 const [gasForm, setGasForm] = useState({ ...emptyGasForm });
 const [showGasStatus, setShowGasStatus] = useState(false);
 const [showGasSales, setShowGasSales] = useState(false);
 const [showGasPrices, setShowGasPrices] = useState(false);
 
-const saveGas = () => {
-  const record = buildGasRecord(gasForm);
+const saveGas = async () => {
+  const record = {
+    ...buildGasRecord(gasForm),
+    shopId: shop.id,
+  };
 
-  setGasEntries((prev) => {
-    const existingIndex = prev.findIndex((x) => x.id === record.id);
+  const nextGasEntries = [...(data.gasEntries || [])];
+  const existingIndex = nextGasEntries.findIndex((x) => x.id === record.id);
 
-    if (existingIndex >= 0) {
-      const next = [...prev];
-      next[existingIndex] = record;
-      return next;
-    }
+  if (existingIndex >= 0) {
+    nextGasEntries[existingIndex] = record;
+  } else {
+    nextGasEntries.push(record);
+  }
 
-    return [...prev, record];
+  saveData({
+    ...data,
+    gasEntries: nextGasEntries,
   });
 
   addToSyncQueue('gas_created', record);
-  supabase.from('gasEntries').insert([record]);
+
+  await supabase.from('gasEntries').upsert([record]);
+
+  setGasForm({ ...emptyGasForm, date: todayISO() });
+};
+
+  addToSyncQueue('gas_created', record);
+
+  const { error } = await supabase.from('gasEntries').upsert([record]);
+
+  if (error) {
+    console.error('Gas save error:', error);
+  }
 
   setGasForm({ ...emptyGasForm, date: todayISO() });
 };
@@ -771,8 +788,19 @@ const editGas = (entry) => {
   });
 };
 
-const deleteGas = (id) => {
-  setGasEntries((prev) => prev.filter((entry) => entry.id !== id));
+const deleteGas = async (id) => {
+  const nextGasEntries = (data.gasEntries || []).filter((entry) => entry.id !== id);
+
+  saveData({
+    ...data,
+    gasEntries: nextGasEntries,
+  });
+
+  const { error } = await supabase.from('gasEntries').delete().eq('id', id);
+
+  if (error) {
+    console.error('Gas delete error:', error);
+  }
 };
 const isSmallCylinder = gasForm.cylinderSize === 'Small Cylinder';
 const isBigCylinder = gasForm.cylinderSize === 'Big Cylinder';
@@ -806,6 +834,8 @@ const todayProducts = data.products
   .map(normalizeProduct);
 const mobileMoneyEntries = data.mobileMoneyEntries.filter((m) => m.shopId === shop.id);
 const todayMobileMoneyEntries = mobileMoneyEntries.filter((m) => m.date === todayISO());
+const gasEntries = (data.gasEntries || []).filter((g) => g.shopId === shop.id);
+const todayGasEntries = gasEntries.filter((g) => g.date === todayISO());
   const reportDateValue =
   reportPreset === 'date'
     ? { start: reportStartDate, end: reportEndDate }
