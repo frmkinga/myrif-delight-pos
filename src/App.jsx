@@ -2295,8 +2295,8 @@ supabase.from('mobileMoneyEntries').insert([record]);
       </TabsContent>
 
       <TabsContent value="pos" activeValue={activeTab}>
-        <div className="grid gap-4 xl:grid-cols-2">
-          <Card>
+  <div className="flex gap-4 items-start">
+          <Card className="w-1/2">
             <CardHeader>
               <CardTitle>{t(language, 'Search Product', 'Tafuta Bidhaa')}</CardTitle>
             </CardHeader>
@@ -2381,7 +2381,7 @@ supabase.from('mobileMoneyEntries').insert([record]);
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="w-1/2">
             <CardHeader>
               <CardTitle>{t(language, 'Current Sale', 'Mauzo ya Sasa')}</CardTitle>
             </CardHeader>
