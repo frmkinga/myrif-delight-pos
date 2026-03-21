@@ -3410,16 +3410,35 @@ const { data: sales } = await supabase.from('sales').select('*');
 }, []);
 useEffect(() => {
   const productsChannel = supabase
-    .channel('products-changes')
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'products' },
-      async () => {
-        const { data: products } = await supabase.from('products').select('*');
-        setData((prev) => ({ ...prev, products: products || [] }));
-      }
-    )
-    .subscribe();
+  .channel('products-changes')
+  .on(
+    'postgres_changes',
+    { event: '*', schema: 'public', table: 'products' },
+    async () => {
+      const { data: products } = await supabase.from('products').select('*');
+
+      setData((prev) => ({
+        ...prev,
+        products: (products || []).map((p) => ({
+          id: p.id,
+          name: p.name,
+          buyPrice: Number(p.buyingprice || 0),
+          sellPrice: Number(p.sellingprice || 0),
+          stockBaseQty: Number(p.stock || 0),
+          stockQty: Number(p.stock || 0),
+          shopId: p.shopid,
+          baseUnit: 'pc',
+          minStockLevel: 5,
+          expiryDate: '',
+          qrCode: '',
+          subUnitsRaw: '',
+          createdAt: '',
+          confirmed: true,
+        })),
+      }));
+    }
+  )
+  .subscribe();
 
   const salesChannel = supabase
     .channel('sales-changes')
