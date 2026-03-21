@@ -1480,15 +1480,17 @@ setPurchaseRows([{ ...emptyPurchaseRow, productSearch: '' }]);
   const nextExpenses = [...data.expenses];
 
   for (const [idx, row] of rows.entries()) {
-  const preparedExpense = {
-    ...row,
-    id: row.id || `expense-${Date.now()}-${idx}`,
-    shopId: shop.id,
-    description: row.title || '',
-    amount: Number(row.amount || 0),
-    category: row.category || '',
-    date: row.date || todayISO(),
-  };
+ const preparedExpense = {
+  ...row,
+  id: row.id || `expense-${Date.now()}-${idx}`,
+  shopId: shop.id,
+  title: row.title || '',
+  description: row.title || '',
+  amount: Number(row.amount || 0),
+  category: row.category || '',
+  date: row.date || todayISO(),
+  created_at: row.created_at || new Date().toISOString(),
+};
 
   const existingIndex = nextExpenses.findIndex((x) => x.id === preparedExpense.id);
   if (existingIndex >= 0) {
@@ -1500,12 +1502,13 @@ setPurchaseRows([{ ...emptyPurchaseRow, productSearch: '' }]);
   addToSyncQueue('expense_created', preparedExpense);
 console.log("Sending to Supabase:", preparedExpense);
 
-const { data: result, error } = await supabase
+const { error } = await supabase
   .from('expenses')
-  .insert([preparedExpense]);
+  .upsert([preparedExpense], { onConflict: 'id' });
 
-console.log("Supabase result:", result);
-console.log("Supabase error:", error);
+if (error) {
+  console.log('Expense sync error:', error);
+  alert(`Expense sync failed: ${error.message}`);
 }
 
 saveData({
@@ -2116,7 +2119,6 @@ supabase.from('mobileMoneyEntries').insert([record]);
   <Button
     type="button"
     onClick={async () => {
-alert('confirm button clicked');
       const purchasesToConfirm = data.purchases.filter(
         (purchase) => purchase.shopId === shop.id && !purchase.confirmed
       );
