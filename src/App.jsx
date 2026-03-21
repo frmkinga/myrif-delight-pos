@@ -2465,33 +2465,52 @@ supabase.from('mobileMoneyEntries').insert([record]);
         ) : null}
       </div>
 
-      <div className="flex items-center gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
- onClick={async () => {
-  const nextExpenses = data.expenses.filter((x) => x.id !== e.id);
+     <div className="flex items-center gap-2">
+  <Button
+    type="button"
+    variant="outline"
+    size="sm"
+    onClick={() => {
+      setExpenseRows([
+        {
+          id: e.id,
+          title: e.title || '',
+          amount: String(e.amount || ''),
+          category: e.category || '',
+          date: e.date || todayISO(),
+          notes: e.notes || '',
+        },
+      ]);
+    }}
+  >
+    <Pencil className="h-4 w-4" />
+  </Button>
 
-  saveData({
-    ...data,
-    expenses: nextExpenses,
-  });
+  <Button
+    type="button"
+    variant="outline"
+    size="sm"
+    onClick={async () => {
+      const nextExpenses = data.expenses.filter((x) => x.id !== e.id);
 
-  const { error } = await supabase
-    .from('expenses')
-    .delete()
-    .eq('id', e.id);
+      saveData({
+        ...data,
+        expenses: nextExpenses,
+      });
 
-  if (error) {
-    console.log('Delete error:', error);
-    alert(`Expense delete failed: ${error.message}`);
-  }
-}}
-        >
-          <Trash2 className="h-4 w-4" />
-        </Button>
-      </div>
+      const { error } = await supabase
+        .from('expenses')
+        .delete()
+        .eq('id', e.id);
+
+      if (error) {
+        alert(`Expense delete failed: ${error.message}`);
+      }
+    }}
+  >
+    <Trash2 className="h-4 w-4" />
+  </Button>
+</div>
     </div>
   </div>
 ))
