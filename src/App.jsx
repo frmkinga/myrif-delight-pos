@@ -1345,24 +1345,35 @@ setSaleError('');
     ]);
   };
 
-  const deleteProduct = (productId) => {
-    const usedInSales = data.sales.some((sale) => (sale.items || []).some((item) => item.productId === productId));
-    const usedInPurchases = data.purchases.some((purchase) => purchase.productId === productId);
+ const deleteProduct = async (productId) => {
+  const usedInSales = data.sales.some((sale) => (sale.items || []).some((item) => item.productId === productId));
+  const usedInPurchases = data.purchases.some((purchase) => purchase.productId === productId);
 
-   if (usedInSales || usedInPurchases) {
-  alert(
-    t(
-      language,
-      'This product is already used in sales or purchases, so it cannot be deleted.',
-      'Bidhaa hii tayari imetumika kwenye mauzo au manunuzi, hivyo haiwezi kufutwa.',
-    ),
-  );
-  return;
-}
+  if (usedInSales || usedInPurchases) {
+    alert(
+      t(
+        language,
+        'This product is already used in sales or purchases, so it cannot be deleted.',
+        'Bidhaa hii tayari imetumika kwenye mauzo au manunuzi, hivyo haiwezi kufutwa.',
+      ),
+    );
+    return;
+  }
 
-    saveData({ ...data, products: data.products.filter((x) => x.id !== productId) });
-    if (newProductRows.some((row) => row.id === productId)) resetProductForm();
-  };
+  saveData({ ...data, products: data.products.filter((x) => x.id !== productId) });
+
+  const { error } = await supabase
+    .from('products')
+    .delete()
+    .eq('id', productId);
+
+  if (error) {
+    alert(`Product delete failed: ${error.message}`);
+    return;
+  }
+
+  if (newProductRows.some((row) => row.id === productId)) resetProductForm();
+};
 
   const saveProductRows = async () => {
     const rows = newProductRows.filter((r) => r.name || r.buyPrice || r.sellPrice || r.stockQty);
@@ -1412,6 +1423,13 @@ const rowsToSync = nextProducts
     sellingprice: Number(p.sellPrice || 0),
     stock: Number(p.stockBaseQty || 0),
     shopid: p.shopId,
+    baseunit: p.baseUnit || 'pc',
+    minstocklevel: Number(p.minStockLevel || 5),
+    expirydate: p.expiryDate || '',
+    qrcode: p.qrCode || '',
+    subunitsraw: p.subUnitsRaw || '',
+    createdat: p.createdAt || todayISO(),
+    confirmed: p.confirmed ?? true,
     created_at: p.created_at || new Date().toISOString(),
   }));
 
