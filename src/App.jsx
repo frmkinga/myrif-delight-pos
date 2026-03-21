@@ -1423,13 +1423,6 @@ const rowsToSync = nextProducts
     sellingprice: Number(p.sellPrice || 0),
     stock: Number(p.stockBaseQty || 0),
     shopid: p.shopId,
-    baseunit: p.baseUnit || 'pc',
-    minstocklevel: Number(p.minStockLevel || 5),
-    expirydate: p.expiryDate || '',
-    qrcode: p.qrCode || '',
-    subunitsraw: p.subUnitsRaw || '',
-    createdat: p.createdAt || todayISO(),
-    confirmed: p.confirmed ?? true,
     created_at: p.created_at || new Date().toISOString(),
   }));
 
