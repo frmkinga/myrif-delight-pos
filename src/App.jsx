@@ -1267,13 +1267,13 @@ setSaleError('');
             const qrCode = String(normalizedRow['qr code'] || '').trim();
 
             const unit =
-              unitRaw === 'kg'
-                ? 'kg'
-                : unitRaw === 'ltr' || unitRaw === 'lt'
-                ? 'ltr'
-                : unitRaw === 'pc' || unitRaw === 'pcs'
-                ? 'pc'
-                : '';
+  unitRaw === 'kg' || unitRaw === 'kgs' || unitRaw === 'kilogram' || unitRaw === 'kilograms'
+    ? 'kg'
+    : unitRaw === 'ltr' || unitRaw === 'lt' || unitRaw === 'liter' || unitRaw === 'litre' || unitRaw === 'liters' || unitRaw === 'litres'
+    ? 'ltr'
+    : unitRaw === 'pc' || unitRaw === 'pcs' || unitRaw === 'piece' || unitRaw === 'pieces'
+    ? 'pc'
+    : '';
 
             if (!productName || !unit || buyPrice <= 0 || sellPrice <= 0) return null;
 
@@ -2766,21 +2766,43 @@ onDeleteGas={deleteGas}
                       <th className="py-2 pr-3">{t(language, 'Sell Price', 'Bei ya kuuza')}</th>
                       <th className="py-2 pr-3">{t(language, 'Stock Value', 'Thamani ya Stock')}</th>
                       <th className="py-2 pr-3">{t(language, 'Profit per Product', 'Faida kwa Bidhaa')}</th>
+<th className="py-2 pr-3">{t(language, 'Actions', 'Vitendo')}</th>
                     </tr>
                   </thead>
                   <tbody>
   {stockValueRows.map((row) => (
-    <tr key={row.id} className="border-b border-slate-100">
-      <td className="py-3 pr-3">{row.name}</td>
-      <td className="py-3 pr-3">{row.createdAt || '-'}</td>
-      <td className="py-3 pr-3">{row.baseUnit}</td>
-      <td className="py-3 pr-3">{formatQty(row.stockBaseQty)}</td>
-      <td className="py-3 pr-3">TZS {currency(row.buyPrice)}</td>
-      <td className="py-3 pr-3">TZS {currency(row.sellPrice)}</td>
-      <td className="py-3 pr-3">TZS {currency(row.stockValue)}</td>
-      <td className="py-3 pr-3">TZS {currency(row.totalProfitIfSold)}</td>
-    </tr>
-  ))}
+  <tr key={row.id} className="border-b border-slate-100">
+    <td className="py-3 pr-3">{row.name}</td>
+    <td className="py-3 pr-3">{row.createdAt || '-'}</td>
+    <td className="py-3 pr-3">{row.baseUnit}</td>
+    <td className="py-3 pr-3">{formatQty(row.stockBaseQty)}</td>
+    <td className="py-3 pr-3">TZS {currency(row.buyPrice)}</td>
+    <td className="py-3 pr-3">TZS {currency(row.sellPrice)}</td>
+    <td className="py-3 pr-3">TZS {currency(row.stockValue)}</td>
+    <td className="py-3 pr-3">TZS {currency(row.totalProfitIfSold)}</td>
+    <td className="py-3 pr-3">
+      <div className="flex items-center gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => startEditProduct(row)}
+        >
+          <Pencil className="h-4 w-4" />
+        </Button>
+
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => deleteProduct(row.id)}
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </div>
+    </td>
+  </tr>
+))}
 
   <tr className="bg-slate-50 font-semibold">
     <td className="py-3 pr-3">{t(language, 'TOTAL', 'JUMLA')}</td>
@@ -2791,6 +2813,7 @@ onDeleteGas={deleteGas}
     <td className="py-3 pr-3">-</td>
     <td className="py-3 pr-3">TZS {currency(stockValueRows.reduce((a,r)=>a+Number(r.stockValue||0),0))}</td>
     <td className="py-3 pr-3">TZS {currency(stockValueRows.reduce((a,r)=>a+Number(r.totalProfitIfSold||0),0))}</td>
+<td className="py-3 pr-3">-</td>
   </tr>
 </tbody>
     </table>
@@ -2844,6 +2867,7 @@ onDeleteGas={deleteGas}
                       <th className="py-2 pr-3">{t(language, 'Sell Price', 'Bei ya kuuza')}</th>
                       <th className="py-2 pr-3">{t(language, 'Stock Value', 'Thamani ya Stock')}</th>
                       <th className="py-2 pr-3">{t(language, 'Profit per Product', 'Faida kwa Bidhaa')}</th>
+<td className="py-3 pr-3">-</td>
                     </tr>
                   </thead>
                   <tbody>
