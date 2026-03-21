@@ -2470,29 +2470,8 @@ supabase.from('mobileMoneyEntries').insert([record]);
           type="button"
           variant="outline"
           size="sm"
-          onClick={() => {
-            setExpenseRows([
-              {
-                id: e.id,
-                title: e.title || '',
-                amount: String(e.amount || ''),
-                category: e.category || '',
-                date: e.date || todayISO(),
-                notes: e.notes || '',
-              },
-            ]);
-          }}
-        >
-          <Pencil className="h-4 w-4" />
-        </Button>
-
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={async () => {
-  const nextExpenses = [...data.expenses];
-  nextExpenses.splice(e.originalIndex, 1);
+ onClick={async () => {
+  const nextExpenses = data.expenses.filter((x) => x.id !== e.id);
 
   saveData({
     ...data,
@@ -2505,6 +2484,7 @@ supabase.from('mobileMoneyEntries').insert([record]);
     .eq('id', e.id);
 
   if (error) {
+    console.log('Delete error:', error);
     alert(`Expense delete failed: ${error.message}`);
   }
 }}
