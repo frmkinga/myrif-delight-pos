@@ -1423,6 +1423,7 @@ const rowsToSync = nextProducts
     sellingprice: Number(p.sellPrice || 0),
     stock: Number(p.stockBaseQty || 0),
     shopid: p.shopId,
+    baseunit: p.baseUnit || 'pc',
     created_at: p.created_at || new Date().toISOString(),
   }));
 
@@ -3371,7 +3372,7 @@ const { data: sales } = await supabase.from('sales').select('*');
       stockBaseQty: Number(p.stock || 0),
       stockQty: Number(p.stock || 0),
       shopId: p.shopid,
-      baseUnit: 'pc',
+      baseUnit: p.baseunit || 'pc',
       minStockLevel: 5,
       expiryDate: '',
       qrCode: '',
@@ -3427,7 +3428,7 @@ useEffect(() => {
           stockBaseQty: Number(p.stock || 0),
           stockQty: Number(p.stock || 0),
           shopId: p.shopid,
-          baseUnit: 'pc',
+          baseUnit: p.baseunit || 'pc',
           minStockLevel: 5,
           expiryDate: '',
           qrCode: '',
