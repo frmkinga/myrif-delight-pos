@@ -1170,7 +1170,9 @@ if (existing) {
   total: quantity * unitPrice,
 },
       ];
-    });
+        });
+
+    setQuickSearch('');
   };
 
   const handleScanAdd = () => {
