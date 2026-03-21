@@ -1468,55 +1468,56 @@ nextPurchases.forEach((purchase) => {
 setPurchaseRows([{ ...emptyPurchaseRow, productSearch: '' }]);
 };
 
-  const addExpenseRow = () => setExpenseRows((prev) => [...prev, { ...emptyExpenseRow }]);
-  const updateExpenseRow = (index, field, value) =>
-    setExpenseRows((prev) => prev.map((row, i) => (i === index ? { ...row, [field]: value } : row)));
-  const removeExpenseRow = (index) => setExpenseRows((prev) => (prev.length === 1 ? prev : prev.filter((_, i) => i !== index)));
+const addExpenseRow = () => setExpenseRows((prev) => [...prev, { ...emptyExpenseRow }]);
+const updateExpenseRow = (index, field, value) =>
+  setExpenseRows((prev) => prev.map((row, i) => (i === index ? { ...row, [field]: value } : row)));
+const removeExpenseRow = (index) => setExpenseRows((prev) => (prev.length === 1 ? prev : prev.filter((_, i) => i !== index)));
 
-  const saveExpenseRows = async () => {
+const saveExpenseRows = async () => {
   const rows = expenseRows.filter((r) => r.title && r.amount);
   if (!rows.length) return;
 
   const nextExpenses = [...data.expenses];
 
   for (const [idx, row] of rows.entries()) {
- const preparedExpense = {
-  ...row,
-  id: row.id || `expense-${Date.now()}-${idx}`,
-  shopId: shop.id,
-  title: row.title || '',
-  description: row.title || '',
-  amount: Number(row.amount || 0),
-  category: row.category || '',
-  date: row.date || todayISO(),
-  created_at: row.created_at || new Date().toISOString(),
-};
+    const preparedExpense = {
+      ...row,
+      id: row.id || `expense-${Date.now()}-${idx}`,
+      shopId: shop.id,
+      title: row.title || '',
+      description: row.title || '',
+      amount: Number(row.amount || 0),
+      category: row.category || '',
+      date: row.date || todayISO(),
+      created_at: row.created_at || new Date().toISOString(),
+    };
 
-  const existingIndex = nextExpenses.findIndex((x) => x.id === preparedExpense.id);
-  if (existingIndex >= 0) {
-    nextExpenses[existingIndex] = preparedExpense;
-  } else {
-    nextExpenses.push(preparedExpense);
+    const existingIndex = nextExpenses.findIndex((x) => x.id === preparedExpense.id);
+    if (existingIndex >= 0) {
+      nextExpenses[existingIndex] = preparedExpense;
+    } else {
+      nextExpenses.push(preparedExpense);
+    }
+
+    addToSyncQueue('expense_created', preparedExpense);
+    console.log('Sending to Supabase:', preparedExpense);
+
+    const { error } = await supabase
+      .from('expenses')
+      .upsert([preparedExpense], { onConflict: 'id' });
+
+    if (error) {
+      console.log('Expense sync error:', error);
+      alert(`Expense sync failed: ${error.message}`);
+    }
   }
 
-  addToSyncQueue('expense_created', preparedExpense);
-console.log("Sending to Supabase:", preparedExpense);
+  saveData({
+    ...data,
+    expenses: nextExpenses,
+  });
 
-const { error } = await supabase
-  .from('expenses')
-  .upsert([preparedExpense], { onConflict: 'id' });
-
-if (error) {
-  console.log('Expense sync error:', error);
-  alert(`Expense sync failed: ${error.message}`);
-}
-
-saveData({
-  ...data,
-  expenses: nextExpenses,
-});
-
-setExpenseRows([{ ...emptyExpenseRow }]);
+  setExpenseRows([{ ...emptyExpenseRow }]);
 };
 
   const addCreditRow = () => setCreditRows((prev) => [...prev, { ...emptyCreditRow }]);
