@@ -3332,7 +3332,19 @@ const { data: sales } = await supabase.from('sales').select('*');
   : prev.products,
   sales: sales?.length ? sales : prev.sales,
   purchases: purchases?.length ? purchases : prev.purchases,
-  expenses: expenses?.length ? expenses : prev.expenses,
+  expenses: expenses?.length
+  ? expenses.map((e) => ({
+      id: e.id,
+      shopId: e.shopId,
+      title: e.title || e.description || '',
+      description: e.description || e.title || '',
+      amount: Number(e.amount || 0),
+      category: e.category || '',
+      date: e.date || (e.created_at ? String(e.created_at).slice(0, 10) : todayISO()),
+      notes: e.notes || '',
+      created_at: e.created_at || '',
+    }))
+  : prev.expenses,
   creditSales: creditSales?.length ? creditSales : prev.creditSales,
   mobileMoneyEntries: mobileMoneyEntries?.length ? mobileMoneyEntries : prev.mobileMoneyEntries,
   gasEntries: gasEntries?.length ? gasEntries : prev.gasEntries,
@@ -3390,7 +3402,20 @@ useEffect(() => {
       { event: '*', schema: 'public', table: 'expenses' },
       async () => {
         const { data: expenses } = await supabase.from('expenses').select('*');
-        setData((prev) => ({ ...prev, expenses: expenses || [] }));
+setData((prev) => ({
+  ...prev,
+  expenses: (expenses || []).map((e) => ({
+    id: e.id,
+    shopId: e.shopId,
+    title: e.title || e.description || '',
+    description: e.description || e.title || '',
+    amount: Number(e.amount || 0),
+    category: e.category || '',
+    date: e.date || (e.created_at ? String(e.created_at).slice(0, 10) : todayISO()),
+    notes: e.notes || '',
+    created_at: e.created_at || '',
+  })),
+}));
       }
     )
     .subscribe();
