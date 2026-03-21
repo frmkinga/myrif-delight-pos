@@ -1364,7 +1364,7 @@ setSaleError('');
     if (newProductRows.some((row) => row.id === productId)) resetProductForm();
   };
 
-  const saveProductRows = () => {
+  const saveProductRows = async () => {
     const rows = newProductRows.filter((r) => r.name || r.buyPrice || r.sellPrice || r.stockQty);
     if (!rows.length) return setProductFormError(t(language, 'Please fill at least one product row.', 'Jaza angalau mstari mmoja wa bidhaa.'));
 
@@ -1403,22 +1403,29 @@ setSaleError('');
 
    saveData({ ...data, products: nextProducts });
 
-const rowsToSync = nextProducts.filter((p) => p.shopId === shop.id);
-
-supabase.from('products').upsert(
-  rowsToSync.map((p) => ({
+const rowsToSync = nextProducts
+  .filter((p) => p.shopId === shop.id)
+  .map((p) => ({
     id: p.id,
     name: p.name,
-    buyingPrice: Number(p.buyPrice || 0),
-    sellingPrice: Number(p.sellPrice || 0),
+    buyingprice: Number(p.buyPrice || 0),
+    sellingprice: Number(p.sellPrice || 0),
     stock: Number(p.stockBaseQty || 0),
-    shopId: p.shopId,
-  })),
-  { onConflict: 'id' }
-);
+    shopid: p.shopId,
+    created_at: p.created_at || new Date().toISOString(),
+  }));
+
+const { error } = await supabase
+  .from('products')
+  .upsert(rowsToSync, { onConflict: 'id' });
+
+if (error) {
+  alert(`Product sync failed: ${error.message}`);
+  return;
+}
 
 setNewProductRows([{ ...emptyProductRow }]);
-  };
+};
 
   const addPurchaseRow = () => setPurchaseRows((prev) => [...prev, { ...emptyPurchaseRow }]);
   const updatePurchaseRow = (index, field, value) =>
