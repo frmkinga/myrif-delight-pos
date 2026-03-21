@@ -1107,8 +1107,7 @@ if (existing) {
   );
 }
 
-      return [
-  ...prev,
+     return [
   {
     productId: product.id,
     name: product.name,
@@ -1119,6 +1118,7 @@ if (existing) {
     quantity,
     total: quantity * unitPrice,
   },
+  ...prev,
 ];
     });
   };
@@ -1143,37 +1143,33 @@ if (existing) {
       const unitPrice = Number(product.sellPrice || 0);
 
 if (existing) {
-  return prev.map((c) =>
-    c.productId === product.id
-      ? {
-          ...c,
-          quantity: nextQty,
-          price: unitPrice,
-          buyPrice: Number(product.buyPrice || 0),
-          sellPrice: unitPrice,
-          total: nextQty * unitPrice,
-        }
-      : c,
-  );
+  const updatedItem = {
+    ...existing,
+    quantity: nextQty,
+    price: unitPrice,
+    buyPrice: Number(product.buyPrice || 0),
+    sellPrice: unitPrice,
+    total: nextQty * unitPrice,
+  };
+
+  const remainingItems = prev.filter((c) => c.productId !== product.id);
+
+  return [updatedItem, ...remainingItems];
 }
 
-      return [
-        ...prev,
-        {
-  productId: product.id,
-  name: product.name,
-  unit: product.baseUnit,
-  price: unitPrice,
-  buyPrice: Number(product.buyPrice || 0),
-  sellPrice: unitPrice,
-  quantity,
-  total: quantity * unitPrice,
-},
-      ];
-        });
-
-    setQuickSearch('');
-  };
+return [
+  {
+    productId: product.id,
+    name: product.name,
+    unit: product.baseUnit,
+    price: unitPrice,
+    buyPrice: Number(product.buyPrice || 0),
+    sellPrice: unitPrice,
+    quantity,
+    total: quantity * unitPrice,
+  },
+  ...prev,
+];
 
   const handleScanAdd = () => {
     const code = scanCode.trim();
