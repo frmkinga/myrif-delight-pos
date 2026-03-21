@@ -2490,7 +2490,7 @@ supabase.from('mobileMoneyEntries').insert([record]);
           type="button"
           variant="outline"
           size="sm"
-          onClick={() => {
+          onClick={async () => {
   const nextExpenses = [...data.expenses];
   nextExpenses.splice(e.originalIndex, 1);
 
@@ -2498,6 +2498,15 @@ supabase.from('mobileMoneyEntries').insert([record]);
     ...data,
     expenses: nextExpenses,
   });
+
+  const { error } = await supabase
+    .from('expenses')
+    .delete()
+    .eq('id', e.id);
+
+  if (error) {
+    alert(`Expense delete failed: ${error.message}`);
+  }
 }}
         >
           <Trash2 className="h-4 w-4" />
