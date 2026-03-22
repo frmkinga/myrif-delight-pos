@@ -2390,7 +2390,7 @@ supabase.from('mobileMoneyEntries').insert([record]);
               {cart.length === 0 ? (
                 <div className="rounded-2xl bg-slate-50 p-3 text-sm">{t(language, 'No items selected.', 'Hakuna bidhaa zilizochaguliwa.')}</div>
               ) : (
-                [...cart].reverse().map((item, idx) => (
+                cart.map((item, idx) => (
                   <div key={`${item.productId}-${idx}`} className="flex items-center justify-between rounded-2xl border border-slate-200 p-3 text-sm">
                     <div>
                       <div className="font-medium">{item.name}</div>
