@@ -1366,7 +1366,21 @@ setSaleError('');
   };
 
  const deleteProduct = async (productId) => {
+const usedInSales = data.sales.some((sale) =>
+  (sale.items || []).some((item) => item.productId === productId)
+);
+const usedInPurchases = data.purchases.some((purchase) => purchase.productId === productId);
 
+if (usedInSales || usedInPurchases) {
+  alert(
+    t(
+      language,
+      'This product is already used in sales or purchases, so it cannot be deleted.',
+      'Bidhaa hii tayari imetumika kwenye mauzo au manunuzi, hivyo haiwezi kufutwa.',
+    ),
+  );
+  return;
+}
   saveData({ ...data, products: data.products.filter((x) => x.id !== productId) });
 
   const { error } = await supabase
