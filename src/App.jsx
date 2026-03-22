@@ -989,10 +989,10 @@ const expiringProducts = useMemo(() => {
     .filter((p) => p.expiryDate)
     .map((p) => {
       const daysLeft = getDaysUntilExpiry(p.expiryDate);
-      return {
-        ...p,
-        daysLeft,
-      };
+     return {
+  ...p,
+  daysLeft,
+};
     })
     .filter((p) => p.daysLeft !== null && p.daysLeft <= 30)
     .sort((a, b) => a.daysLeft - b.daysLeft);
