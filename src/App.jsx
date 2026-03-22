@@ -2682,6 +2682,8 @@ supabase.from('mobileMoneyEntries').insert([record]);
                     <div key={c.id} className="rounded-2xl bg-slate-50 p-3">
                       <div className="font-medium">{c.customerName}</div>
 <div className="mt-1 text-slate-500">{t(language, 'Date', 'Tarehe')}: {c.date || '-'}</div>
+<div className="mt-1 text-slate-500">{t(language, 'Phone', 'Simu')}: {c.phone || '-'}</div>
+<div className="mt-1 text-slate-500">{t(language, 'Notes', 'Maelezo')}: {c.notes || '-'}</div>
                       <div className="mt-1 text-slate-500">
                         {t(language, 'Balance', 'Salio')}: TZS {currency(c.amountOwed)}
                       </div>
