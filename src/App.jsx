@@ -117,8 +117,7 @@ async function processSyncQueue() {
     ],
     { onConflict: 'id' }
   );
-}
-      } else if (item.actionType === 'purchase_created') {
+   } else if (item.actionType === 'purchase_created') {
         await supabase.from('purchases').upsert([item.payload]);
       } else if (item.actionType === 'expense_created') {
         await supabase.from('expenses').upsert([item.payload]);
