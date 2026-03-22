@@ -959,20 +959,7 @@ map[item.productId] = {
     totalSalesAmount,
   };
 }, [filteredSales, products]);
-  const rows = Object.values(map);
-const totalSold = rows.reduce((a, r) => a + Number(r.soldQty || 0), 0);
-const totalProfit = rows.reduce((a, r) => a + Number(r.profit || 0), 0);
-const totalSalesAmount = rows.reduce((a, r) => a + Number(r.soldQty || 0) * Number(r.sellPrice || 0), 0);
-
-  rows.sort((a, b) => b.soldQty - a.soldQty);
-
-  return {
-  rows,
-  totalSold,
-  totalProfit,
-  totalSalesAmount,
-};
-}, [filteredSales, products]);
+  
   const movementRows = useMemo(
     () =>
       products.map((p) => {
