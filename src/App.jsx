@@ -1258,7 +1258,7 @@ setSaleError('');
     setCart((prev) => prev.filter((item) => item.productId !== productId));
   };
 
-  const importProductsFromExcel = (event) => {
+  const importProductsFromExcel = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
