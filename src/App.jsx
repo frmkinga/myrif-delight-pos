@@ -897,14 +897,17 @@ const bankCommission = latestMobileEntry ? getBankCommissionTotal(latestMobileEn
     return products.filter((p) => p.name.toLowerCase().includes(q)).slice(0, 10);
   }, [quickSearch, products]);
 
-  const stockValueRows = useMemo(
+ const stockValueRows = useMemo(
   () =>
-    filterByPreset(products, reportPreset, reportDateValue).map((p) => ({
+    products.map((p) => ({
       ...p,
       stockValue: Number(p.stockBaseQty || 0) * Number(p.buyPrice || 0),
-      totalProfitIfSold: Number(p.stockBaseQty || 0) * (Number(p.sellPrice || 0) - Number(p.buyPrice || 0)),
+      totalProfitIfSold:
+        Number(p.stockBaseQty || 0) *
+        (Number(p.sellPrice || 0) - Number(p.buyPrice || 0)),
     })),
-  [products, reportPreset, reportDate],
+
+[products],
 );
 const salesReportRows = useMemo(() => {
   const map = {};
