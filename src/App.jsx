@@ -1321,7 +1321,28 @@ setSaleError('');
           return alert(t(language, 'No valid products found in the Excel file.', 'Hakuna bidhaa sahihi zilizopatikana kwenye faili la Excel.'));
         }
 
-        saveData({ ...data, products: [...data.products, ...importedProducts] });
+        const nextProducts = [...data.products, ...importedProducts];
+saveData({ ...data, products: nextProducts });
+
+const rowsToSync = importedProducts.map((p) => ({
+  id: p.id,
+  name: p.name,
+  buyingprice: Number(p.buyPrice || 0),
+  sellingprice: Number(p.sellPrice || 0),
+  stock: Number(p.stockBaseQty || 0),
+  shopid: p.shopId,
+  baseunit: p.baseUnit || 'pc',
+  created_at: p.created_at || new Date().toISOString(),
+}));
+
+const { error } = await supabase
+  .from('products')
+  .upsert(rowsToSync, { onConflict: 'id' });
+
+if (error) {
+  alert(`Product import sync failed: ${error.message}`);
+  return;
+}
         alert(`${importedProducts.length} ${t(language, 'products imported successfully.', 'bidhaa zimeingizwa kwa mafanikio.')}`);
         event.target.value = '';
       } catch (error) {
