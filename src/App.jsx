@@ -107,8 +107,17 @@ async function processSyncQueue() {
     if (item.synced) continue;
 
     try {
-      if (item.actionType === 'sale_created') {
-        await supabase.from('sales').upsert([item.payload]);
+     if (item.actionType === 'sale_created') {
+  await supabase.from('sales').upsert(
+    [
+      {
+        ...item.payload,
+        created_at: item.payload.created_at || new Date().toISOString(),
+      },
+    ],
+    { onConflict: 'id' }
+  );
+}
       } else if (item.actionType === 'purchase_created') {
         await supabase.from('purchases').upsert([item.payload]);
       } else if (item.actionType === 'expense_created') {
@@ -915,22 +924,22 @@ const salesReportRows = useMemo(() => {
   filteredSales.forEach((sale) => {
     sale.items.forEach((item) => {
       if (!map[item.productId]) {
-        const product = products.find((p) => p.id === item.productId);
+  const product = products.find((p) => p.id === item.productId);
 
-        if (!product) return;
+  if (!product) return;
 
-        map[item.productId] = {
-          productId: item.productId,
-          name: product.name,
-          unit: product.baseUnit,
-          buyPrice: Number(product.buyPrice || 0),
-          sellPrice: Number(product.sellPrice || 0),
-          balance: Number(product.stockBaseQty || 0),
-          soldQty: 0,
-          profit: 0,
-          date: sale.date,
-        };
-      }
+  map[item.productId] = {
+    productId: item.productId,
+    name: product.name,
+    unit: product.baseUnit,
+    buyPrice: Number(product.buyPrice || 0),
+    sellPrice: Number(product.sellPrice || 0),
+    balance: Number(product.stockBaseQty || 0),
+    soldQty: 0,
+    profit: 0,
+    date: sale.date,
+  };
+}
 
       map[item.productId].soldQty += Number(item.quantity || 0);
       map[item.productId].profit +=
@@ -1225,22 +1234,18 @@ return [
     saveData({
   ...data,
   products: nextProducts,
-  sales: [...data.sales, saleRecord],
 });
 addToSyncQueue('sale_created', saleRecord);
 console.log('Sending sale to Supabase:', saleRecord);
 
 const { error } = await supabase
   .from('sales')
-  .upsert(
-    [
-      {
-        ...saleRecord,
-        created_at: new Date().toISOString(),
-      },
-    ],
-    { onConflict: 'id' }
-  );
+  .insert([
+    {
+      ...saleRecord,
+      created_at: new Date().toISOString(),
+    },
+  ]);
 
 if (error) {
   alert(`Sales sync failed: ${error.message}`);
