@@ -3401,7 +3401,13 @@ const { data: sales } = await supabase.from('sales').select('*');
       confirmed: true,
     }))
   : prev.products,
-  sales: sales?.length ? sales : prev.sales,
+  sales: sales?.length
+  ? sales.map((s) => ({
+      ...s,
+      shopId: s.shopId || s.shopid,
+      date: s.date || (s.created_at ? String(s.created_at).slice(0, 10) : todayISO()),
+    }))
+  : prev.sales,
   purchases: purchases?.length ? purchases : prev.purchases,
   expenses: expenses?.length
   ? expenses.map((e) => ({
