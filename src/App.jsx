@@ -1170,7 +1170,10 @@ return [
   },
   ...prev,
 ];
+    });
 
+    setQuickSearch('');
+  };
   const handleScanAdd = () => {
     const code = scanCode.trim();
     if (!code) return;
