@@ -925,7 +925,7 @@ const salesReportRows = useMemo(() => {
       if (!map[item.productId]) {
   const product = products.find((p) => p.id === item.productId);
 
-  if (!product) return;
+  if (!product) console.warn('Missing product for sale item:', item);
 
   map[item.productId] = {
     productId: item.productId,
