@@ -1248,8 +1248,8 @@ if (error) {
 }
 
 setCart([]);
-setSaleError('');;
-
+setSaleError('');
+};
 
   const removeCartItem = (productId) => {
     setCart((prev) => prev.filter((item) => item.productId !== productId));
