@@ -1230,15 +1230,27 @@ return [
 addToSyncQueue('sale_created', saleRecord);
 console.log('Sending sale to Supabase:', saleRecord);
 
-const { data: result, error } = await supabase
+const { error } = await supabase
   .from('sales')
-  .insert([saleRecord]);
+  .upsert(
+    [
+      {
+        ...saleRecord,
+        created_at: new Date().toISOString(),
+      },
+    ],
+    { onConflict: 'id' }
+  );
 
-console.log('Sales result:', result);
-console.log('Sales error:', error);
+if (error) {
+  alert(`Sales sync failed: ${error.message}`);
+  return;
+}
+
 setCart([]);
-setSaleError('');
-};
+setSaleError('');;
+
+
   const removeCartItem = (productId) => {
     setCart((prev) => prev.filter((item) => item.productId !== productId));
   };
