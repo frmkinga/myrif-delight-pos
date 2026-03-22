@@ -1263,7 +1263,7 @@ setSaleError('');
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
         const dataArray = new Uint8Array(e.target.result);
         const workbook = XLSX.read(dataArray, { type: 'array' });
