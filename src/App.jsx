@@ -632,7 +632,16 @@ function OwnerDashboard({ data, openShop, logout, exportBackup, importBackup, ow
   const expensesPeriod = filterByPreset(data.expenses, ownerPeriod, todayISO());
   const totalSales = salesPeriod.reduce((a, s) => a + Number(s.total || 0), 0);
   const totalExpenses = expensesPeriod.reduce((a, e) => a + Number(e.amount || 0), 0);
-  const totalProfit = totalSales - totalExpenses;
+  const totalRetailProfit = salesPeriod.reduce((sum, sale) => {
+  return sum + (sale.items || []).reduce((itemSum, item) => {
+    const qty = Number(item.quantity || 0);
+    const sellPrice = Number(item.sellPrice ?? item.price ?? 0);
+    const buyPrice = Number(item.buyPrice ?? 0);
+    return itemSum + qty * (sellPrice - buyPrice);
+  }, 0);
+}, 0);
+
+const totalProfit = totalRetailProfit - totalExpenses;
   const latestPerShop = data.shops.map((shop) => getLatestEntryForShop(data.mobileMoneyEntries, shop.id)).filter(Boolean);
   const totalMobileCapital = latestPerShop.reduce((a, entry) => a + getMobileCapital(entry), 0);
   const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(entry), 0);
