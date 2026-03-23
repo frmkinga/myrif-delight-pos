@@ -872,12 +872,9 @@ const todayGasProfit = (data.gasEntries || [])
     return a + small + big;
   }, 0);
 
-const todayProfit = salesReportRows.totalProfit - todayExpenses;
-
   const totalSales = filteredSales.reduce((a, s) => a + Number(s.total || 0), 0);
   const totalExpenses = filteredExpenses.reduce((a, e) => a + Number(e.amount || 0), 0);
   const totalProfit = totalSales - totalExpenses;
-const todayRetailProfit = todaySales - todayExpenses;
 
 const todayWakalaCommission = (data.mobileMoneyEntries || [])
   .filter((x) => x.date === todayISO())
@@ -887,8 +884,6 @@ const todayWakalaCommission = (data.mobileMoneyEntries || [])
     return a + mobileCommission + bankCommission;
   }, 0);
 
-const totalBusinessProfit =
-  todayRetailProfit + todayGasProfit + todayWakalaCommission;
   const latestMobileEntry = getLatestEntryForShop(data.mobileMoneyEntries, shop.id);
 
 const mobileCapital = latestMobileEntry ? Number(latestMobileEntry.mobileCapital || 0) : 0;
@@ -960,7 +955,10 @@ map[item.productId] = {
     totalSalesAmount,
   };
 }, [filteredSales, products]);
-  
+const todayProfit = salesReportRows.totalProfit - todayExpenses; 
+const todayRetailProfit = salesReportRows.totalProfit - todayExpenses;
+const totalBusinessProfit =
+  todayRetailProfit + todayGasProfit + todayWakalaCommission; 
   const movementRows = useMemo(
     () =>
       products.map((p) => {
