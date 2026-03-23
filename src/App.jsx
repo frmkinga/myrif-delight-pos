@@ -642,6 +642,29 @@ function OwnerDashboard({ data, openShop, logout, exportBackup, importBackup, ow
 }, 0);
 
 const totalProfit = totalRetailProfit - totalExpenses;
+const totalGasProfit = (data.gasEntries || [])
+  .filter((x) => filterByPreset([x], ownerPeriod, todayISO()).length > 0)
+  .reduce((a, x) => {
+    const small =
+      (Number(x.smallGasSellPrice || 0) - Number(x.smallGasBuyPrice || 0)) *
+      Number(x.smallGasSoldToday || 0);
+
+    const big =
+      (Number(x.bigGasSellPrice || 0) - Number(x.bigGasBuyPrice || 0)) *
+      Number(x.bigGasSoldToday || 0);
+
+    return a + small + big;
+  }, 0);
+
+const totalWakalaCommission = (data.mobileMoneyEntries || [])
+  .filter((x) => filterByPreset([x], ownerPeriod, todayISO()).length > 0)
+  .reduce((a, x) => {
+    const mobileCommission = (x.networks || []).reduce((sum, n) => sum + Number(n.commission || 0), 0);
+    const bankCommission = (x.banks || []).reduce((sum, b) => sum + Number(b.commission || 0), 0);
+    return a + mobileCommission + bankCommission;
+  }, 0);
+
+const totalBusinessProfit = totalProfit + totalGasProfit + totalWakalaCommission;
   const latestPerShop = data.shops.map((shop) => getLatestEntryForShop(data.mobileMoneyEntries, shop.id)).filter(Boolean);
   const totalMobileCapital = latestPerShop.reduce((a, entry) => a + getMobileCapital(entry), 0);
   const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(entry), 0);
@@ -692,7 +715,31 @@ const totalProfit = totalRetailProfit - totalExpenses;
 <StatCard title={t(language, 'Total Capital for Mobile Money', 'Jumla ya Mtaji wa Simu')} value={`TZS ${currency(totalMobileCapital)}`} icon={HandCoins} />
         <StatCard title={t(language, 'Total Capital for Banks', 'Jumla ya Mtaji wa Benki')} value={`TZS ${currency(totalBankCapital)}`} icon={Building2} />
       </div>
+<Card className="mt-6">
+  <CardHeader>
+    <CardTitle>{t(language, 'Business Profit Breakdown', 'Muhtasari wa Faida za Biashara')}</CardTitle>
+  </CardHeader>
 
+  <CardContent>
+    <div className="grid gap-3 md:grid-cols-4 text-sm">
+      <div className="rounded-2xl bg-slate-50 p-3">
+        {t(language, 'Retail Profit', 'Faida ya Duka')}: TZS {currency(totalProfit)}
+      </div>
+
+      <div className="rounded-2xl bg-slate-50 p-3">
+        {t(language, 'Gas Profit', 'Faida ya Gesi')}: TZS {currency(totalGasProfit)}
+      </div>
+
+      <div className="rounded-2xl bg-slate-50 p-3">
+        {t(language, 'Wakala Commission', 'Kamisheni ya Wakala')}: TZS {currency(totalWakalaCommission)}
+      </div>
+
+      <div className="rounded-2xl bg-slate-100 p-3 font-semibold">
+        {t(language, 'Total Business Profit', 'Jumla ya Faida za Biashara')}: TZS {currency(totalBusinessProfit)}
+      </div>
+    </div>
+  </CardContent>
+</Card>
       <div className="mt-6 grid gap-4 lg:grid-cols-3 text-base">
         {data.shops.map((shop) => {
           const shopSales = filterByPreset(data.sales.filter((s) => s.shopId === shop.id), ownerPeriod, todayISO()).reduce((a, s) => a + Number(s.total || 0), 0);
