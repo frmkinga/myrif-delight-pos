@@ -732,6 +732,7 @@ const [reportEndDate, setReportEndDate] = useState(todayISO());
 const [reportType, setReportType] = useState('stockValue');
   const [productFormError, setProductFormError] = useState('');
   const [saleError, setSaleError] = useState('');
+const [saleSaving, setSaleSaving] = useState(false);
   const [creditReduceMap, setCreditReduceMap] = useState({});
   const [changeReduceMap, setChangeReduceMap] = useState({});
 const [gasForm, setGasForm] = useState({ ...emptyGasForm });
@@ -1196,6 +1197,8 @@ return [
 
   const commitSale = async () => {
     if (!cart.length) return;
+if (saleSaving) return;
+setSaleSaving(true);
 
     const nextProducts = [...data.products];
     for (const item of cart) {
@@ -1203,9 +1206,10 @@ return [
       if (idx >= 0) {
         const currentStock = Number(nextProducts[idx].stockBaseQty || 0);
         if (Number(item.quantity || 0) > currentStock) {
-          setSaleError(t(language, 'One item has insufficient stock. Please check the cart.', 'Bidhaa moja haina stock ya kutosha. Tafadhali kagua kikapu.'));
-          return;
-        }
+  setSaleError(t(language, 'One item has insufficient stock. Please check the cart.', 'Bidhaa moja haina stock ya kutosha. Tafadhali kagua kikapu.'));
+  setSaleSaving(false);
+  return;
+}
       }
     }
 
@@ -1247,11 +1251,13 @@ const { error } = await supabase
 
 if (error) {
   alert(`Sales sync failed: ${error.message}`);
+  setSaleSaving(false);
   return;
 }
 
 setCart([]);
 setSaleError('');
+setSaleSaving(false);
 };
 
   const removeCartItem = (productId) => {
