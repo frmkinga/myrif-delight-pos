@@ -872,7 +872,7 @@ const todayGasProfit = (data.gasEntries || [])
     return a + small + big;
   }, 0);
 
-const todayProfit = todaySales - todayExpenses + todayGasProfit;
+const todayProfit = salesReportRows.totalProfit - todayExpenses;
 
   const totalSales = filteredSales.reduce((a, s) => a + Number(s.total || 0), 0);
   const totalExpenses = filteredExpenses.reduce((a, e) => a + Number(e.amount || 0), 0);
