@@ -774,6 +774,7 @@ const totalBusinessProfit = totalProfit + totalGasProfit + totalWakalaCommission
 function ShopDashboard({ shop, data, saveData, backToOwner, logout, canBack, language, setLanguage, exportBackup }) {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [quickSearch, setQuickSearch] = useState('');
+const [stockSearch, setStockSearch] = useState('');
   const [scanCode, setScanCode] = useState('');
   const [cart, setCart] = useState([]);
   const [newProductRows, setNewProductRows] = useState([{ ...emptyProductRow }]);
@@ -959,15 +960,18 @@ const bankCommission = latestMobileEntry ? getBankCommissionTotal(latestMobileEn
 
  const stockValueRows = useMemo(
   () =>
-    products.map((p) => ({
-      ...p,
-      stockValue: Number(p.stockBaseQty || 0) * Number(p.buyPrice || 0),
-      totalProfitIfSold:
-        Number(p.stockBaseQty || 0) *
-        (Number(p.sellPrice || 0) - Number(p.buyPrice || 0)),
-    })),
-
-[products],
+    products
+      .filter((p) =>
+        p.name.toLowerCase().includes(stockSearch.toLowerCase())
+      )
+      .map((p) => ({
+        ...p,
+        stockValue: Number(p.stockBaseQty || 0) * Number(p.buyPrice || 0),
+        totalProfitIfSold:
+          Number(p.stockBaseQty || 0) *
+          (Number(p.sellPrice || 0) - Number(p.buyPrice || 0)),
+      })),
+  [products, stockSearch],
 );
 const salesReportRows = useMemo(() => {
   const map = {};
@@ -2868,7 +2872,12 @@ onDeleteGas={deleteGas}
               </div>
             </div>
           </CardHeader>
-
+<Input
+  placeholder={t(language, 'Search product...', 'Tafuta bidhaa...')}
+  value={stockSearch}
+  onChange={(e) => setStockSearch(e.target.value)}
+  className="mb-3 max-w-sm"
+/>
           <CardContent>
             {reportType === 'stockValue' ? (
               <div className="overflow-x-auto">
