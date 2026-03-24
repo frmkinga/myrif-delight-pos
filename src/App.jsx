@@ -318,7 +318,7 @@ const seedData = {
     { id: 'shop-5', name: 'Mungu Mwema Shop' },
   ],
   users: [
-    { id: 'u-owner', username: 'admin', password: 'admin123', role: 'owner', shopId: null, name: 'Owner Admin' },
+    { id: 'u-owner', username: 'admin', password: 'Mayrif2026', role: 'owner', shopId: null, name: 'Owner Admin' },
     { id: 'u-1', username: 'shop1', password: '1234', role: 'shop', shopId: 'shop-1', name: 'Nyumbani User' },
     { id: 'u-2', username: 'shop2', password: '1234', role: 'shop', shopId: 'shop-2', name: 'Mkwajuni User' },
     { id: 'u-3', username: 'shop3', password: '1234', role: 'shop', shopId: 'shop-3', name: 'Kwa Maganga User' },
