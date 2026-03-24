@@ -3110,14 +3110,8 @@ onDeleteGas={deleteGas}
           <th className="py-2 pr-3">{t(language, 'HaloPesa Float', 'Float ya HaloPesa')}</th>
 
           <th className="py-2 pr-3">{t(language, 'CRDB Float', 'Float ya CRDB')}</th>
-          <th className="py-2 pr-3">{t(language, 'NMB Float', 'Float ya NMB')}</th>
-          <th className="py-2 pr-3">{t(language, 'NBC Float', 'Float ya NBC')}</th>
-          <th className="py-2 pr-3">{t(language, 'Equity Float', 'Float ya Equity')}</th>
-          <th className="py-2 pr-3">{t(language, 'Absa Float', 'Float ya Absa')}</th>
-          <th className="py-2 pr-3">{t(language, 'Stanbic Float', 'Float ya Stanbic')}</th>
-          <th className="py-2 pr-3">{t(language, 'Exim Float', 'Float ya Exim')}</th>
-          <th className="py-2 pr-3">{t(language, 'DTB Float', 'Float ya DTB')}</th>
-          <th className="py-2 pr-3">{t(language, 'Azania Float', 'Float ya Azania')}</th>
+<th className="py-2 pr-3">{t(language, 'NMB Float', 'Float ya NMB')}</th>
+<th className="py-2 pr-3">{t(language, 'NBC Float', 'Float ya NBC')}</th>
         </tr>
       </thead>
 
@@ -3137,14 +3131,8 @@ onDeleteGas={deleteGas}
             <td className="py-2 pr-3">{currency(r.halopesaFloat)}</td>
 
             <td className="py-2 pr-3">{currency(r.crdbFloat)}</td>
-            <td className="py-2 pr-3">{currency(r.nmbFloat)}</td>
-            <td className="py-2 pr-3">{currency(r.nbcFloat)}</td>
-            <td className="py-2 pr-3">{currency(r.equityFloat)}</td>
-            <td className="py-2 pr-3">{currency(r.absaFloat)}</td>
-            <td className="py-2 pr-3">{currency(r.stanbicFloat)}</td>
-            <td className="py-2 pr-3">{currency(r.eximFloat)}</td>
-            <td className="py-2 pr-3">{currency(r.dtbFloat)}</td>
-            <td className="py-2 pr-3">{currency(r.azaniaFloat)}</td>
+<td className="py-2 pr-3">{currency(r.nmbFloat)}</td>
+<td className="py-2 pr-3">{currency(r.nbcFloat)}</td>
           </tr>
         ))}
 
@@ -3164,12 +3152,7 @@ onDeleteGas={deleteGas}
           <td className="py-2 pr-3">{currency(mobileMoneyAllShopsRows.reduce((a, r) => a + Number(r.crdbFloat || 0), 0))}</td>
           <td className="py-2 pr-3">{currency(mobileMoneyAllShopsRows.reduce((a, r) => a + Number(r.nmbFloat || 0), 0))}</td>
           <td className="py-2 pr-3">{currency(mobileMoneyAllShopsRows.reduce((a, r) => a + Number(r.nbcFloat || 0), 0))}</td>
-          <td className="py-2 pr-3">{currency(mobileMoneyAllShopsRows.reduce((a, r) => a + Number(r.equityFloat || 0), 0))}</td>
-          <td className="py-2 pr-3">{currency(mobileMoneyAllShopsRows.reduce((a, r) => a + Number(r.absaFloat || 0), 0))}</td>
-          <td className="py-2 pr-3">{currency(mobileMoneyAllShopsRows.reduce((a, r) => a + Number(r.stanbicFloat || 0), 0))}</td>
-          <td className="py-2 pr-3">{currency(mobileMoneyAllShopsRows.reduce((a, r) => a + Number(r.eximFloat || 0), 0))}</td>
-          <td className="py-2 pr-3">{currency(mobileMoneyAllShopsRows.reduce((a, r) => a + Number(r.dtbFloat || 0), 0))}</td>
-          <td className="py-2 pr-3">{currency(mobileMoneyAllShopsRows.reduce((a, r) => a + Number(r.azaniaFloat || 0), 0))}</td>
+          
         </tr>
       </tbody>
     </table>
