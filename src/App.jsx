@@ -937,12 +937,7 @@ const mobileMoneyReportRows = useMemo(
           crdbFloat: Number(bankMap['CRDB'] || 0),
           nmbFloat: Number(bankMap['NMB'] || 0),
           nbcFloat: Number(bankMap['NBC'] || 0),
-          equityFloat: Number(bankMap['Equity'] || 0),
-          absaFloat: Number(bankMap['Absa'] || 0),
-          stanbicFloat: Number(bankMap['Stanbic'] || 0),
-          eximFloat: Number(bankMap['Exim'] || 0),
-          dtbFloat: Number(bankMap['DTB'] || 0),
-          azaniaFloat: Number(bankMap['Azania'] || 0),
+          
         };
       }),
   [filteredMobileMoney],
@@ -987,12 +982,6 @@ notes: latest.notes || '',
         crdbFloat: Number(bankMap['CRDB'] || 0),
         nmbFloat: Number(bankMap['NMB'] || 0),
         nbcFloat: Number(bankMap['NBC'] || 0),
-        equityFloat: Number(bankMap['Equity'] || 0),
-        absaFloat: Number(bankMap['Absa'] || 0),
-        stanbicFloat: Number(bankMap['Stanbic'] || 0),
-        eximFloat: Number(bankMap['Exim'] || 0),
-        dtbFloat: Number(bankMap['DTB'] || 0),
-        azaniaFloat: Number(bankMap['Azania'] || 0),
       };
     })
     .filter(Boolean);
@@ -3054,12 +3043,7 @@ onDeleteGas={deleteGas}
   <th className="py-2 pr-3">{t(language, 'CRDB Float', 'Float ya CRDB')}</th>
   <th className="py-2 pr-3">{t(language, 'NMB Float', 'Float ya NMB')}</th>
   <th className="py-2 pr-3">{t(language, 'NBC Float', 'Float ya NBC')}</th>
-  <th className="py-2 pr-3">{t(language, 'Equity Float', 'Float ya Equity')}</th>
-  <th className="py-2 pr-3">{t(language, 'Absa Float', 'Float ya Absa')}</th>
-  <th className="py-2 pr-3">{t(language, 'Stanbic Float', 'Float ya Stanbic')}</th>
-  <th className="py-2 pr-3">{t(language, 'Exim Float', 'Float ya Exim')}</th>
-  <th className="py-2 pr-3">{t(language, 'DTB Float', 'Float ya DTB')}</th>
-  <th className="py-2 pr-3">{t(language, 'Azania Float', 'Float ya Azania')}</th>
+  
 </tr>
       </thead>
 
@@ -3081,12 +3065,6 @@ onDeleteGas={deleteGas}
             <td className="py-2 pr-3">{currency(r.crdbFloat)}</td>
             <td className="py-2 pr-3">{currency(r.nmbFloat)}</td>
             <td className="py-2 pr-3">{currency(r.nbcFloat)}</td>
-            <td className="py-2 pr-3">{currency(r.equityFloat)}</td>
-            <td className="py-2 pr-3">{currency(r.absaFloat)}</td>
-            <td className="py-2 pr-3">{currency(r.stanbicFloat)}</td>
-            <td className="py-2 pr-3">{currency(r.eximFloat)}</td>
-            <td className="py-2 pr-3">{currency(r.dtbFloat)}</td>
-            <td className="py-2 pr-3">{currency(r.azaniaFloat)}</td>
           </tr>
         ))}
       </tbody>
