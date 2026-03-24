@@ -318,7 +318,7 @@ const seedData = {
     { id: 'shop-5', name: 'Mungu Mwema Shop' },
   ],
   users: [
-    { id: 'u-owner', username: 'admin', password: 'Mayrif2026', role: 'owner', shopId: null, name: 'Owner Admin' },
+    { id: 'u-owner', username: 'admin', password: 'admin123', role: 'owner', shopId: null, name: 'Owner Admin' },
     { id: 'u-1', username: 'shop1', password: '1234', role: 'shop', shopId: 'shop-1', name: 'Nyumbani User' },
     { id: 'u-2', username: 'shop2', password: '1234', role: 'shop', shopId: 'shop-2', name: 'Mkwajuni User' },
     { id: 'u-3', username: 'shop3', password: '1234', role: 'shop', shopId: 'shop-3', name: 'Kwa Maganga User' },
@@ -627,7 +627,53 @@ function getLatestEntryForShop(entries, shopId) {
     .sort((a, b) => String(b.date).localeCompare(String(a.date)));
   return shopEntries[0] || null;
 }
-function OwnerDashboard({ data, openShop, logout, exportBackup, importBackup, ownerPeriod, setOwnerPeriod, language, setLanguage }) {
+
+function OwnerDashboard({ data, setAppData, openShop, logout, exportBackup, importBackup, ownerPeriod, setOwnerPeriod, language, setLanguage }) {
+const [currentPasswordInput, setCurrentPasswordInput] = useState('');
+const [newPasswordInput, setNewPasswordInput] = useState('');
+const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
+const [passwordMessage, setPasswordMessage] = useState('');
+const changeAdminPassword = () => {
+  const ownerUser = data.users.find((u) => u.role === 'owner');
+
+  if (!ownerUser) {
+    setPasswordMessage(t(language, 'Owner account not found.', 'Akaunti ya mmiliki haikupatikana.'));
+    return;
+  }
+
+  if (currentPasswordInput !== ownerUser.password) {
+    setPasswordMessage(t(language, 'Current password is incorrect.', 'Nenosiri la sasa si sahihi.'));
+    return;
+  }
+
+  if (!newPasswordInput.trim()) {
+    setPasswordMessage(t(language, 'New password cannot be empty.', 'Nenosiri jipya haliwezi kuwa tupu.'));
+    return;
+  }
+
+  if (newPasswordInput !== confirmPasswordInput) {
+    setPasswordMessage(t(language, 'New passwords do not match.', 'Manenosiri mapya hayalingani.'));
+    return;
+  }
+
+  const nextUsers = data.users.map((u) =>
+    u.role === 'owner'
+      ? { ...u, password: newPasswordInput }
+      : u
+  );
+
+  const nextData = {
+    ...data,
+    users: nextUsers,
+  };
+
+  writeStorage(STORAGE_KEY, nextData);
+setAppData(nextData);
+  setPasswordMessage(t(language, 'Password changed successfully.', 'Nenosiri limebadilishwa kwa mafanikio.'));
+  setCurrentPasswordInput('');
+  setNewPasswordInput('');
+  setConfirmPasswordInput('');
+};
   const salesPeriod = filterByPreset(data.sales, ownerPeriod, todayISO());
   const expensesPeriod = filterByPreset(data.expenses, ownerPeriod, todayISO());
   const totalSales = salesPeriod.reduce((a, s) => a + Number(s.total || 0), 0);
@@ -738,6 +784,39 @@ const totalBusinessProfit = totalProfit + totalGasProfit + totalWakalaCommission
         {t(language, 'Total Business Profit', 'Jumla ya Faida za Biashara')}: TZS {currency(totalBusinessProfit)}
       </div>
     </div>
+  </CardContent>
+</Card>
+<Card className="mt-6">
+  <CardHeader>
+    <CardTitle>{t(language, 'Change Admin Password', 'Badili Nenosiri la Admin')}</CardTitle>
+  </CardHeader>
+  <CardContent className="space-y-3">
+    <Input
+      type="password"
+      placeholder={t(language, 'Current password', 'Nenosiri la sasa')}
+      value={currentPasswordInput}
+      onChange={(e) => setCurrentPasswordInput(e.target.value)}
+    />
+    <Input
+      type="password"
+      placeholder={t(language, 'New password', 'Nenosiri jipya')}
+      value={newPasswordInput}
+      onChange={(e) => setNewPasswordInput(e.target.value)}
+    />
+    <Input
+      type="password"
+      placeholder={t(language, 'Confirm new password', 'Thibitisha nenosiri jipya')}
+      value={confirmPasswordInput}
+      onChange={(e) => setConfirmPasswordInput(e.target.value)}
+    />
+    {passwordMessage ? (
+      <div className="rounded-2xl bg-slate-50 p-3 text-sm text-slate-700">
+        {passwordMessage}
+      </div>
+    ) : null}
+    <Button type="button" onClick={changeAdminPassword}>
+      {t(language, 'Save New Password', 'Hifadhi Nenosiri Jipya')}
+    </Button>
   </CardContent>
 </Card>
       <div className="mt-6 grid gap-4 lg:grid-cols-3 text-base">
@@ -4024,16 +4103,17 @@ if (isHydrating) {
     </div>
 
     <OwnerDashboard
-      data={data}
-      openShop={setActiveShopId}
-      logout={logout}
-      exportBackup={exportBackup}
-      importBackup={importBackup}
-      ownerPeriod={ownerPeriod}
-      setOwnerPeriod={setOwnerPeriod}
-      language={language}
-      setLanguage={setLanguage}
-    />
+  data={data}
+  setAppData={setData}
+  openShop={setActiveShopId}
+  logout={logout}
+  exportBackup={exportBackup}
+  importBackup={importBackup}
+  ownerPeriod={ownerPeriod}
+  setOwnerPeriod={setOwnerPeriod}
+  language={language}
+  setLanguage={setLanguage}
+/>
   </>
 );
   }
