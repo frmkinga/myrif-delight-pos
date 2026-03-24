@@ -973,7 +973,7 @@ const mobileMoneyAllShopsRows = useMemo(() => {
       return {
         shopName: shop.name,
         date: latest.date || '-',
-
+notes: latest.notes || '',
         mobileCapital: Number(latest.mobileCapital || 0),
         bankCapital: Number(latest.bankCapital || 0),
         mobileCashTotal: Number(latest.mobileCashTotal || 0),
@@ -3112,6 +3112,7 @@ onDeleteGas={deleteGas}
           <th className="py-2 pr-3">{t(language, 'CRDB Float', 'Float ya CRDB')}</th>
 <th className="py-2 pr-3">{t(language, 'NMB Float', 'Float ya NMB')}</th>
 <th className="py-2 pr-3">{t(language, 'NBC Float', 'Float ya NBC')}</th>
+<th className="py-2 pr-3">{t(language, 'Notes', 'Maelezo')}</th>
         </tr>
       </thead>
 
@@ -3133,6 +3134,7 @@ onDeleteGas={deleteGas}
             <td className="py-2 pr-3">{currency(r.crdbFloat)}</td>
 <td className="py-2 pr-3">{currency(r.nmbFloat)}</td>
 <td className="py-2 pr-3">{currency(r.nbcFloat)}</td>
+<td className="py-2 pr-3">{r.notes || '-'}</td>
           </tr>
         ))}
 
