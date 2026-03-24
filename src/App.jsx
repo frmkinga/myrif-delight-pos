@@ -947,6 +947,56 @@ const mobileMoneyReportRows = useMemo(
       }),
   [filteredMobileMoney],
 );
+const mobileMoneyAllShopsRows = useMemo(() => {
+  return data.shops
+    .map((shop) => {
+      const shopEntries = filterByPreset(
+        (data.mobileMoneyEntries || []).filter((m) => m.shopId === shop.id),
+        reportPreset,
+        reportDateValue
+      );
+
+      if (!shopEntries.length) return null;
+
+      const latest = shopEntries
+        .slice()
+        .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))[0];
+
+      const networkMap = Object.fromEntries(
+        (latest.networks || []).map((n) => [n.provider, Number(n.float || 0)])
+      );
+
+      const bankMap = Object.fromEntries(
+        (latest.banks || []).map((b) => [b.bankName, Number(b.float || 0)])
+      );
+
+      return {
+        shopName: shop.name,
+        date: latest.date || '-',
+
+        mobileCapital: Number(latest.mobileCapital || 0),
+        bankCapital: Number(latest.bankCapital || 0),
+        mobileCashTotal: Number(latest.mobileCashTotal || 0),
+        bankCashTotal: Number(latest.bankCashTotal || 0),
+
+        mpesaFloat: Number(networkMap['M-Pesa'] || 0),
+        mixxFloat: Number(networkMap['Mixx by Yas'] || 0),
+        airtelFloat: Number(networkMap['Airtel Money'] || 0),
+        halopesaFloat: Number(networkMap['HaloPesa'] || 0),
+
+        crdbFloat: Number(bankMap['CRDB'] || 0),
+        nmbFloat: Number(bankMap['NMB'] || 0),
+        nbcFloat: Number(bankMap['NBC'] || 0),
+        equityFloat: Number(bankMap['Equity'] || 0),
+        absaFloat: Number(bankMap['Absa'] || 0),
+        stanbicFloat: Number(bankMap['Stanbic'] || 0),
+        eximFloat: Number(bankMap['Exim'] || 0),
+        dtbFloat: Number(bankMap['DTB'] || 0),
+        azaniaFloat: Number(bankMap['Azania'] || 0),
+      };
+    })
+    .filter(Boolean);
+}, [data.mobileMoneyEntries, data.shops, reportPreset, reportDateValue]);
 const todaySales = filterByPreset(sales, 'today', todayISO()).reduce((a, s) => a + Number(s.total || 0), 0);
 const todayExpenses = filterByPreset(expenses, 'today', todayISO()).reduce((a, e) => a + Number(e.amount || 0), 0);
 const todayGasProfit = (data.gasEntries || [])
@@ -2873,6 +2923,9 @@ onDeleteGas={deleteGas}
 <option value="mobileMoneyDetailed">
   {t(language, 'Mobile Money Detailed', 'Ripoti ya Wakala Kamilifu')}
 </option>
+<option value="mobileMoneyAllShops">
+  {t(language, 'Mobile Money All Shops', 'Ripoti ya Wakala Maduka Yote')}
+</option>
                   <option value="gas">{t(language, 'Gas Business Report', 'Ripoti ya Biashara ya Gesi')}</option>
 <option value="fastMoving">{t(language, 'Fast Moving Items', 'Bidhaa Zinazotembea Haraka')}</option>
                   <option value="slowMoving">{t(language, 'Slow Moving Items', 'Bidhaa Zinazotembea Polepole')}</option>
@@ -3039,7 +3092,88 @@ onDeleteGas={deleteGas}
       </tbody>
     </table>
   </div>
+) : reportType === 'mobileMoneyAllShops' ? (
+  <div className="overflow-x-auto">
+    <table className="w-full min-w-[1300px] text-sm">
+      <thead>
+        <tr className="border-b text-left text-slate-500">
+          <th className="py-2 pr-3">{t(language, 'Shop', 'Duka')}</th>
+          <th className="py-2 pr-3">{t(language, 'Date', 'Tarehe')}</th>
+          <th className="py-2 pr-3">{t(language, 'Mobile Capital', 'Mtaji wa Simu')}</th>
+          <th className="py-2 pr-3">{t(language, 'Bank Capital', 'Mtaji wa Benki')}</th>
+          <th className="py-2 pr-3">{t(language, 'Mobile Cash', 'Cash ya Simu')}</th>
+          <th className="py-2 pr-3">{t(language, 'Bank Cash', 'Cash ya Benki')}</th>
 
+          <th className="py-2 pr-3">{t(language, 'M-Pesa Float', 'Float ya M-Pesa')}</th>
+          <th className="py-2 pr-3">{t(language, 'Mixx Float', 'Float ya Mixx')}</th>
+          <th className="py-2 pr-3">{t(language, 'Airtel Float', 'Float ya Airtel')}</th>
+          <th className="py-2 pr-3">{t(language, 'HaloPesa Float', 'Float ya HaloPesa')}</th>
+
+          <th className="py-2 pr-3">{t(language, 'CRDB Float', 'Float ya CRDB')}</th>
+          <th className="py-2 pr-3">{t(language, 'NMB Float', 'Float ya NMB')}</th>
+          <th className="py-2 pr-3">{t(language, 'NBC Float', 'Float ya NBC')}</th>
+          <th className="py-2 pr-3">{t(language, 'Equity Float', 'Float ya Equity')}</th>
+          <th className="py-2 pr-3">{t(language, 'Absa Float', 'Float ya Absa')}</th>
+          <th className="py-2 pr-3">{t(language, 'Stanbic Float', 'Float ya Stanbic')}</th>
+          <th className="py-2 pr-3">{t(language, 'Exim Float', 'Float ya Exim')}</th>
+          <th className="py-2 pr-3">{t(language, 'DTB Float', 'Float ya DTB')}</th>
+          <th className="py-2 pr-3">{t(language, 'Azania Float', 'Float ya Azania')}</th>
+        </tr>
+      </thead>
+
+      <tbody>
+        {mobileMoneyAllShopsRows.map((r, i) => (
+          <tr key={i} className="border-b">
+            <td className="py-2 pr-3">{r.shopName}</td>
+            <td className="py-2 pr-3">{r.date || '-'}</td>
+            <td className="py-2 pr-3">TZS {currency(r.mobileCapital)}</td>
+            <td className="py-2 pr-3">TZS {currency(r.bankCapital)}</td>
+            <td className="py-2 pr-3">TZS {currency(r.mobileCashTotal)}</td>
+            <td className="py-2 pr-3">TZS {currency(r.bankCashTotal)}</td>
+
+            <td className="py-2 pr-3">{currency(r.mpesaFloat)}</td>
+            <td className="py-2 pr-3">{currency(r.mixxFloat)}</td>
+            <td className="py-2 pr-3">{currency(r.airtelFloat)}</td>
+            <td className="py-2 pr-3">{currency(r.halopesaFloat)}</td>
+
+            <td className="py-2 pr-3">{currency(r.crdbFloat)}</td>
+            <td className="py-2 pr-3">{currency(r.nmbFloat)}</td>
+            <td className="py-2 pr-3">{currency(r.nbcFloat)}</td>
+            <td className="py-2 pr-3">{currency(r.equityFloat)}</td>
+            <td className="py-2 pr-3">{currency(r.absaFloat)}</td>
+            <td className="py-2 pr-3">{currency(r.stanbicFloat)}</td>
+            <td className="py-2 pr-3">{currency(r.eximFloat)}</td>
+            <td className="py-2 pr-3">{currency(r.dtbFloat)}</td>
+            <td className="py-2 pr-3">{currency(r.azaniaFloat)}</td>
+          </tr>
+        ))}
+
+        <tr className="bg-slate-50 font-semibold">
+          <td className="py-2 pr-3">{t(language, 'TOTAL ALL SHOPS', 'JUMLA MADUKA YOTE')}</td>
+          <td className="py-2 pr-3">-</td>
+          <td className="py-2 pr-3">TZS {currency(mobileMoneyAllShopsRows.reduce((a, r) => a + Number(r.mobileCapital || 0), 0))}</td>
+          <td className="py-2 pr-3">TZS {currency(mobileMoneyAllShopsRows.reduce((a, r) => a + Number(r.bankCapital || 0), 0))}</td>
+          <td className="py-2 pr-3">TZS {currency(mobileMoneyAllShopsRows.reduce((a, r) => a + Number(r.mobileCashTotal || 0), 0))}</td>
+          <td className="py-2 pr-3">TZS {currency(mobileMoneyAllShopsRows.reduce((a, r) => a + Number(r.bankCashTotal || 0), 0))}</td>
+
+          <td className="py-2 pr-3">{currency(mobileMoneyAllShopsRows.reduce((a, r) => a + Number(r.mpesaFloat || 0), 0))}</td>
+          <td className="py-2 pr-3">{currency(mobileMoneyAllShopsRows.reduce((a, r) => a + Number(r.mixxFloat || 0), 0))}</td>
+          <td className="py-2 pr-3">{currency(mobileMoneyAllShopsRows.reduce((a, r) => a + Number(r.airtelFloat || 0), 0))}</td>
+          <td className="py-2 pr-3">{currency(mobileMoneyAllShopsRows.reduce((a, r) => a + Number(r.halopesaFloat || 0), 0))}</td>
+
+          <td className="py-2 pr-3">{currency(mobileMoneyAllShopsRows.reduce((a, r) => a + Number(r.crdbFloat || 0), 0))}</td>
+          <td className="py-2 pr-3">{currency(mobileMoneyAllShopsRows.reduce((a, r) => a + Number(r.nmbFloat || 0), 0))}</td>
+          <td className="py-2 pr-3">{currency(mobileMoneyAllShopsRows.reduce((a, r) => a + Number(r.nbcFloat || 0), 0))}</td>
+          <td className="py-2 pr-3">{currency(mobileMoneyAllShopsRows.reduce((a, r) => a + Number(r.equityFloat || 0), 0))}</td>
+          <td className="py-2 pr-3">{currency(mobileMoneyAllShopsRows.reduce((a, r) => a + Number(r.absaFloat || 0), 0))}</td>
+          <td className="py-2 pr-3">{currency(mobileMoneyAllShopsRows.reduce((a, r) => a + Number(r.stanbicFloat || 0), 0))}</td>
+          <td className="py-2 pr-3">{currency(mobileMoneyAllShopsRows.reduce((a, r) => a + Number(r.eximFloat || 0), 0))}</td>
+          <td className="py-2 pr-3">{currency(mobileMoneyAllShopsRows.reduce((a, r) => a + Number(r.dtbFloat || 0), 0))}</td>
+          <td className="py-2 pr-3">{currency(mobileMoneyAllShopsRows.reduce((a, r) => a + Number(r.azaniaFloat || 0), 0))}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
 ) : reportType === 'expiryAlert' ? (
   <div className="space-y-3 text-sm">
     {expiringProducts.length === 0 ? (
