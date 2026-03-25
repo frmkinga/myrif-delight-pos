@@ -3860,7 +3860,7 @@ useEffect(() => {
           expiryDate: '',
           qrCode: '',
           subUnitsRaw: '',
-          createdAt: '',
+          createdAt: p.createdAt || (p.created_at ? String(p.created_at).slice(0, 10) : ''),
           confirmed: true,
         })),
       }));
