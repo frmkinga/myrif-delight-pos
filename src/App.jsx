@@ -3784,7 +3784,7 @@ const { data: sales } = await supabase.from('sales').select('*');
 
             setData((prev) => ({
   ...prev,
-  products: products?.length
+ products: products?.length
   ? products.map((p) => ({
       id: p.id,
       name: p.name,
@@ -3798,7 +3798,7 @@ const { data: sales } = await supabase.from('sales').select('*');
       expiryDate: '',
       qrCode: '',
       subUnitsRaw: '',
-      createdAt: '',
+      createdAt: p.createdAt || (p.created_at ? String(p.created_at).slice(0, 10) : ''),
       confirmed: true,
     }))
   : prev.products,
