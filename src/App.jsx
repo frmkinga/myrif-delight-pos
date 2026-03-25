@@ -1000,7 +1000,7 @@ const isBigCylinder = gasForm.cylinderSize === 'Big Cylinder';
   const products = data.products
   .filter((p) => (p.shopId || p.shopid) === shop.id)
   .map(normalizeProduct);
-
+const sales = data.sales.filter((s) => s.shopId === shop.id);
   const creditSales = data.creditSales.filter((s) => s.shopId === shop.id);
   const changeLedger = data.changeLedger.filter((s) => s.shopId === shop.id);
   const expenses = data.expenses.filter((e) => e.shopId === shop.id);
