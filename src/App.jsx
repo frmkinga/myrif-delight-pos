@@ -1786,7 +1786,7 @@ if (productIndex >= 0) {
       Number(preparedPurchase.unitCost || nextProducts[productIndex].buyPrice || 0),
   };
 }
-
+});
 saveData({ ...data, purchases: nextPurchases, products: nextProducts });
 nextPurchases.forEach((purchase) => addToSyncQueue('purchase_created', purchase));
 nextPurchases.forEach((purchase) => {
