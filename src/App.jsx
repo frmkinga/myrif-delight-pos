@@ -2278,40 +2278,18 @@ supabase.from('mobileMoneyEntries').insert([record]);
           </Card>
 
           <Card>
-            <CardHeader>
-              <CardTitle>{t(language, 'Product List', 'Orodha ya Bidhaa')}</CardTitle>
-            </CardHeader>
-           <CardContent className="space-y-3 text-sm">
-  {products.length === 0 ? (
-  <div className="text-slate-500">{t(language, 'No products yet.', 'Hakuna bidhaa bado.')}</div>
- ) : products.map((p) => (
-    <div key={p.id} className="rounded-2xl border border-slate-200 p-3">
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex-1">
-          <div className="font-medium">{p.name}</div>
-<div className="mt-1 text-slate-500">{t(language, 'Date Recorded', 'Tarehe ya Kusajili')}: {p.createdAt || '-'}</div>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-slate-500">
-            <span>{t(language, 'Unit', 'Kipimo')}: {p.baseUnit}</span>
-            <span>|</span>
-            <span>{t(language, 'Buy Price', 'Bei ya kununua')}: TZS {currency(p.buyPrice)}</span>
-            <span>|</span>
-            <span>{t(language, 'Sell Price', 'Bei ya kuuza')}: TZS {currency(p.sellPrice)}</span>
-            <span>|</span>
-            <span>{t(language, 'Stock', 'Stock')}: {formatQty(p.stockBaseQty)}</span>
-          </div>
-          {p.qrCode ? <div className="mt-1 text-slate-500">QR: {p.qrCode}</div> : null}
-        </div>
-        <div className="flex items-center gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={() => startEditProduct(p)}>
-            <Pencil className="h-4 w-4" />
-          </Button>
-          <Button type="button" variant="outline" size="sm" onClick={() => deleteProduct(p.id)}>
-            <Trash2 className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
-    </div>
-  ))}
+           <CardHeader>
+  <CardTitle>{t(language, 'Product List', 'Orodha ya Bidhaa')}</CardTitle>
+</CardHeader>
+
+<CardContent className="space-y-3 text-sm">
+  <div className="text-slate-500">
+    {t(
+      language,
+      'Saved products appear in reports and sales, not here.',
+      'Bidhaa zilizohifadhiwa zinaonekana kwenye taarifa na mauzo, si hapa.'
+    )}
+  </div>
 </CardContent>
           </Card>
         </div>
