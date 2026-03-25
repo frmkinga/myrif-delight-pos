@@ -1700,9 +1700,7 @@ if (usedInSales || usedInPurchases) {
   createdAt: row.id
     ? (nextProducts.find((p) => p.id === row.id)?.createdAt || todayISO())
     : todayISO(),
-  confirmed: row.id
-    ? (nextProducts.find((p) => p.id === row.id)?.confirmed ?? true)
-    : false,
+  confirmed: true,
 });
 
       const existingIndex = nextProducts.findIndex((p) => p.id === prepared.id);
