@@ -2259,9 +2259,9 @@ supabase.from('mobileMoneyEntries').insert([record]);
     {t(language, 'Confirm Products', 'Thibitisha Bidhaa')}
   </Button>
 </div>
-  {todayProducts.length === 0 ? (
-    <div className="text-slate-500">{t(language, 'No products yet.', 'Hakuna bidhaa bado.')}</div>
- ) : todayProducts.map((p) => (
+  {products.length === 0 ? (
+  <div className="text-slate-500">{t(language, 'No products yet.', 'Hakuna bidhaa bado.')}</div>
+ ) : products.map((p) => (
     <div key={p.id} className="rounded-2xl border border-slate-200 p-3">
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1">
