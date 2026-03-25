@@ -998,9 +998,8 @@ const isBigCylinder = gasForm.cylinderSize === 'Big Cylinder';
 });
 
   const products = data.products
-  .filter((p) => p.shopId === shop.id)
+  .filter((p) => (p.shopId || p.shopid) === shop.id)
   .map(normalizeProduct);
-const sales = data.sales.filter((s) => s.shopId === shop.id);
 
   const creditSales = data.creditSales.filter((s) => s.shopId === shop.id);
   const changeLedger = data.changeLedger.filter((s) => s.shopId === shop.id);
@@ -1013,7 +1012,7 @@ const todayPurchases = purchases.filter(
   (p) => p.date === todayISO() && !p.confirmed
 );
 const todayProducts = data.products
-  .filter((p) => p.shopId === shop.id && p.confirmed !== true)
+  .filter((p) => (p.shopId || p.shopid) === shop.id && p.confirmed !== true)
   .map(normalizeProduct);
 const mobileMoneyEntries = data.mobileMoneyEntries.filter((m) => m.shopId === shop.id);
 const todayMobileMoneyEntries = mobileMoneyEntries.filter((m) => m.date === todayISO());
