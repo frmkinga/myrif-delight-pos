@@ -399,7 +399,7 @@ async function readData() {
       try {
         const { data: cloudProducts } = await supabase.from('products').select('*');
 
-      if (cloudProducts?.length) {
+      if (cloudProducts) {
   const raw = readStorage(STORAGE_KEY, {});
 
   const normalized = normalizeData({
