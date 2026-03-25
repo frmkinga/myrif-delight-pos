@@ -1773,9 +1773,21 @@ if (existingPurchaseIndex >= 0) {
 } else {
   nextPurchases.push(preparedPurchase);
 }
-});
 
-  saveData({ ...data, purchases: nextPurchases, products: nextProducts });
+const productIndex = nextProducts.findIndex((p) => p.id === preparedPurchase.productId);
+
+if (productIndex >= 0) {
+  nextProducts[productIndex] = {
+    ...nextProducts[productIndex],
+    stockBaseQty:
+      Number(nextProducts[productIndex].stockBaseQty || 0) +
+      Number(preparedPurchase.quantity || 0),
+    buyPrice:
+      Number(preparedPurchase.unitCost || nextProducts[productIndex].buyPrice || 0),
+  };
+}
+
+saveData({ ...data, purchases: nextPurchases, products: nextProducts });
 nextPurchases.forEach((purchase) => addToSyncQueue('purchase_created', purchase));
 nextPurchases.forEach((purchase) => {
   supabase.from('purchases').insert([purchase]);
