@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { supabase } from './supabaseClient';
 import { GasBusinessSection, GasDashboardCard, GasReportBlock, buildGasRecord, getGasDashboardSummary } from './GasBusinessSection';
@@ -902,6 +902,7 @@ const [reportType, setReportType] = useState('stockValue');
   const [productFormError, setProductFormError] = useState('');
   const [saleError, setSaleError] = useState('');
 const [saleSaving, setSaleSaving] = useState(false);
+const saleLock = useRef(false);
   const [creditReduceMap, setCreditReduceMap] = useState({});
   const [changeReduceMap, setChangeReduceMap] = useState({});
 const [gasForm, setGasForm] = useState({ ...emptyGasForm });
@@ -1439,7 +1440,10 @@ return [
 
   const commitSale = async () => {
     if (!cart.length) return;
-if (saleSaving) return;
+
+if (saleLock.current) return;
+saleLock.current = true;
+
 setSaleSaving(true);
 
     const nextProducts = [...data.products];
@@ -1450,6 +1454,7 @@ setSaleSaving(true);
         if (Number(item.quantity || 0) > currentStock) {
   setSaleError(t(language, 'One item has insufficient stock. Please check the cart.', 'Bidhaa moja haina stock ya kutosha. Tafadhali kagua kikapu.'));
   setSaleSaving(false);
+saleLock.current = false;
   return;
 }
       }
@@ -1494,12 +1499,14 @@ const { error } = await supabase
 if (error) {
   alert(`Sales sync failed: ${error.message}`);
   setSaleSaving(false);
+saleLock.current = false;
   return;
 }
 
 setCart([]);
 setSaleError('');
 setSaleSaving(false);
+saleLock.current = false;
 };
 
   const removeCartItem = (productId) => {
