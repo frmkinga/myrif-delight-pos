@@ -395,6 +395,41 @@ function normalizeData(parsed = {}) {
 
 async function readData() {
   try {
+    if (navigator.onLine) {
+      try {
+        const { data: cloudProducts } = await supabase.from('products').select('*');
+
+        if (cloudProducts?.length) {
+          const raw = readStorage(STORAGE_KEY, {});
+
+          const normalized = normalizeData({
+            ...raw,
+            products: cloudProducts.map((p) => ({
+              id: p.id,
+              name: p.name,
+              buyPrice: Number(p.buyingprice || 0),
+              sellPrice: Number(p.sellingprice || 0),
+              stockBaseQty: Number(p.stock || 0),
+              stockQty: Number(p.stock || 0),
+              shopId: p.shopId || p.shopid,
+              baseUnit: p.baseunit || 'pc',
+              minStockLevel: 5,
+              expiryDate: '',
+              qrCode: '',
+              subUnitsRaw: '',
+              createdAt: '',
+              confirmed: true,
+            })),
+          });
+
+          await writeToDB(DB_DATA_KEY, normalized);
+          return normalized;
+        }
+      } catch (error) {
+        console.error('Cloud product read failed, falling back to local:', error);
+      }
+    }
+
     console.log('Reading data from localStorage first...');
 
     const raw = readStorage(STORAGE_KEY);
