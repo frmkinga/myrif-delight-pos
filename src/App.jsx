@@ -2282,22 +2282,6 @@ supabase.from('mobileMoneyEntries').insert([record]);
               <CardTitle>{t(language, 'Product List', 'Orodha ya Bidhaa')}</CardTitle>
             </CardHeader>
            <CardContent className="space-y-3 text-sm">
-<div className="mb-3">
-  <Button type="button" onClick={() => {
-  const nextProducts = data.products.map((p) =>
-    p.shopId === shop.id && p.confirmed === false
-      ? { ...p, confirmed: true }
-      : p
-  );
-
-  saveData({
-    ...data,
-    products: nextProducts,
-  });
-}}>
-    {t(language, 'Confirm Products', 'Thibitisha Bidhaa')}
-  </Button>
-</div>
   {products.length === 0 ? (
   <div className="text-slate-500">{t(language, 'No products yet.', 'Hakuna bidhaa bado.')}</div>
  ) : products.map((p) => (
