@@ -371,19 +371,17 @@ function normalizeProduct(product) {
   }
 
   return {
-    ...product,
-    shop_id: normalizedShopId,
-    shopId: normalizedShopId,
-    shopid: normalizedShopId,
-    baseUnit,
-    buyPrice: Number(product.buyPrice || 0),
-    sellPrice,
-    stockBaseQty: Number(product.stockBaseQty || product.stockQty || 0),
-    minStockLevel: Number(product.minStockLevel || 5),
-    subUnitsRaw: rawSubUnits,
-    subUnits: makeSubUnits(baseUnit, sellPrice, rawSubUnits),
-    createdAt: product.createdAt || '',
-  };
+  ...product,
+  shop_id: normalizedShopId,
+  baseUnit,
+  buyPrice: Number(product.buyPrice || 0),
+  sellPrice,
+  stockBaseQty: Number(product.stockBaseQty || product.stockQty || 0),
+  minStockLevel: Number(product.minStockLevel || 5),
+  subUnitsRaw: rawSubUnits,
+  subUnits: makeSubUnits(baseUnit, sellPrice, rawSubUnits),
+  createdAt: product.createdAt || '',
+};
 }
 
 function normalizeData(parsed = {}) {
@@ -1501,22 +1499,19 @@ saleLock.current = false;
       }
     });
 
-    const total = cart.reduce((a, c) => a + c.total, 0);
-    const saleRecord = {
+   const total = cart.reduce((a, c) => a + c.total, 0);
+
+const saleRecord = {
   id: `sale-${Date.now()}`,
   shop_id: shop.id,
-  shopId: shop.id,
-  shopid: shop.id,
   items: cart,
   total,
-  amountPaid,
-  change,
-  customerName: customerName || '',
+  type: 'cash',
   date: todayISO(),
   created_at: new Date().toISOString(),
 };
 
-   saveData({
+saveData({
   ...data,
   products: nextProducts,
   sales: [...data.sales, saleRecord],
@@ -1530,12 +1525,12 @@ const { error } = await supabase
   .insert([
     {
       id: saleRecord.id,
-      shopid: saleRecord.shop_id || saleRecord.shopId || saleRecord.shopid,
+      shopid: saleRecord.shop_id,
       items: saleRecord.items,
       total: saleRecord.total,
       type: saleRecord.type,
       date: saleRecord.date,
-      created_at: new Date().toISOString(),
+      created_at: saleRecord.created_at,
     },
   ]);
 
