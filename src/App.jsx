@@ -3749,40 +3749,29 @@ useEffect(() => {
 useEffect(() => {
   const loadCloudData = async () => {
     try {
-
- const { data: products } = await supabase.from('products').select('*');     
-const { data: sales } = await supabase.from('sales').select('*');
+      const { data: products } = await supabase.from('products').select('*');     
+      const { data: sales } = await supabase.from('sales').select('*');
       const { data: purchases } = await supabase.from('purchases').select('*');
       const { data: expenses } = await supabase.from('expenses').select('*');
       const { data: creditSales } = await supabase.from('creditSales').select('*');
       const { data: mobileMoneyEntries } = await supabase.from('mobileMoneyEntries').select('*');
       const { data: gasEntries } = await supabase.from('gasEntries').select('*');
 
-            setData((prev) => ({
+      const fixedProducts = (products || []).map((p) => ({
+        ...p,
+        shopId: p.shopid,
+      }));
+
+      setData((prev) => ({
   ...prev,
- products: (products || []).map((p) => ({
-  id: p.id,
-  name: p.name,
-  buyPrice: Number(p.buyingprice || 0),
-  sellPrice: Number(p.sellingprice || 0),
-  stockBaseQty: Number(p.stock || 0),
-  stockQty: Number(p.stock || 0),
-  shopId: p.shopId || p.shopid,
-  baseUnit: p.baseunit || 'pc',
-  minStockLevel: 5,
-  expiryDate: '',
-  qrCode: '',
-  subUnitsRaw: '',
-  createdAt: p.createdAt || (p.created_at ? String(p.created_at).slice(0, 10) : ''),
-  confirmed: true,
-})),
+  products: fixedProducts,
   sales: sales?.length
-  ? sales.map((s) => ({
-      ...s,
-      shopId: s.shopId || s.shopid,
-      date: s.date || (s.created_at ? String(s.created_at).slice(0, 10) : todayISO()),
-    }))
-  : prev.sales,
+    ? sales.map((s) => ({
+        ...s,
+        shopId: s.shopId || s.shopid,
+        date: s.date || (s.created_at ? String(s.created_at).slice(0, 10) : todayISO()),
+      }))
+    : prev.sales,
   purchases: purchases?.length ? purchases : prev.purchases,
   expenses: expenses?.length
   ? expenses.map((e) => ({
