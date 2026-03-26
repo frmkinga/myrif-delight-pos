@@ -3695,11 +3695,7 @@ const [hasLoadedInitialData, setHasLoadedInitialData] = useState(false);
  useEffect(() => {
   readData()
     .then((loaded) => {
-      setData(prev => ({
-        ...prev,
-        ...loaded,
-        products: prev.products,
-      }));
+      setData(loaded);
     })
     .catch((error) => {
       console.error('readData init failed:', error);
@@ -3709,7 +3705,6 @@ const [hasLoadedInitialData, setHasLoadedInitialData] = useState(false);
       setIsHydrating(false);
     });
 }, []);
-
 useEffect(() => {
 processSyncQueue();
   const goOnline = async () => {
