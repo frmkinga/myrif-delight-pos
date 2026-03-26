@@ -946,6 +946,28 @@ const saveGas = async () => {
     gasEntries: nextGasEntries,
   });
 
+  const saveGas = async () => {
+  const record = {
+    ...buildGasRecord(gasForm),
+    shop_id: shop.id,
+    shopId: shop.id,
+    shopid: shop.id,
+  };
+
+  const nextGasEntries = [...(data.gasEntries || [])];
+  const existingIndex = nextGasEntries.findIndex((x) => x.id === record.id);
+
+  if (existingIndex >= 0) {
+    nextGasEntries[existingIndex] = record;
+  } else {
+    nextGasEntries.push(record);
+  }
+
+  saveData({
+    ...data,
+    gasEntries: nextGasEntries,
+  });
+
   addToSyncQueue('gas_created', record);
 
   const { error } = await supabase
@@ -959,35 +981,6 @@ const saveGas = async () => {
   }
 
   setGasForm({ ...emptyGasForm, date: todayISO() });
-};
-
-  const nextGasEntries = [...(data.gasEntries || [])];
-  const existingIndex = nextGasEntries.findIndex((x) => x.id === record.id);
-
-  if (existingIndex >= 0) {
-    nextGasEntries[existingIndex] = record;
-  } else {
-    nextGasEntries.push(record);
-  }
-
-  saveData({
-  ...data,
-  gasEntries: nextGasEntries,
-});
-
-addToSyncQueue('gas_created', record);
-
-const { error } = await supabase
-  .from('gasEntries')
-  .upsert([record], { onConflict: 'id' });
-
-if (error) {
-  console.error('Gas save error:', error);
-  alert(`Gas save error: ${error.message}`);
-  return;
-}
-
-setGasForm({ ...emptyGasForm, date: todayISO() });
 };
 
 const editGas = (entry) => {
@@ -1026,9 +1019,11 @@ const deleteGas = async (id) => {
     console.error('Gas delete error:', error);
   }
 };
+
 const isSmallCylinder = gasForm.cylinderSize === 'Small Cylinder';
 const isBigCylinder = gasForm.cylinderSize === 'Big Cylinder';
-  const [mobileMoneyForm, setMobileMoneyForm] = useState({
+
+const [mobileMoneyForm, setMobileMoneyForm] = useState({
   id: '',
   date: todayISO(),
   mobileCashTotal: '',
