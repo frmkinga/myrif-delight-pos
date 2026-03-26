@@ -107,28 +107,32 @@ async function processSyncQueue() {
     if (item.synced) continue;
 
     try {
-     if (item.actionType === 'sale_created') {
-  await supabase.from('sales').upsert(
-    [
-      {
-        ...item.payload,
-        created_at: item.payload.created_at || new Date().toISOString(),
-      },
-    ],
-    { onConflict: 'id' }
-  );
-   } else if (item.actionType === 'purchase_created') {
-        await supabase.from('purchases').upsert([item.payload]);
-      } else if (item.actionType === 'expense_created') {
-        await supabase.from('expenses').upsert([item.payload]);
-      } else if (item.actionType === 'credit_created') {
-        await supabase.from('creditSales').upsert([item.payload]);
-      } else if (item.actionType === 'mobile_money_created') {
-        await supabase.from('mobileMoneyEntries').upsert([item.payload]);
-      } else if (item.actionType === 'gas_created') {
-        await supabase.from('gasEntries').upsert([item.payload]);
-      }
-
+  if (item.actionType === 'sale_created') {
+    await supabase.from('sales').upsert(
+      [
+        {
+          id: item.payload.id,
+          shopid: item.payload.shop_id || item.payload.shopId || item.payload.shopid,
+          items: item.payload.items,
+          total: item.payload.total,
+          type: item.payload.type,
+          date: item.payload.date,
+          created_at: item.payload.created_at || new Date().toISOString(),
+        },
+      ],
+      { onConflict: 'id' }
+    );
+  } else if (item.actionType === 'purchase_created') {
+    await supabase.from('purchases').upsert([item.payload]);
+  } else if (item.actionType === 'expense_created') {
+    await supabase.from('expenses').upsert([item.payload]);
+  } else if (item.actionType === 'credit_created') {
+    await supabase.from('creditSales').upsert([item.payload]);
+  } else if (item.actionType === 'mobile_money_created') {
+    await supabase.from('mobileMoneyEntries').upsert([item.payload]);
+  } else if (item.actionType === 'gas_created') {
+    await supabase.from('gasEntries').upsert([item.payload]);
+  }
       updatedQueue[i] = {
         ...item,
         synced: true,
@@ -351,6 +355,7 @@ function getLegacyData() {
 function normalizeProduct(product) {
   const baseUnit = product.baseUnit || product.unit || 'pc';
   const sellPrice = Number(product.sellPrice || 0);
+  const normalizedShopId = product.shop_id || product.shopId || product.shopid || '';
   let rawSubUnits = product.subUnitsRaw || '';
 
   if (!rawSubUnits) {
@@ -367,6 +372,9 @@ function normalizeProduct(product) {
 
   return {
     ...product,
+    shop_id: normalizedShopId,
+    shopId: normalizedShopId,
+    shopid: normalizedShopId,
     baseUnit,
     buyPrice: Number(product.buyPrice || 0),
     sellPrice,
@@ -374,7 +382,7 @@ function normalizeProduct(product) {
     minStockLevel: Number(product.minStockLevel || 5),
     subUnitsRaw: rawSubUnits,
     subUnits: makeSubUnits(baseUnit, sellPrice, rawSubUnits),
-createdAt: product.createdAt || '',
+    createdAt: product.createdAt || '',
   };
 }
 
@@ -409,6 +417,7 @@ async function readData() {
   sellPrice: Number(p.sellingprice || 0),
   stockBaseQty: Number(p.stock || 0),
   stockQty: Number(p.stock || 0),
+  shop_id: p.shopid,
   shopId: p.shopid,
   shopid: p.shopid,
   baseUnit: p.baseunit || 'pc',
@@ -855,7 +864,11 @@ const totalBusinessProfit = totalProfit + totalGasProfit + totalWakalaCommission
 </Card>
       <div className="mt-6 grid gap-4 lg:grid-cols-3 text-base">
         {data.shops.map((shop) => {
-          const shopSales = filterByPreset(data.sales.filter((s) => s.shopId === shop.id), ownerPeriod, todayISO()).reduce((a, s) => a + Number(s.total || 0), 0);
+          const shopSales = filterByPreset(
+  data.sales.filter((s) => String(s.shop_id || s.shopId || s.shopid) === String(shop.id)),
+  ownerPeriod,
+  todayISO()
+).reduce((a, s) => a + Number(s.total || 0), 0);
           const shopExpenses = filterByPreset(data.expenses.filter((e) => e.shopId === shop.id), ownerPeriod, todayISO()).reduce((a, e) => a + Number(e.amount || 0), 0);
           const latest = getLatestEntryForShop(data.mobileMoneyEntries, shop.id);
           const mobileCapital = latest ? getMobileCapital(latest) : 0;
@@ -914,8 +927,39 @@ const [showGasPrices, setShowGasPrices] = useState(false);
 const saveGas = async () => {
   const record = {
     ...buildGasRecord(gasForm),
+    shop_id: shop.id,
     shopId: shop.id,
+    shopid: shop.id,
   };
+
+  const nextGasEntries = [...(data.gasEntries || [])];
+  const existingIndex = nextGasEntries.findIndex((x) => x.id === record.id);
+
+  if (existingIndex >= 0) {
+    nextGasEntries[existingIndex] = record;
+  } else {
+    nextGasEntries.push(record);
+  }
+
+  saveData({
+    ...data,
+    gasEntries: nextGasEntries,
+  });
+
+  addToSyncQueue('gas_created', record);
+
+  const { error } = await supabase
+    .from('gasEntries')
+    .upsert([record], { onConflict: 'id' });
+
+  if (error) {
+    console.error('Gas save error:', error);
+    alert(`Gas save error: ${error.message}`);
+    return;
+  }
+
+  setGasForm({ ...emptyGasForm, date: todayISO() });
+};
 
   const nextGasEntries = [...(data.gasEntries || [])];
   const existingIndex = nextGasEntries.findIndex((x) => x.id === record.id);
@@ -997,25 +1041,39 @@ const isBigCylinder = gasForm.cylinderSize === 'Big Cylinder';
 });
 
   const products = data.products
-  .filter((p) => String(p.shopid || p.shopId) === String(shop.id))
+  .filter((p) => String(p.shop_id || p.shopId || p.shopid) === String(shop.id))
   .map(normalizeProduct);
-const sales = data.sales.filter((s) => s.shopId === shop.id);
-  const creditSales = data.creditSales.filter((s) => s.shopId === shop.id);
-  const changeLedger = data.changeLedger.filter((s) => s.shopId === shop.id);
-  const expenses = data.expenses.filter((e) => e.shopId === shop.id);
+const sales = data.sales.filter(
+  (s) => String(s.shop_id || s.shopId || s.shopid) === String(shop.id)
+);
+  const creditSales = data.creditSales.filter(
+  (s) => String(s.shop_id || s.shopId || s.shopid) === String(shop.id)
+);
+  const changeLedger = data.changeLedger.filter(
+  (s) => String(s.shop_id || s.shopId || s.shopid) === String(shop.id)
+);
+  const expenses = data.expenses.filter(
+  (e) => String(e.shop_id || e.shopId || e.shopid) === String(shop.id)
+);
   const expenseEntries = data.expenses
   .map((e, originalIndex) => ({ ...e, originalIndex }))
-  .filter((e) => e.shopId === shop.id);
-const purchases = data.purchases.filter((p) => p.shopId === shop.id);
+  .filter((e) => String(e.shop_id || e.shopId || e.shopid) === String(shop.id));
+const purchases = data.purchases.filter(
+  (p) => String(p.shop_id || p.shopId || p.shopid) === String(shop.id)
+);
 const todayPurchases = purchases.filter(
   (p) => p.date === todayISO() && !p.confirmed
 );
 const todayProducts = data.products
-  .filter((p) => String(p.shopid || p.shopId) === String(shop.id) && p.confirmed !== true)
+  .filter((p) => String(p.shop_id || p.shopId || p.shopid) === String(shop.id) && p.confirmed !== true)
   .map(normalizeProduct);
-const mobileMoneyEntries = data.mobileMoneyEntries.filter((m) => m.shopId === shop.id);
+const mobileMoneyEntries = data.mobileMoneyEntries.filter(
+  (m) => String(m.shop_id || m.shopId || m.shopid) === String(shop.id)
+);
 const todayMobileMoneyEntries = mobileMoneyEntries.filter((m) => m.date === todayISO());
-const gasEntries = (data.gasEntries || []).filter((g) => g.shopId === shop.id);
+const gasEntries = (data.gasEntries || []).filter(
+  (g) => String(g.shop_id || g.shopId || g.shopid) === String(shop.id)
+);
 const todayGasEntries = gasEntries.filter((g) => g.date === todayISO());
   const reportDateValue =
   reportPreset === 'date'
@@ -1473,18 +1531,25 @@ saleLock.current = false;
 
     const total = cart.reduce((a, c) => a + c.total, 0);
     const saleRecord = {
-      id: `sale-${Date.now()}`,
-      shopId: shop.id,
-      items: cart,
-      total,
-      type: 'cash',
-      date: todayISO(),
-    };
+  id: `sale-${Date.now()}`,
+  shop_id: shop.id,
+  shopId: shop.id,
+  shopid: shop.id,
+  items: cart,
+  total,
+  amountPaid,
+  change,
+  customerName: customerName || '',
+  date: todayISO(),
+  created_at: new Date().toISOString(),
+};
 
-    saveData({
+   saveData({
   ...data,
   products: nextProducts,
+  sales: [...data.sales, saleRecord],
 });
+
 addToSyncQueue('sale_created', saleRecord);
 console.log('Sending sale to Supabase:', saleRecord);
 
@@ -1492,7 +1557,12 @@ const { error } = await supabase
   .from('sales')
   .insert([
     {
-      ...saleRecord,
+      id: saleRecord.id,
+      shopid: saleRecord.shop_id || saleRecord.shopId || saleRecord.shopid,
+      items: saleRecord.items,
+      total: saleRecord.total,
+      type: saleRecord.type,
+      date: saleRecord.date,
       created_at: new Date().toISOString(),
     },
   ]);
@@ -1500,7 +1570,31 @@ const { error } = await supabase
 if (error) {
   alert(`Sales sync failed: ${error.message}`);
   setSaleSaving(false);
-saleLock.current = false;
+  saleLock.current = false;
+  return;
+}
+
+const productRows = nextProducts
+  .filter((p) => String(p.shop_id || p.shopId || p.shopid) === String(shop.id))
+  .map((p) => ({
+    id: p.id,
+    name: p.name,
+    buyingprice: Number(p.buyPrice || 0),
+    sellingprice: Number(p.sellPrice || 0),
+    stock: Number(p.stockBaseQty || 0),
+    shopid: p.shop_id || p.shopId || p.shopid,
+    baseunit: p.baseUnit || 'pc',
+    created_at: p.created_at || new Date().toISOString(),
+  }));
+
+const { error: productError } = await supabase
+  .from('products')
+  .upsert(productRows, { onConflict: 'id' });
+
+if (productError) {
+  alert(`Product stock sync failed: ${productError.message}`);
+  setSaleSaving(false);
+  saleLock.current = false;
   return;
 }
 
@@ -1554,9 +1648,11 @@ saleLock.current = false;
 
             const subUnitsRaw = unit === 'pc' ? '' : '0.75,0.5,0.25';
 
-            return normalizeProduct({
+     return normalizeProduct({
   id: `import-${Date.now()}-${index}`,
+  shop_id: shop.id,
   shopId: shop.id,
+  shopid: shop.id,
   name: productName,
   baseUnit: unit,
   baseQty: 1,
@@ -1586,7 +1682,7 @@ const rowsToSync = importedProducts.map((p) => ({
   buyingprice: Number(p.buyPrice || 0),
   sellingprice: Number(p.sellPrice || 0),
   stock: Number(p.stockBaseQty || 0),
-  shopid: p.shopId,
+  shopid: p.shop_id || p.shopId || p.shopid,
   baseunit: p.baseUnit || 'pc',
   created_at: p.created_at || new Date().toISOString(),
 }));
@@ -1682,9 +1778,11 @@ if (usedInSales || usedInPurchases) {
       const row = rows[idx];
       if (!row.name || !row.unit || !row.buyPrice || !row.sellPrice || row.stockQty === '') continue;
 
-      const prepared = normalizeProduct({
+     const prepared = normalizeProduct({
   id: row.id || `p-${Date.now()}-${idx}`,
+  shop_id: shop.id,
   shopId: shop.id,
+  shopid: shop.id,
   name: row.name,
   buyPrice: Number(row.buyPrice),
   sellPrice: Number(row.sellPrice),
@@ -1710,14 +1808,14 @@ if (usedInSales || usedInPurchases) {
    saveData({ ...data, products: nextProducts });
 
 const rowsToSync = nextProducts
-  .filter((p) => p.shopId === shop.id)
+  .filter((p) => String(p.shop_id || p.shopId || p.shopid) === String(shop.id))
   .map((p) => ({
     id: p.id,
     name: p.name,
     buyingprice: Number(p.buyPrice || 0),
     sellingprice: Number(p.sellPrice || 0),
     stock: Number(p.stockBaseQty || 0),
-    shopid: p.shopId,
+    shopid: p.shop_id || p.shopId || p.shopid,
     baseunit: p.baseUnit || 'pc',
     created_at: p.created_at || new Date().toISOString(),
   }));
@@ -1754,7 +1852,9 @@ const savePurchaseRows = () => {
 
    const preparedPurchase = {
   id: row.id || `purchase-${Date.now()}-${idx}`,
+  shop_id: shop.id,
   shopId: shop.id,
+  shopid: shop.id,
   productId: row.productId,
   quantity,
   unitCost,
@@ -1807,16 +1907,18 @@ const saveExpenseRows = async () => {
 
   for (const [idx, row] of rows.entries()) {
     const preparedExpense = {
-      ...row,
-      id: row.id || `expense-${Date.now()}-${idx}`,
-      shopId: shop.id,
-      title: row.title || '',
-      description: row.title || '',
-      amount: Number(row.amount || 0),
-      category: row.category || '',
-      date: row.date || todayISO(),
-      created_at: row.created_at || new Date().toISOString(),
-    };
+  ...row,
+  id: row.id || `expense-${Date.now()}-${idx}`,
+  shop_id: shop.id,
+  shopId: shop.id,
+  shopid: shop.id,
+  title: row.title || '',
+  description: row.title || '',
+  amount: Number(row.amount || 0),
+  category: row.category || '',
+  date: row.date || todayISO(),
+  created_at: row.created_at || new Date().toISOString(),
+};
 
     const existingIndex = nextExpenses.findIndex((x) => x.id === preparedExpense.id);
     if (existingIndex >= 0) {
@@ -1862,26 +1964,30 @@ const saveExpenseRows = async () => {
         ...rows
           .filter((r) => r.customerName && r.amount)
           .map((row, idx) => ({
-            ...row,
-            id: row.id || `credit-${Date.now()}-${idx}`,
-            shopId: shop.id,
-            amount: Number(row.amount || 0),
-            balance: Number(row.amount || 0),
-            date: todayISO(),
-          })),
+  ...row,
+  id: row.id || `credit-${Date.now()}-${idx}`,
+  shop_id: shop.id,
+  shopId: shop.id,
+  shopid: shop.id,
+  amount: Number(row.amount || 0),
+  balance: Number(row.amount || 0),
+  date: todayISO(),
+})),
       ],
     });
 rows
   .filter((r) => r.customerName && r.amount)
   .forEach((row, idx) => {
     const creditRecord = {
-      ...row,
-      id: row.id || `credit-${Date.now()}-${idx}`,
-      shopId: shop.id,
-      amount: Number(row.amount || 0),
-      paid: 0,
-      date: todayISO(),
-    };
+  ...row,
+  id: row.id || `credit-${Date.now()}-${idx}`,
+  shop_id: shop.id,
+  shopId: shop.id,
+  shopid: shop.id,
+  amount: Number(row.amount || 0),
+  paid: 0,
+  date: todayISO(),
+};
 
     addToSyncQueue('credit_created', creditRecord);
     supabase.from('creditSales').insert([creditRecord]);
@@ -1922,12 +2028,14 @@ setCreditReduceMap((prev) => ({ ...prev, [creditId]: '' }));
         ...rows
           .filter((r) => r.customerName && r.amountOwed)
           .map((row, idx) => ({
-            ...row,
-            id: row.id || `change-${Date.now()}-${idx}`,
-            shopId: shop.id,
-            amountOwed: Number(row.amountOwed || 0),
-            date: todayISO(),
-          })),
+  ...row,
+  id: row.id || `change-${Date.now()}-${idx}`,
+  shop_id: shop.id,
+  shopId: shop.id,
+  shopid: shop.id,
+  amountOwed: Number(row.amountOwed || 0),
+  date: todayISO(),
+})),
       ],
     });
     setChangeRows([{ ...emptyChangeRow }]);
@@ -1984,26 +2092,28 @@ setCreditReduceMap((prev) => ({ ...prev, [creditId]: '' }));
     }));
 
   const saveMobileMoney = () => {
-   const record = {
-  id: mobileMoneyForm.id || `mm-${Date.now()}`,
-  shopId: shop.id,
-  date: mobileMoneyForm.date || todayISO(),
-  mobileCashTotal: Number(mobileMoneyForm.mobileCashTotal || 0),
-  bankCashTotal: Number(mobileMoneyForm.bankCashTotal || 0),
-  mobileCapital: Number(mobileMoneyForm.mobileCapital || 0),
-  bankCapital: Number(mobileMoneyForm.bankCapital || 0),
-      networks: mobileMoneyForm.networks.map((n) => ({
-        provider: n.provider,
-        float: Number(n.float || 0),
-        commission: Number(n.commission || 0),
-      })),
-      banks: mobileMoneyForm.banks.map((b) => ({
-        bankName: b.bankName,
-        float: Number(b.float || 0),
-        commission: Number(b.commission || 0),
-      })),
-      notes: mobileMoneyForm.notes || '',
-    };
+  const record = {
+    id: mobileMoneyForm.id || `mm-${Date.now()}`,
+    shop_id: shop.id,
+    shopId: shop.id,
+    shopid: shop.id,
+    date: mobileMoneyForm.date || todayISO(),
+    mobileCashTotal: Number(mobileMoneyForm.mobileCashTotal || 0),
+    bankCashTotal: Number(mobileMoneyForm.bankCashTotal || 0),
+    mobileCapital: Number(mobileMoneyForm.mobileCapital || 0),
+    bankCapital: Number(mobileMoneyForm.bankCapital || 0),
+    networks: mobileMoneyForm.networks.map((n) => ({
+      provider: n.provider,
+      float: Number(n.float || 0),
+      commission: Number(n.commission || 0),
+    })),
+    banks: mobileMoneyForm.banks.map((b) => ({
+      bankName: b.bankName,
+      float: Number(b.float || 0),
+      commission: Number(b.commission || 0),
+    })),
+    notes: mobileMoneyForm.notes || '',
+  };
 
     const next = [...data.mobileMoneyEntries];
     const existingIndex = next.findIndex((x) => x.id === record.id);
@@ -2409,8 +2519,8 @@ supabase.from('mobileMoneyEntries').insert([record]);
     type="button"
     onClick={async () => {
       const purchasesToConfirm = data.purchases.filter(
-        (purchase) => purchase.shopId === shop.id && !purchase.confirmed
-      );
+  (purchase) => String(purchase.shop_id || purchase.shopId || purchase.shopid) === String(shop.id) && !purchase.confirmed
+);
 
       if (!purchasesToConfirm.length) {
         alert('No unconfirmed purchases found.');
@@ -2420,7 +2530,7 @@ supabase.from('mobileMoneyEntries').insert([record]);
       const nextProducts = [...data.products];
 
       const nextPurchases = data.purchases.map((purchase) => {
-        if (purchase.shopId !== shop.id || purchase.confirmed) return purchase;
+        if (String(purchase.shop_id || purchase.shopId || purchase.shopid) !== String(shop.id) || purchase.confirmed) return purchase;
 
         const pIdx = nextProducts.findIndex((p) => p.id === purchase.productId);
 
@@ -2445,15 +2555,15 @@ supabase.from('mobileMoneyEntries').insert([record]);
       });
 
       const productRows = nextProducts
-        .filter((p) => p.shopId === shop.id)
-        .map((p) => ({
-          id: p.id,
-          name: p.name,
-          buyingprice: Number(p.buyPrice || 0),
-          sellingprice: Number(p.sellPrice || 0),
-          stock: Number(p.stockBaseQty || 0),
-          shopid: p.shopId,
-        }));
+  .filter((p) => String(p.shop_id || p.shopId || p.shopid) === String(shop.id))
+  .map((p) => ({
+    id: p.id,
+    name: p.name,
+    buyingprice: Number(p.buyPrice || 0),
+    sellingprice: Number(p.sellPrice || 0),
+    stock: Number(p.stockBaseQty || 0),
+    shopid: p.shop_id || p.shopId || p.shopid,
+  }));
 
       const { error: productError } = await supabase
         .from('products')
@@ -2464,8 +2574,11 @@ supabase.from('mobileMoneyEntries').insert([record]);
         return;
       }
 
-      const purchaseRows = purchasesToConfirm.map((purchase) => ({
+     const purchaseRows = purchasesToConfirm.map((purchase) => ({
   ...purchase,
+  shop_id: purchase.shop_id || purchase.shopId || purchase.shopid,
+  shopId: purchase.shop_id || purchase.shopId || purchase.shopid,
+  shopid: purchase.shop_id || purchase.shopId || purchase.shopid,
   confirmed: true,
   created_at: purchase.created_at || new Date().toISOString(),
 }));
@@ -3764,6 +3877,7 @@ const fixedProducts = (products || []).map((p) => ({
   sellPrice: Number(p.sellingprice || 0),
   stockBaseQty: Number(p.stock || 0),
   stockQty: Number(p.stock || 0),
+  shop_id: p.shopid,
   shopId: p.shopid,
   shopid: p.shopid,
   baseUnit: p.baseunit || 'pc',
@@ -3784,17 +3898,21 @@ setData((prev) => ({
   ...prev,
   products: fixedProducts,
   sales: sales?.length
-    ? sales.map((s) => ({
-        ...s,
-        shopId: s.shopId || s.shopid,
-        date: s.date || (s.created_at ? String(s.created_at).slice(0, 10) : todayISO()),
-      }))
-    : prev.sales,
+  ? sales.map((s) => ({
+      ...s,
+      shop_id: s.shop_id || s.shopId || s.shopid,
+      shopId: s.shop_id || s.shopId || s.shopid,
+      shopid: s.shop_id || s.shopId || s.shopid,
+      date: s.date || (s.created_at ? String(s.created_at).slice(0, 10) : todayISO()),
+    }))
+  : prev.sales,
   purchases: purchases?.length ? purchases : prev.purchases,
   expenses: expenses?.length
   ? expenses.map((e) => ({
       id: e.id,
-      shopId: e.shopId,
+      shop_id: e.shop_id || e.shopId || e.shopid,
+      shopId: e.shop_id || e.shopId || e.shopid,
+      shopid: e.shop_id || e.shopId || e.shopid,
       title: e.title || e.description || '',
       description: e.description || e.title || '',
       amount: Number(e.amount || 0),
