@@ -996,7 +996,7 @@ const isBigCylinder = gasForm.cylinderSize === 'Big Cylinder';
 });
 
   const products = data.products
-  .filter((p) => String(p.shopId || p.shopid) === String(shop.id))
+  .filter((p) => true)
   .map(normalizeProduct);
 const sales = data.sales.filter((s) => s.shopId === shop.id);
   const creditSales = data.creditSales.filter((s) => s.shopId === shop.id);
