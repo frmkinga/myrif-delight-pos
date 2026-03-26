@@ -3692,10 +3692,14 @@ const [syncMessage, setSyncMessage] = useState('');
 const [isHydrating, setIsHydrating] = useState(true);
 const [hasLoadedInitialData, setHasLoadedInitialData] = useState(false);
 
-  useEffect(() => {
+ useEffect(() => {
   readData()
     .then((loaded) => {
-      setData(loaded);
+      setData(prev => ({
+        ...prev,
+        ...loaded,
+        products: prev.products,
+      }));
     })
     .catch((error) => {
       console.error('readData init failed:', error);
