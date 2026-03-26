@@ -3761,7 +3761,7 @@ useEffect(() => {
       const { data: mobileMoneyEntries } = await supabase.from('mobileMoneyEntries').select('*');
       const { data: gasEntries } = await supabase.from('gasEntries').select('*');
 
-      const fixedProducts = (products || []).map((p) => ({
+const fixedProducts = (products || []).map((p) => ({
   id: p.id,
   name: p.name,
   buyPrice: Number(p.buyingprice || 0),
@@ -3779,7 +3779,12 @@ useEffect(() => {
   confirmed: true,
 }));
 
-      setData((prev) => ({
+console.log(
+  'CLOUD FIXED PRODUCTS',
+  fixedProducts.filter((p) => (p.name || '').toLowerCase().includes('mikate'))
+);
+
+setData((prev) => ({
   ...prev,
   products: fixedProducts,
   sales: sales?.length
