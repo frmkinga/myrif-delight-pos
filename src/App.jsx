@@ -946,28 +946,6 @@ const saveGas = async () => {
     gasEntries: nextGasEntries,
   });
 
-  const saveGas = async () => {
-  const record = {
-    ...buildGasRecord(gasForm),
-    shop_id: shop.id,
-    shopId: shop.id,
-    shopid: shop.id,
-  };
-
-  const nextGasEntries = [...(data.gasEntries || [])];
-  const existingIndex = nextGasEntries.findIndex((x) => x.id === record.id);
-
-  if (existingIndex >= 0) {
-    nextGasEntries[existingIndex] = record;
-  } else {
-    nextGasEntries.push(record);
-  }
-
-  saveData({
-    ...data,
-    gasEntries: nextGasEntries,
-  });
-
   addToSyncQueue('gas_created', record);
 
   const { error } = await supabase
@@ -982,7 +960,6 @@ const saveGas = async () => {
 
   setGasForm({ ...emptyGasForm, date: todayISO() });
 };
-
 const editGas = (entry) => {
   setGasForm({
     id: entry.id,
