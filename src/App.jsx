@@ -910,39 +910,6 @@ const totalBusinessProfit = totalProfit + totalGasProfit + totalWakalaCommission
     </div>
   </CardContent>
 </Card>
-<Card className="mt-6">
-  <CardHeader>
-    <CardTitle>{t(language, 'Change Admin Password', 'Badili Nenosiri la Admin')}</CardTitle>
-  </CardHeader>
-  <CardContent className="space-y-3">
-    <Input
-      type="password"
-      placeholder={t(language, 'Current password', 'Nenosiri la sasa')}
-      value={currentPasswordInput}
-      onChange={(e) => setCurrentPasswordInput(e.target.value)}
-    />
-    <Input
-      type="password"
-      placeholder={t(language, 'New password', 'Nenosiri jipya')}
-      value={newPasswordInput}
-      onChange={(e) => setNewPasswordInput(e.target.value)}
-    />
-    <Input
-      type="password"
-      placeholder={t(language, 'Confirm new password', 'Thibitisha nenosiri jipya')}
-      value={confirmPasswordInput}
-      onChange={(e) => setConfirmPasswordInput(e.target.value)}
-    />
-    {passwordMessage ? (
-      <div className="rounded-2xl bg-slate-50 p-3 text-sm text-slate-700">
-        {passwordMessage}
-      </div>
-    ) : null}
-    <Button type="button" onClick={changeAdminPassword}>
-      {t(language, 'Save New Password', 'Hifadhi Nenosiri Jipya')}
-    </Button>
-  </CardContent>
-</Card>
       <div className="mt-6 grid gap-4 lg:grid-cols-3 text-base">
         {data.shops.map((shop) => {
           const shopSales = filterByPreset(
