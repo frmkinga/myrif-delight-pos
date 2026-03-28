@@ -1818,22 +1818,23 @@ if (error) {
     ]);
   };
 
- const deleteProduct = async (productId) => {
-const usedInSales = data.sales.some((sale) =>
-  (sale.items || []).some((item) => item.productId === productId)
-);
-const usedInPurchases = data.purchases.some((purchase) => purchase.productId === productId);
-
-if (usedInSales || usedInPurchases) {
-  alert(
-    t(
-      language,
-      'This product is already used in sales or purchases, so it cannot be deleted.',
-      'Bidhaa hii tayari imetumika kwenye mauzo au manunuzi, hivyo haiwezi kufutwa.',
-    ),
+const deleteProduct = async (productId) => {
+  const usedInSales = data.sales.some((sale) =>
+    (sale.items || []).some((item) => item.productId === productId)
   );
-  return;
-}
+  const usedInPurchases = data.purchases.some((purchase) => purchase.productId === productId);
+
+  if (usedInSales || usedInPurchases) {
+    alert(
+      t(
+        language,
+        'This product is already used in sales or purchases, so it cannot be deleted.',
+        'Bidhaa hii tayari imetumika kwenye mauzo au manunuzi, hivyo haiwezi kufutwa.',
+      ),
+    );
+    return;
+  }
+
   saveData({ ...data, products: data.products.filter((x) => x.id !== productId) });
 
   const { error } = await supabase
@@ -1849,66 +1850,85 @@ if (usedInSales || usedInPurchases) {
   if (newProductRows.some((row) => row.id === productId)) resetProductForm();
 };
 
-  const saveProductRows = async () => {
-    const rows = newProductRows.filter((r) => r.name || r.buyPrice || r.sellPrice || r.stockQty);
-    if (!rows.length) return setProductFormError(t(language, 'Please fill at least one product row.', 'Jaza angalau mstari mmoja wa bidhaa.'));
+const saveProductRows = async () => {
+  const rows = newProductRows.filter((r) => r.name || r.buyPrice || r.sellPrice || r.stockQty);
+  if (!rows.length) {
+    return setProductFormError(
+      t(language, 'Please fill at least one product row.', 'Jaza angalau mstari mmoja wa bidhaa.')
+    );
+  }
 
-    const nextProducts = [...data.products];
+  const nextProducts = [...data.products];
 
-    for (let idx = 0; idx < rows.length; idx += 1) {
-      const row = rows[idx];
-      if (!row.name || !row.unit || !row.buyPrice || !row.sellPrice || row.stockQty === '') continue;
+  for (let idx = 0; idx < rows.length; idx += 1) {
+    const row = rows[idx];
+    if (!row.name || !row.unit || !row.buyPrice || !row.sellPrice || row.stockQty === '') continue;
 
-     const prepared = normalizeProduct({
-  id: row.id || `p-${Date.now()}-${idx}`,
-  shop_id: shop.id,
-  name: row.name,
-  buyPrice: Number(row.buyPrice),
-  sellPrice: Number(row.sellPrice),
-  stock: Number(row.stockQty),
-  stockBaseQty: Number(row.stockQty),
-  baseUnit: row.unit || 'pc',
-  minStockLevel: Number(row.minStockLevel || 5),
-  expiryDate: row.expiryDate || '',
-  qrCode: row.qrCode || '',
-  subUnitsRaw: row.unit === 'pc' ? '' : row.subUnits || '',
-  created_at: new Date().toISOString(),
-  createdAt: row.id
-    ? (nextProducts.find((p) => p.id === row.id)?.createdAt || todayISO())
-    : todayISO(),
-  confirmed: true,
-});
+    const buyPrice = Number(row.buyPrice || 0);
+    const sellPrice = Number(row.sellPrice || 0);
 
-      const existingIndex = nextProducts.findIndex((p) => p.id === prepared.id);
-      if (existingIndex >= 0) nextProducts[existingIndex] = prepared;
-      else nextProducts.push(prepared);
+    if (sellPrice <= buyPrice) {
+      setProductFormError(
+        t(
+          language,
+          `Selling price must be greater than buying price for ${row.name || 'this product'}.`,
+          `Bei ya kuuza lazima iwe kubwa kuliko bei ya kununua kwa ${row.name || 'bidhaa hii'}.`
+        )
+      );
+      return;
     }
 
-   saveData({ ...data, products: nextProducts });
+    const prepared = normalizeProduct({
+      id: row.id || `p-${Date.now()}-${idx}`,
+      shop_id: shop.id,
+      name: row.name,
+      buyPrice: Number(row.buyPrice),
+      sellPrice: Number(row.sellPrice),
+      stock: Number(row.stockQty),
+      stockBaseQty: Number(row.stockQty),
+      baseUnit: row.unit || 'pc',
+      minStockLevel: Number(row.minStockLevel || 5),
+      expiryDate: row.expiryDate || '',
+      qrCode: row.qrCode || '',
+      subUnitsRaw: row.unit === 'pc' ? '' : row.subUnits || '',
+      created_at: new Date().toISOString(),
+      createdAt: row.id
+        ? (nextProducts.find((p) => p.id === row.id)?.createdAt || todayISO())
+        : todayISO(),
+      confirmed: true,
+    });
 
-const rowsToSync = nextProducts
-  .filter((p) => String(p.shop_id) === String(shop.id))
-  .map((p) => ({
-    id: p.id,
-    name: p.name,
-    buyingprice: Number(p.buyPrice || 0),
-    sellingprice: Number(p.sellPrice || 0),
-    stock: Number(p.stockBaseQty || 0),
-    shop_id: p.shop_id,
-    baseunit: p.baseUnit || 'pc',
-    created_at: p.created_at || new Date().toISOString(),
-  }));
+    const existingIndex = nextProducts.findIndex((p) => p.id === prepared.id);
+    if (existingIndex >= 0) nextProducts[existingIndex] = prepared;
+    else nextProducts.push(prepared);
+  }
 
-const { error } = await supabase
-  .from('products')
-  .upsert(rowsToSync, { onConflict: 'id' });
+  saveData({ ...data, products: nextProducts });
 
-if (error) {
-  alert(`Product sync failed: ${error.message}`);
-  return;
-}
+  const rowsToSync = nextProducts
+    .filter((p) => String(p.shop_id) === String(shop.id))
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      buyingprice: Number(p.buyPrice || 0),
+      sellingprice: Number(p.sellPrice || 0),
+      stock: Number(p.stockBaseQty || 0),
+      shop_id: p.shop_id,
+      baseunit: p.baseUnit || 'pc',
+      created_at: p.created_at || new Date().toISOString(),
+    }));
 
-setNewProductRows([{ ...emptyProductRow }]);
+  const { error } = await supabase
+    .from('products')
+    .upsert(rowsToSync, { onConflict: 'id' });
+
+  if (error) {
+    alert(`Product sync failed: ${error.message}`);
+    return;
+  }
+
+  setNewProductRows([{ ...emptyProductRow }]);
+  setProductFormError('');
 };
 
   const addPurchaseRow = () => setPurchaseRows((prev) => [...prev, { ...emptyPurchaseRow }]);
