@@ -1232,12 +1232,7 @@ const bankFloat = latestMobileEntry ? getBankFloatTotal(latestMobileEntry) : 0;
 const mobileCommission = latestMobileEntry ? getMobileCommissionTotal(latestMobileEntry) : 0;
 const bankCommission = latestMobileEntry ? getBankCommissionTotal(latestMobileEntry) : 0;
 
-  const quickProducts = useMemo(() => {
-    const q = quickSearch.trim().toLowerCase();
-    if (!q) return [];
-    return products.filter((p) => p.name.toLowerCase().includes(q)).slice(0, 10);
-  }, [quickSearch, products]);
-
+ const quickProducts = [];
  const stockValueRows = useMemo(
   () =>
     products
