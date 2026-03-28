@@ -343,12 +343,13 @@ const seedData = {
     { id: 'shop-5', name: 'Mungu Mwema Shop' },
   ],
   users: [
-  { id: 'u-owner', username: 'admin', password: 'admin123', role: 'owner', shop_id: null, name: 'Owner Admin' },
-  { id: 'u-1', username: 'shop1', password: '1234', role: 'shop', shop_id: 'shop-1', shopId: 'shop-1', name: 'Nyumbani User' },
-  { id: 'u-2', username: 'shop2', password: '1234', role: 'shop', shop_id: 'shop-2', shopId: 'shop-2', name: 'Mkwajuni User' },
-  { id: 'u-3', username: 'shop3', password: '1234', role: 'shop', shop_id: 'shop-3', shopId: 'shop-3', name: 'Kwa Maganga User' },
-  { id: 'u-4', username: 'shop4', password: '1234', role: 'shop', shop_id: 'shop-4', shopId: 'shop-4', name: 'Shangwe User' },
-  { id: 'u-5', username: 'shop5', password: '1234', role: 'shop', shop_id: 'shop-5', shopId: 'shop-5', name: 'Mungu Mwema User' },
+  users: [
+  { id: 'u-owner', username: 'admin', email: 'admin@12345.com', password: 'admin123', role: 'owner', shop_id: null, name: 'Owner Admin' },
+  { id: 'u-1', username: 'shop1', email: 'nyumbani@shop1.com', password: '1234', role: 'shop', shop_id: 'shop-1', shopId: 'shop-1', name: 'Nyumbani User' },
+  { id: 'u-2', username: 'shop2', email: 'mkwajuni@shop2.com', password: '1234', role: 'shop', shop_id: 'shop-2', shopId: 'shop-2', name: 'Mkwajuni User' },
+  { id: 'u-3', username: 'shop3', email: 'kwamaganga@shop3.com', password: '1234', role: 'shop', shop_id: 'shop-3', shopId: 'shop-3', name: 'Kwa Maganga User' },
+  { id: 'u-4', username: 'shop4', email: 'shangwe@shop4.com', password: '1234', role: 'shop', shop_id: 'shop-4', shopId: 'shop-4', name: 'Shangwe User' },
+  { id: 'u-5', username: 'shop5', email: 'mungumwema@shop5.com', password: '1234', role: 'shop', shop_id: 'shop-5', shopId: 'shop-5', name: 'Mungu Mwema User' },
 ],
   products: [],
   sales: [],
@@ -640,10 +641,24 @@ function Login({ onLogin, users, language, setLanguage }) {
 const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
-  const submit = (e) => {
+    const submit = async (e) => {
     e.preventDefault();
-    const found = users.find((u) => u.username === username && u.password === password);
-    if (!found) return setError(t(language, 'Wrong username or password.', 'Jina la mtumiaji au nenosiri si sahihi.'));
+
+    const found = users.find((u) => u.username === username);
+
+    if (!found || !found.email) {
+      return setError(t(language, 'Wrong username or password.', 'Jina la mtumiaji au nenosiri si sahihi.'));
+    }
+
+    const { error: authError } = await supabase.auth.signInWithPassword({
+      email: found.email,
+      password,
+    });
+
+    if (authError) {
+      return setError(t(language, 'Wrong username or password.', 'Jina la mtumiaji au nenosiri si sahihi.'));
+    }
+
     setError('');
     onLogin(found);
   };
