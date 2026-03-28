@@ -4506,12 +4506,16 @@ const importBackup = () => {
   if (user.role === 'shop') setActiveShopId(user.shop_id || user.shopId);
 };
 
-  const logout = () => {
+  const logout = async () => {
+  await supabase.auth.signOut();
+
   writeStorage(STORAGE_SESSION_KEY, null);
+
   setData((prev) => ({
     ...prev,
     currentUser: null,
   }));
+
   setActiveShopId(null);
 };
 if (!hasLoadedInitialData) {
