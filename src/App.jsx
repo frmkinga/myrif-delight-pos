@@ -346,13 +346,13 @@ const seedData = {
   { id: 'u-5', username: 'shop5', password: '1234', role: 'shop', shop_id: 'shop-5', name: 'Mungu Mwema User' },
 ],
   products: [],
-  sales: [],
-  creditSales: [],
-  changeLedger: [],
-  expenses: [],
-    purchases: [],
-  mobileMoneyEntries: [],
-  gasEntries: [],
+sales: [],
+creditSales: [],
+changeLedger: [],
+expenses: [],
+purchases: [],
+mobileMoneyEntries: [],
+gasEntries: [],
 };
 
 function getLegacyData() {
@@ -437,15 +437,8 @@ async function readData() {
           : await cloudQuery;
 
         if (cloudProducts) {
-          const normalized = normalizeData({
-            ...seedData,
-            products: (cloudProducts || []).filter((p) => p.shop_id),
-            currentUser: savedSessionUser,
-          });
-
-          await writeToDB(DB_DATA_KEY, normalized);
-          return normalized;
-        }
+  console.log('Cloud products found, but skipping early return and continuing to local restore.');
+}
       } catch (error) {
         console.error('Cloud product read failed, falling back to local:', error);
       }
@@ -467,7 +460,7 @@ async function readData() {
       const normalized = normalizeData({
         ...raw,
         currentUser: savedSessionUser,
-        products: [],
+       products: raw.products || [],
         sales: separateSales || raw.sales,
         purchases: separatePurchases || raw.purchases,
         expenses: separateExpenses || raw.expenses,
@@ -4000,7 +3993,7 @@ setData((prev) => ({
     }
   };
 
- loadCloudData();
+ // loadCloudData();
 
 }, []);
 
