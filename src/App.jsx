@@ -2609,7 +2609,25 @@ supabase.from('mobileMoneyEntries').insert([record]);
   <option value="ltr">ltr</option>
 </select>
                       <Input type="number" placeholder={t(language, 'Buying price *', 'Bei ya kununua *')} value={row.buyPrice} onChange={(e) => updateProductRow(index, 'buyPrice', e.target.value)} />
-                      <Input type="number" placeholder={t(language, 'Selling price *', 'Bei ya kuuza *')} value={row.sellPrice} onChange={(e) => updateProductRow(index, 'sellPrice', e.target.value)} />
+                     <div>
+  <Input
+    type="number"
+    placeholder={t(language, 'Selling price *', 'Bei ya kuuza *')}
+    value={row.sellPrice}
+    onChange={(e) => updateProductRow(index, 'sellPrice', e.target.value)}
+  />
+  {Number(row.sellPrice || 0) > 0 &&
+  Number(row.buyPrice || 0) > 0 &&
+  Number(row.sellPrice || 0) <= Number(row.buyPrice || 0) ? (
+    <div className="mt-1 text-xs text-red-600">
+      {t(
+        language,
+        'Selling price must be greater than buying price.',
+        'Bei ya kuuza lazima iwe kubwa kuliko bei ya kununua.'
+      )}
+    </div>
+  ) : null}
+</div>
                       <Input type="number" placeholder={t(language, 'Opening stock *', 'Stock ya mwanzo *')} value={row.stockQty} onChange={(e) => updateProductRow(index, 'stockQty', e.target.value)} />
                       <Input type="number" placeholder={t(language, 'Minimum stock', 'Kiwango cha chini')} value={row.minStockLevel} onChange={(e) => updateProductRow(index, 'minStockLevel', e.target.value)} />
                       <Input type="date" value={row.expiryDate} onChange={(e) => updateProductRow(index, 'expiryDate', e.target.value)} />
