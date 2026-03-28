@@ -124,20 +124,22 @@ async function processSyncQueue() {
         );
 if (Array.isArray(item.payload.products)) {
   const safeProductRows = item.payload.products
+    .filter((p) => p.id && p.shop_id && p.name)
     .map((p) => ({
-      id: p?.id || '',
-      name: String(p?.name || '').trim(),
-      buyingprice: Number(p?.buyPrice || 0),
-      sellingprice: Number(p?.sellPrice || 0),
-      stock: Number(p?.stockBaseQty || 0),
-      shop_id: p?.shop_id || '',
-      baseunit: p?.baseUnit || 'pc',
-      created_at: p?.created_at || new Date().toISOString(),
-    }))
-    .filter((p) => p.id && p.name && p.shop_id);
+      id: p.id,
+      name: String(p.name || '').trim(),
+      buyingprice: Number(p.buyPrice || 0),
+      sellingprice: Number(p.sellPrice || 0),
+      stock: Number(p.stockBaseQty || 0),
+      shop_id: p.shop_id,
+      baseunit: p.baseUnit || 'pc',
+      created_at: p.created_at || new Date().toISOString(),
+    }));
 
   if (safeProductRows.length) {
-    await supabase.from('products').upsert(safeProductRows, { onConflict: 'id' });
+    await supabase
+      .from('products')
+      .upsert(safeProductRows, { onConflict: 'id' });
   }
 }
       } else if (item.actionType === 'purchase_created') {
@@ -2229,7 +2231,181 @@ supabase.from('mobileMoneyEntries').insert([record]);
 };
 
   const deleteMobileMoney = (id) => saveData({ ...data, mobileMoneyEntries: data.mobileMoneyEntries.filter((m) => m.id !== id) });
+  const exportCurrentReportToExcel = () => {
+    let rows = [];
+    const reportDateLabel =
+      reportPreset === 'date'
+        ? `${reportStartDate}_to_${reportEndDate}`
+        : reportPreset;
 
+    if (reportType === 'stockValue') {
+      rows = stockValueRows.map((row) => ({
+        ProductName: row.name,
+        DateRecorded: row.createdAt || '',
+        Unit: row.baseUnit,
+        Balance: Number(row.stockBaseQty || 0),
+        BuyPrice: Number(row.buyPrice || 0),
+        SellPrice: Number(row.sellPrice || 0),
+        StockValue: Number(row.stockValue || 0),
+        ProfitPerProduct: Number(row.totalProfitIfSold || 0),
+      }));
+    } else if (reportType === 'expiryAlert') {
+      rows = expiringProducts.map((row) => ({
+        ProductName: row.name,
+        Unit: row.baseUnit,
+        Balance: Number(row.stockBaseQty || 0),
+        ExpiryDate: row.expiryDate || '',
+        DaysLeft: Number(row.daysLeft || 0),
+        BuyPrice: Number(row.buyPrice || 0),
+        SellPrice: Number(row.sellPrice || 0),
+      }));
+    } else if (reportType === 'salesReport') {
+      rows = salesReportRows.rows.map((row) => ({
+        ProductName: row.name,
+        Unit: row.unit,
+        SoldQty: Number(row.soldQty || 0),
+        BuyPrice: Number(row.buyPrice || 0),
+        SellPrice: Number(row.sellPrice || 0),
+        Balance: Number(row.balance || 0),
+        Profit: Number(row.profit || 0),
+      }));
+    } else if (reportType === 'profitLoss') {
+      rows = [
+        {
+          TotalSales: Number(profitLossReport.totalSales || 0),
+          TotalCOGS: Number(profitLossReport.totalCOGS || 0),
+          GrossProfit: Number(profitLossReport.grossProfit || 0),
+          TotalExpenses: Number(profitLossReport.totalExpenses || 0),
+          NetProfit: Number(profitLossReport.netProfit || 0),
+          ItemsSold: Number(profitLossReport.itemsSold || 0),
+        },
+        ...profitLossReport.topProfitItems.map((row) => ({
+          Section: 'Top Profit Item',
+          ProductName: row.name,
+          SoldQty: Number(row.soldQty || 0),
+          Sales: Number(row.sales || 0),
+          COGS: Number(row.cogs || 0),
+          Profit: Number(row.profit || 0),
+          MarginPercent: Number(row.margin || 0),
+        })),
+        ...profitLossReport.lowMarginItems.map((row) => ({
+          Section: 'Low Margin Item',
+          ProductName: row.name,
+          SoldQty: Number(row.soldQty || 0),
+          Sales: Number(row.sales || 0),
+          COGS: Number(row.cogs || 0),
+          Profit: Number(row.profit || 0),
+          MarginPercent: Number(row.margin || 0),
+        })),
+      ];
+    } else if (reportType === 'wakala') {
+      rows = filteredMobileMoney.map((entry) => ({
+        Date: entry.date || '',
+        MobileCapital: Number(entry.mobileCapital || 0),
+        BankCapital: Number(entry.bankCapital || 0),
+        MobileCashTotal: Number(entry.mobileCashTotal || 0),
+        BankCashTotal: Number(entry.bankCashTotal || 0),
+        MobileFloatTotal: Number(getMobileFloatTotal(entry) || 0),
+        BankFloatTotal: Number(getBankFloatTotal(entry) || 0),
+        MobileCommissionTotal: Number(getMobileCommissionTotal(entry) || 0),
+        BankCommissionTotal: Number(getBankCommissionTotal(entry) || 0),
+        Notes: entry.notes || '',
+      }));
+    } else if (reportType === 'mobileMoneyDetailed') {
+      rows = mobileMoneyReportRows.map((row) => ({
+        Date: row.date || '',
+        MobileCapital: Number(row.mobileCapital || 0),
+        BankCapital: Number(row.bankCapital || 0),
+        MobileCash: Number(row.mobileCashTotal || 0),
+        BankCash: Number(row.bankCashTotal || 0),
+        MpesaFloat: Number(row.mpesaFloat || 0),
+        MixxFloat: Number(row.mixxFloat || 0),
+        AirtelFloat: Number(row.airtelFloat || 0),
+        HaloPesaFloat: Number(row.halopesaFloat || 0),
+        CrdbFloat: Number(row.crdbFloat || 0),
+        NmbFloat: Number(row.nmbFloat || 0),
+        NbcFloat: Number(row.nbcFloat || 0),
+      }));
+    } else if (reportType === 'mobileMoneyAllShops') {
+      rows = mobileMoneyAllShopsRows.map((row) => ({
+        ShopName: row.shopName || '',
+        Date: row.date || '',
+        MobileCapital: Number(row.mobileCapital || 0),
+        BankCapital: Number(row.bankCapital || 0),
+        MobileCash: Number(row.mobileCashTotal || 0),
+        BankCash: Number(row.bankCashTotal || 0),
+        MpesaFloat: Number(row.mpesaFloat || 0),
+        MixxFloat: Number(row.mixxFloat || 0),
+        AirtelFloat: Number(row.airtelFloat || 0),
+        HaloPesaFloat: Number(row.halopesaFloat || 0),
+        CrdbFloat: Number(row.crdbFloat || 0),
+        NmbFloat: Number(row.nmbFloat || 0),
+        NbcFloat: Number(row.nbcFloat || 0),
+        Notes: row.notes || '',
+      }));
+    } else if (reportType === 'gas') {
+      const filteredGas = filterByPreset(gasEntries, reportPreset, reportDateValue);
+      rows = filteredGas.map((row) => ({
+        Date: row.date || '',
+        GasType: row.gasType || '',
+        CylinderSize: row.cylinderSize || '',
+        TotalCylinders: Number(row.totalCylinders || 0),
+        SmallCylindersTotal: Number(row.smallCylindersTotal || 0),
+        BigCylindersTotal: Number(row.bigCylindersTotal || 0),
+        SmallGasSoldToday: Number(row.smallGasSoldToday || 0),
+        BigGasSoldToday: Number(row.bigGasSoldToday || 0),
+        SmallGasBuyPrice: Number(row.smallGasBuyPrice || 0),
+        SmallGasSellPrice: Number(row.smallGasSellPrice || 0),
+        BigGasBuyPrice: Number(row.bigGasBuyPrice || 0),
+        BigGasSellPrice: Number(row.bigGasSellPrice || 0),
+      }));
+    } else if (reportType === 'fastMoving') {
+      rows = movementRows
+        .slice()
+        .sort((a, b) => Number(b.soldQty || 0) - Number(a.soldQty || 0))
+        .map((row) => ({
+          ProductName: row.name,
+          Unit: row.baseUnit,
+          CurrentStock: Number(row.stockBaseQty || 0),
+          SoldQty: Number(row.soldQty || 0),
+          BuyPrice: Number(row.buyPrice || 0),
+          SellPrice: Number(row.sellPrice || 0),
+        }));
+    } else if (reportType === 'slowMoving') {
+      rows = movementRows
+        .slice()
+        .sort((a, b) => Number(a.soldQty || 0) - Number(b.soldQty || 0))
+        .map((row) => ({
+          ProductName: row.name,
+          Unit: row.baseUnit,
+          CurrentStock: Number(row.stockBaseQty || 0),
+          SoldQty: Number(row.soldQty || 0),
+          BuyPrice: Number(row.buyPrice || 0),
+          SellPrice: Number(row.sellPrice || 0),
+        }));
+    } else if (reportType === 'profitCompare') {
+      rows = [
+        {
+          TotalPurchases: Number(purchasesTotal || 0),
+          TotalSales: Number(totalSales || 0),
+          TotalExpenses: Number(totalExpenses || 0),
+          TotalProfit: Number(totalProfit || 0),
+        },
+      ];
+    }
+
+    if (!rows.length) {
+      alert(t(language, 'No data to export.', 'Hakuna data ya kupakua.'));
+      return;
+    }
+
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Report');
+
+    const safeShopName = String(shop.name || 'shop').replace(/[^\w\-]+/g, '_');
+    XLSX.writeFile(workbook, `${safeShopName}_${reportType}_${reportDateLabel}.xlsx`);
+  };
   return (
     <AppShell>
       <div className="mb-6 flex items-center justify-between gap-4">
@@ -3171,6 +3347,9 @@ onDeleteGas={deleteGas}
           <CardHeader>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <CardTitle>{t(language, 'Reports', 'Ripoti')}</CardTitle>
+<Button type="button" variant="outline" onClick={exportCurrentReportToExcel}>
+  {t(language, 'Export Excel', 'Pakua Excel')}
+</Button>
               <div className="flex flex-wrap gap-2">
                 <select className="rounded-xl border border-slate-200 px-3 py-2 text-sm" value={reportType} onChange={(e) => setReportType(e.target.value)}>
                   <option value="stockValue">{t(language, 'Stock Value Report', 'Ripoti ya Thamani ya Stock')}</option>
