@@ -1936,7 +1936,7 @@ const savePurchaseRows = () => {
   unitCost,
   notes: row.notes || '',
   date: row.date || todayISO(),
-  confirmed: false,,
+  confirmed: false,
 };
 
 const existingPurchaseIndex = nextPurchases.findIndex(
