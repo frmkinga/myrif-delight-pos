@@ -397,7 +397,6 @@ function normalizeProduct(product) {
     }
   }
 
-  return {
       return {
     ...rest,
     name: String(rest.name || '').trim(),
