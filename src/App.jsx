@@ -343,7 +343,6 @@ const seedData = {
     { id: 'shop-5', name: 'Mungu Mwema Shop' },
   ],
   users: [
-  users: [
   { id: 'u-owner', username: 'admin', email: 'admin@12345.com', password: 'admin123', role: 'owner', shop_id: null, name: 'Owner Admin' },
   { id: 'u-1', username: 'shop1', email: 'nyumbani@shop1.com', password: '1234', role: 'shop', shop_id: 'shop-1', shopId: 'shop-1', name: 'Nyumbani User' },
   { id: 'u-2', username: 'shop2', email: 'mkwajuni@shop2.com', password: '1234', role: 'shop', shop_id: 'shop-2', shopId: 'shop-2', name: 'Mkwajuni User' },
