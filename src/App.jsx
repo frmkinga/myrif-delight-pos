@@ -4496,14 +4496,24 @@ const importBackup = () => {
     setActiveShopId(null);
   };
 
-  const handleLogin = (user) => {
-  writeStorage(STORAGE_SESSION_KEY, user);
+ const handleLogin = async (user) => {
+  const { data: authData } = await supabase.auth.getUser();
+  const authUserId = authData?.user?.id || null;
+
+  const sessionUser = {
+    ...user,
+    auth_user_id: authUserId,
+  };
+
+  writeStorage(STORAGE_SESSION_KEY, sessionUser);
+
   setData((prev) => ({
     ...prev,
-    currentUser: user,
+    currentUser: sessionUser,
   }));
 
-  if (user.role === 'shop') setActiveShopId(user.shop_id || user.shopId);
+  if (user.role === 'shop') setActiveShopId(user.shop_id || user.shopId || null);
+  else setActiveShopId(null);
 };
 
   const logout = async () => {
