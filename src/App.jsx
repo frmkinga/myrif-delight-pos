@@ -4016,142 +4016,137 @@ useEffect(() => {
           .select('*')
           .eq('shop_id', shop?.id);
 
-        setData(prev => ({
+        setData((prev) => ({
           ...prev,
-          products: (products || []).filter(p => p.shop_id === shop?.id)
+          products: products || [],
         }));
       }
     )
     .subscribe();
 
-  return () => {
-    supabase.removeChannel(productsChannel);
-  };
-}, [shop?.id]);
-
   const salesChannel = supabase
-  .channel('sales-changes')
-  .on(
-    'postgres_changes',
-    { event: '*', schema: 'public', table: 'sales' },
-    async () => {
-      const { data: sales } = await supabase
-        .from('sales')
-        .select('*')
-        .eq('shop_id', shop?.id);
+    .channel('sales-changes')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'sales' },
+      async () => {
+        const { data: sales } = await supabase
+          .from('sales')
+          .select('*')
+          .eq('shop_id', shop?.id);
 
-      setData((prev) => ({
-        ...prev,
-        sales: sales || [],
-      }));
-    }
-  )
-  .subscribe();
+        setData((prev) => ({
+          ...prev,
+          sales: sales || [],
+        }));
+      }
+    )
+    .subscribe();
 
   const purchasesChannel = supabase
-  .channel('purchases-changes')
-  .on(
-    'postgres_changes',
-    { event: '*', schema: 'public', table: 'purchases' },
-    async () => {
-      const { data: purchases } = await supabase
-        .from('purchases')
-        .select('*')
-        .eq('shop_id', shop?.id);
+    .channel('purchases-changes')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'purchases' },
+      async () => {
+        const { data: purchases } = await supabase
+          .from('purchases')
+          .select('*')
+          .eq('shop_id', shop?.id);
 
-      setData((prev) => ({
-        ...prev,
-        purchases: purchases || [],
-      }));
-    }
-  )
-  .subscribe();
+        setData((prev) => ({
+          ...prev,
+          purchases: purchases || [],
+        }));
+      }
+    )
+    .subscribe();
 
   const expensesChannel = supabase
-  .channel('expenses-changes')
-  .on(
-    'postgres_changes',
-    { event: '*', schema: 'public', table: 'expenses' },
-    async () => {
-      const { data: expenses } = await supabase
-        .from('expenses')
-        .select('*')
-        .eq('shop_id', shop?.id);
+    .channel('expenses-changes')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'expenses' },
+      async () => {
+        const { data: expenses } = await supabase
+          .from('expenses')
+          .select('*')
+          .eq('shop_id', shop?.id);
 
-      setData((prev) => ({
-        ...prev,
-        expenses: (expenses || []).map((e) => ({
-          id: e.id,
-          shop_id: e.shop_id || '',
-          title: e.title || e.description || '',
-          description: e.description || e.title || '',
-          amount: Number(e.amount || 0),
-          category: e.category || '',
-          date: e.date || (e.created_at ? String(e.created_at).slice(0, 10) : todayISO()),
-          notes: e.notes || '',
-          created_at: e.created_at || '',
-        })),
-      }));
-    }
-  )
-  .subscribe();
+        setData((prev) => ({
+          ...prev,
+          expenses: (expenses || []).map((e) => ({
+            id: e.id,
+            shop_id: e.shop_id || '',
+            title: e.title || e.description || '',
+            description: e.description || e.title || '',
+            amount: Number(e.amount || 0),
+            category: e.category || '',
+            date: e.date || (e.created_at ? String(e.created_at).slice(0, 10) : todayISO()),
+            notes: e.notes || '',
+            created_at: e.created_at || '',
+          })),
+        }));
+      }
+    )
+    .subscribe();
 
   const creditChannel = supabase
-  .channel('credit-changes')
-  .on(
-    'postgres_changes',
-    { event: '*', schema: 'public', table: 'creditSales' },
-    async () => {
-      const { data: creditSales } = await supabase
-        .from('creditSales')
-        .select('*')
-        .eq('shop_id', shop?.id);
+    .channel('credit-changes')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'creditSales' },
+      async () => {
+        const { data: creditSales } = await supabase
+          .from('creditSales')
+          .select('*')
+          .eq('shop_id', shop?.id);
 
-      setData((prev) => ({
-        ...prev,
-        creditSales: creditSales || [],
-      }));
-    }
-  )
-  .subscribe();
+        setData((prev) => ({
+          ...prev,
+          creditSales: creditSales || [],
+        }));
+      }
+    )
+    .subscribe();
 
   const mobileMoneyChannel = supabase
-  .channel('mobile-money-changes')
-  .on(
-    'postgres_changes',
-    { event: '*', schema: 'public', table: 'mobileMoneyEntries' },
-    async () => {
-      const { data: mobileMoneyEntries } = await supabase
-        .from('mobileMoneyEntries')
-        .select('*')
-        .eq('shop_id', shop?.id);
+    .channel('mobile-money-changes')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'mobileMoneyEntries' },
+      async () => {
+        const { data: mobileMoneyEntries } = await supabase
+          .from('mobileMoneyEntries')
+          .select('*')
+          .eq('shop_id', shop?.id);
 
-      setData((prev) => ({
-        ...prev,
-        mobileMoneyEntries: mobileMoneyEntries || [],
-      }));
-    }
-  )
-  .subscribe();
+        setData((prev) => ({
+          ...prev,
+          mobileMoneyEntries: mobileMoneyEntries || [],
+        }));
+      }
+    )
+    .subscribe();
 
   const gasChannel = supabase
-  .channel('gas-changes')
-  .on(
-    'postgres_changes',
-    { event: '*', schema: 'public', table: 'gasEntries' },
-    async () => {
-      const { data: gasEntries } = await supabase
-        .from('gasEntries')
-        .select('*')
-        .eq('shop_id', shop?.id);
+    .channel('gas-changes')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'gasEntries' },
+      async () => {
+        const { data: gasEntries } = await supabase
+          .from('gasEntries')
+          .select('*')
+          .eq('shop_id', shop?.id);
 
-      setData((prev) => ({
-        ...prev,
-        gasEntries: gasEntries || [],
-      }));
-    }
-  )
-  .subscribe();
+        setData((prev) => ({
+          ...prev,
+          gasEntries: gasEntries || [],
+        }));
+      }
+    )
+    .subscribe();
 
   return () => {
     supabase.removeChannel(productsChannel);
@@ -4163,7 +4158,8 @@ useEffect(() => {
     supabase.removeChannel(gasChannel);
   };
 }, [shop?.id]);
-  const saveData = (next) => {
+ 
+ const saveData = (next) => {
   const normalized = normalizeData(next);
 
   try {
