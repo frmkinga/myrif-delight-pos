@@ -2490,8 +2490,9 @@ supabase.from('mobileMoneyEntries').insert([record]);
   <div className="rounded-2xl border border-slate-200 bg-white max-h-40 overflow-y-auto text-sm">
     {products
       .filter((p) =>
-  String(p.name || '').toLowerCase().includes(String(row.productSearch || '').toLowerCase())
-)
+        String(p.name || '').toLowerCase().includes(
+          String(row.productSearch || '').toLowerCase()
+        )
       )
       .slice(0, 6)
       .map((p) => (
@@ -2499,18 +2500,18 @@ supabase.from('mobileMoneyEntries').insert([record]);
           key={p.id}
           className="cursor-pointer px-3 py-2 hover:bg-slate-100"
           onClick={() => {
-  setPurchaseRows((prev) =>
-    prev.map((purchaseRow, i) =>
-      i === index
-        ? {
-            ...purchaseRow,
-            productId: p.id,
-            productSearch: p.name,
-          }
-        : purchaseRow
-    )
-  );
-}}
+            setPurchaseRows((prev) =>
+              prev.map((purchaseRow, i) =>
+                i === index
+                  ? {
+                      ...purchaseRow,
+                      productId: p.id,
+                      productSearch: p.name,
+                    }
+                  : purchaseRow
+              )
+            );
+          }}
         >
           {p.name}
         </div>
