@@ -123,19 +123,22 @@ async function processSyncQueue() {
           { onConflict: 'id' }
         );
 if (Array.isArray(item.payload.products)) {
-  await supabase.from('products').upsert(
-    item.payload.products.map((p) => ({
-      id: p.id,
-      name: p.name,
-      buyingprice: Number(p.buyPrice || 0),
-      sellingprice: Number(p.sellPrice || 0),
-      stock: Number(p.stockBaseQty || 0),
-      shop_id: p.shop_id,
-      baseunit: p.baseUnit || 'pc',
-      created_at: p.created_at || new Date().toISOString(),
-    })),
-    { onConflict: 'id' }
-  );
+  const safeProductRows = item.payload.products
+    .map((p) => ({
+      id: p?.id || '',
+      name: String(p?.name || '').trim(),
+      buyingprice: Number(p?.buyPrice || 0),
+      sellingprice: Number(p?.sellPrice || 0),
+      stock: Number(p?.stockBaseQty || 0),
+      shop_id: p?.shop_id || '',
+      baseunit: p?.baseUnit || 'pc',
+      created_at: p?.created_at || new Date().toISOString(),
+    }))
+    .filter((p) => p.id && p.name && p.shop_id);
+
+  if (safeProductRows.length) {
+    await supabase.from('products').upsert(safeProductRows, { onConflict: 'id' });
+  }
 }
       } else if (item.actionType === 'purchase_created') {
         await supabase.from('purchases').upsert([item.payload], { onConflict: 'id' });
@@ -395,13 +398,17 @@ function normalizeProduct(product) {
   }
 
   return {
+      return {
     ...rest,
+    name: String(rest.name || '').trim(),
     shop_id: normalizedShopId,
     baseUnit,
     buyPrice: Number(rest.buyPrice || 0),
     sellPrice,
     stockBaseQty: Number(rest.stockBaseQty || stockQty || 0),
     minStockLevel: Number(rest.minStockLevel || 5),
+    expiryDate: rest.expiryDate || '',
+    qrCode: rest.qrCode || '',
     subUnitsRaw: rawSubUnits,
     subUnits: makeSubUnits(baseUnit, sellPrice, rawSubUnits),
     createdAt: rest.createdAt || '',
@@ -425,39 +432,49 @@ function normalizeData(parsed = {}) {
 
 async function readData() {
   try {
-    if (navigator.onLine) {
-      try {
-        const { data: cloudProducts } = await supabase.from('products').select('*');
+   if (navigator.onLine) {
+  try {
+    const savedSessionUser = readStorage(STORAGE_SESSION_KEY, null);
+    const sessionShopId = savedSessionUser?.shop_id || null;
 
-      if (cloudProducts) {
-  const normalized = normalizeData({
-    ...seedData,
-    products: (cloudProducts || []).map((p) => ({
-  id: p.id,
-  name: p.name,
-  buyPrice: Number(p.buyingprice || 0),
-  sellPrice: Number(p.sellingprice || 0),
-  stockBaseQty: Number(p.stock || 0),
-  stockQty: Number(p.stock || 0),
-  shop_id: p.shop_id || p.shopid || '',
-  baseUnit: p.baseunit || 'pc',
-  minStockLevel: 5,
-  expiryDate: '',
-  qrCode: '',
-  subUnitsRaw: '',
-  createdAt: p.createdAt || (p.created_at ? String(p.created_at).slice(0, 10) : ''),
-  confirmed: true,
-})),
-  });
-  await writeToDB(DB_DATA_KEY, normalized);
-  writeStorage(STORAGE_PRODUCTS_KEY, normalized.products);
-  return normalized;
-}
-      } catch (error) {
-        console.error('Cloud product read failed, falling back to local:', error);
-      }
+    let query = supabase.from('products').select('*');
+
+    if (sessionShopId) {
+      query = query.eq('shop_id', sessionShopId);
     }
 
+    const { data: cloudProducts } = await query;
+
+    if (cloudProducts) {
+      const normalized = normalizeData({
+        ...seedData,
+        currentUser: savedSessionUser,
+        products: (cloudProducts || []).map((p) => ({
+          id: p.id,
+          name: p.name,
+          buyPrice: Number(p.buyingprice || 0),
+          sellPrice: Number(p.sellingprice || 0),
+          stockBaseQty: Number(p.stock || 0),
+          stockQty: Number(p.stock || 0),
+          shop_id: p.shop_id || '',
+          baseUnit: p.baseunit || 'pc',
+          minStockLevel: 5,
+          expiryDate: '',
+          qrCode: '',
+          subUnitsRaw: '',
+          createdAt: p.createdAt || (p.created_at ? String(p.created_at).slice(0, 10) : ''),
+          confirmed: true,
+        })),
+      });
+
+      await writeToDB(DB_DATA_KEY, normalized);
+      // products no longer saved to localStorage
+      return normalized;
+    }
+  } catch (error) {
+    console.error('Cloud product read failed, falling back to local:', error);
+  }
+}
     console.log('Reading data from localStorage first...');
 
     const raw = readStorage(STORAGE_KEY);
@@ -474,18 +491,24 @@ async function readData() {
 
            const savedSessionUser = readStorage(STORAGE_SESSION_KEY, null);
 
-      const normalized = normalizeData({
-        ...raw,
-        currentUser: savedSessionUser,
-        products: separateProducts || raw.products,
-        sales: separateSales || raw.sales,
-        purchases: separatePurchases || raw.purchases,
-        expenses: separateExpenses || raw.expenses,
-        creditSales: separateCredit || raw.creditSales,
-        changeLedger: separateChange || raw.changeLedger,
-        mobileMoneyEntries: separateMobileMoney || raw.mobileMoneyEntries,
-        gasEntries: separateGas || raw.gasEntries,
-      });
+const fallbackProducts = (separateProducts || raw.products || []).filter(
+  (p) =>
+    !savedSessionUser?.shop_id ||
+    String(p.shop_id || p.shopId || p.shopid || '') === String(savedSessionUser.shop_id)
+);
+
+const normalized = normalizeData({
+  ...raw,
+  currentUser: savedSessionUser,
+  products: fallbackProducts,
+  sales: separateSales || raw.sales,
+  purchases: separatePurchases || raw.purchases,
+  expenses: separateExpenses || raw.expenses,
+  creditSales: separateCredit || raw.creditSales,
+  changeLedger: separateChange || raw.changeLedger,
+  mobileMoneyEntries: separateMobileMoney || raw.mobileMoneyEntries,
+  gasEntries: separateGas || raw.gasEntries,
+});
 
       await writeToDB(DB_DATA_KEY, normalized);
       return normalized;
@@ -1035,9 +1058,10 @@ const [mobileMoneyForm, setMobileMoneyForm] = useState({
   notes: '',
 });
 
-  const products = data.products
-  .filter((p) => String(p.shop_id) === String(shop.id))
-  .map(normalizeProduct);
+    const products = data.products
+    .filter((p) => String(p?.shop_id || '') === String(shop.id))
+    .map(normalizeProduct)
+    .filter((p) => p.id && String(p.name || '').trim());
 
 const sales = data.sales.filter(
   (s) => String(s.shop_id) === String(shop.id)
@@ -1205,17 +1229,19 @@ const bankFloat = latestMobileEntry ? getBankFloatTotal(latestMobileEntry) : 0;
 const mobileCommission = latestMobileEntry ? getMobileCommissionTotal(latestMobileEntry) : 0;
 const bankCommission = latestMobileEntry ? getBankCommissionTotal(latestMobileEntry) : 0;
 
-  const quickProducts = useMemo(() => {
+    const quickProducts = useMemo(() => {
     const q = quickSearch.trim().toLowerCase();
     if (!q) return [];
-    return products.filter((p) => p.name.toLowerCase().includes(q)).slice(0, 10);
+    return products
+      .filter((p) => String(p.name || '').toLowerCase().includes(q))
+      .slice(0, 10);
   }, [quickSearch, products]);
 
  const stockValueRows = useMemo(
   () =>
     products
       .filter((p) =>
-        p.name.toLowerCase().includes(stockSearch.toLowerCase())
+        String(p.name || '').toLowerCase().includes(stockSearch.toLowerCase())
       )
       .map((p) => ({
         ...p,
@@ -1560,16 +1586,29 @@ saleLock.current = false;
     sales: [...data.sales, saleRecord],
   });
 
-  addToSyncQueue('sale_created', {
-  ...saleRecord,
-  products: nextProducts
-    .filter((p) => String(p.shop_id) === String(shop.id))
-    .map((p) => ({
-      id: p.id,
-      stockBaseQty: Number(p.stockBaseQty || 0),
-      shop_id: p.shop_id,
-    })),
-});
+    addToSyncQueue('sale_created', {
+    ...saleRecord,
+    products: nextProducts
+      .filter((p) => String(p.shop_id) === String(shop.id))
+      .map((p) => {
+        const normalizedProduct = normalizeProduct(p);
+
+        return {
+          id: normalizedProduct.id,
+          name: String(normalizedProduct.name || '').trim(),
+          buyPrice: Number(normalizedProduct.buyPrice || 0),
+          sellPrice: Number(normalizedProduct.sellPrice || 0),
+          stockBaseQty: Number(normalizedProduct.stockBaseQty || 0),
+          shop_id: normalizedProduct.shop_id || shop.id,
+          baseUnit: normalizedProduct.baseUnit || 'pc',
+          created_at:
+            normalizedProduct.created_at ||
+            (normalizedProduct.createdAt
+              ? new Date(normalizedProduct.createdAt).toISOString()
+              : new Date().toISOString()),
+        };
+      }),
+  });
 
   console.log('Sending sale to Supabase:', saleRecord);
 
@@ -1602,7 +1641,7 @@ saleLock.current = false;
       stock: Number(p.stockBaseQty || 0),
       shop_id: p.shop_id,
       baseunit: p.baseUnit || 'pc',
-      created_at: p.created_at || new Date().toISOString(),
+      created_at: p.created_at || (p.createdAt ? new Date(p.createdAt).toISOString() : new Date().toISOString()),
     }));
 
   const { error: productError } = await supabase
@@ -2334,7 +2373,7 @@ supabase.from('mobileMoneyEntries').insert([record]);
   products.some(
     (p) =>
       p.id !== row.id &&
-      p.name.trim().toLowerCase() === row.name.trim().toLowerCase()
+      String(p.name || '').trim().toLowerCase() === String(row.name || '').trim().toLowerCase()
   ) ? (
     <div className="mt-1 text-xs text-amber-600">
       {t(
@@ -2439,8 +2478,8 @@ supabase.from('mobileMoneyEntries').insert([record]);
     updatePurchaseRow(index, 'productSearch', search);
 
     const match = products.find((p) =>
-      p.name.toLowerCase().includes(search.toLowerCase())
-    );
+  String(p.name || '').toLowerCase().includes(search.toLowerCase())
+);
 
     if (match) {
       updatePurchaseRow(index, 'productId', match.id);
@@ -2452,7 +2491,8 @@ supabase.from('mobileMoneyEntries').insert([record]);
   <div className="rounded-2xl border border-slate-200 bg-white max-h-40 overflow-y-auto text-sm">
     {products
       .filter((p) =>
-        p.name.toLowerCase().includes(row.productSearch.toLowerCase())
+  String(p.name || '').toLowerCase().includes(String(row.productSearch || '').toLowerCase())
+)
       )
       .slice(0, 6)
       .map((p) => (
