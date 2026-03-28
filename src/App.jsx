@@ -4121,17 +4121,52 @@ const [isHydrating, setIsHydrating] = useState(true);
 const [hasLoadedInitialData, setHasLoadedInitialData] = useState(false);
 
  useEffect(() => {
-  readData()
-    .then((loaded) => {
-      setData(loaded);
-    })
-    .catch((error) => {
+ useEffect(() => {
+  (async () => {
+    try {
+      const initial = await readData();
+
+      const { data: authSession } = await supabase.auth.getSession();
+      const authUser = authSession?.session?.user || null;
+
+      let restoredCurrentUser = initial.currentUser || null;
+
+      if (authUser) {
+        const matchedUser = (initial.users || []).find(
+          (u) => String(u.email || '').toLowerCase() === String(authUser.email || '').toLowerCase()
+        );
+
+        if (matchedUser) {
+          restoredCurrentUser = {
+            ...matchedUser,
+            auth_user_id: authUser.id,
+          };
+
+          writeStorage(STORAGE_SESSION_KEY, restoredCurrentUser);
+        }
+      } else {
+        writeStorage(STORAGE_SESSION_KEY, null);
+      }
+
+      const nextData = {
+        ...initial,
+        currentUser: restoredCurrentUser,
+      };
+
+      setData(nextData);
+
+      if (restoredCurrentUser?.role === 'shop') {
+        setActiveShopId(restoredCurrentUser.shop_id || restoredCurrentUser.shopId || null);
+      } else {
+        setActiveShopId(null);
+      }
+    } catch (error) {
       console.error('readData init failed:', error);
-    })
-    .finally(() => {
+    } finally {
       setHasLoadedInitialData(true);
       setIsHydrating(false);
-    });
+    }
+  })();
 }, []);
 useEffect(() => {
 processSyncQueue();
@@ -4173,76 +4208,7 @@ useEffect(() => {
 
   initOnlineStatus();
 }, []);
-useEffect(() => {
-  const loadCloudData = async () => {
-    try {
-      const { data: products } = await supabase.from('products').select('*');     
-      const { data: sales } = await supabase.from('sales').select('*');
-      const { data: purchases } = await supabase.from('purchases').select('*');
-      const { data: expenses } = await supabase.from('expenses').select('*');
-      const { data: creditSales } = await supabase.from('creditSales').select('*');
-      const { data: mobileMoneyEntries } = await supabase.from('mobileMoneyEntries').select('*');
-      const { data: gasEntries } = await supabase.from('gasEntries').select('*');
 
-const fixedProducts = (products || []).map((p) => ({
-  id: p.id,
-  name: p.name,
-  buyPrice: Number(p.buyingprice || 0),
-  sellPrice: Number(p.sellingprice || 0),
-  stockBaseQty: Number(p.stock || 0),
-  stockQty: Number(p.stock || 0),
-  shop_id: p.shop_id || p.shopid || '',
-  baseUnit: p.baseunit || 'pc',
-  minStockLevel: 5,
-  expiryDate: '',
-  qrCode: '',
-  subUnitsRaw: '',
-  createdAt: p.createdAt || (p.created_at ? String(p.created_at).slice(0, 10) : ''),
-  confirmed: true,
-}));
-
-console.log(
-  'CLOUD FIXED PRODUCTS',
-  fixedProducts.filter((p) => (p.name || '').toLowerCase().includes('mikate'))
-);
-
-setData((prev) => ({
-  ...prev,
-  products: fixedProducts,
-  sales: sales?.length
-    ? sales.map((s) => ({
-        ...s,
-        shop_id: s.shop_id || s.shopid || '',
-        date: s.date || (s.created_at ? String(s.created_at).slice(0, 10) : todayISO()),
-      }))
-    : prev.sales,
-  purchases: purchases?.length ? purchases : prev.purchases,
-  expenses: expenses?.length
-    ? expenses.map((e) => ({
-        id: e.id,
-        shop_id: e.shop_id || e.shopid || '',
-        title: e.title || e.description || '',
-        description: e.description || e.title || '',
-        amount: Number(e.amount || 0),
-        category: e.category || '',
-        date: e.date || (e.created_at ? String(e.created_at).slice(0, 10) : todayISO()),
-        notes: e.notes || '',
-        created_at: e.created_at || '',
-      }))
-  : prev.expenses,
-  creditSales: creditSales?.length ? creditSales : prev.creditSales,
-  mobileMoneyEntries: mobileMoneyEntries?.length ? mobileMoneyEntries : prev.mobileMoneyEntries,
-  gasEntries: gasEntries?.length ? gasEntries : prev.gasEntries,
-}));
-
-    } catch (error) {
-      console.error('Cloud load failed:', error);
-    }
-  };
-
-  loadCloudData();
-
-}, []);
 useEffect(() => {
   const productsChannel = supabase
   .channel('products-changes')
