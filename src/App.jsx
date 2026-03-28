@@ -425,20 +425,25 @@ function normalizeData(parsed = {}) {
 
 async function readData() {
   try {
+    const savedSessionUser = readStorage(STORAGE_SESSION_KEY, null);
+
     if (navigator.onLine) {
       try {
-        const { data: cloudProducts } = await supabase
-          .from('products')
-          .select('*')
-          .eq('shop_id', savedSessionUser?.shop_id || savedSessionUser?.shopId);
+       const shopFilter = savedSessionUser?.shop_id;
+
+        const cloudQuery = supabase.from('products').select('*');
+        const { data: cloudProducts } = shopFilter
+          ? await cloudQuery.eq('shop_id', shopFilter)
+          : await cloudQuery;
 
         if (cloudProducts) {
           const normalized = normalizeData({
             ...seedData,
-            products: (cloudProducts || []).filter(p => p.shop_id),
+            products: (cloudProducts || []).filter((p) => p.shop_id),
+            currentUser: savedSessionUser,
           });
+
           await writeToDB(DB_DATA_KEY, normalized);
-          // products no longer saved to localStorage
           return normalized;
         }
       } catch (error) {
@@ -451,7 +456,6 @@ async function readData() {
     const raw = readStorage(STORAGE_KEY);
 
     if (raw) {
-      const separateProducts = null;
       const separateSales = readStorage(STORAGE_SALES_KEY, null);
       const separatePurchases = readStorage(STORAGE_PURCHASES_KEY, null);
       const separateExpenses = readStorage(STORAGE_EXPENSES_KEY, null);
@@ -459,27 +463,6 @@ async function readData() {
       const separateChange = readStorage(STORAGE_CHANGE_KEY, null);
       const separateMobileMoney = readStorage(STORAGE_MOBILE_MONEY_KEY, null);
       const separateGas = readStorage(STORAGE_GAS_KEY, null);
-}
-      } catch (error) {
-        console.error('Cloud product read failed, falling back to local:', error);
-      }
-    }
-
-    console.log('Reading data from localStorage first...');
-
-    const raw = readStorage(STORAGE_KEY);
-
-    if (raw) {
-      const separateProducts = null;
-      const separateSales = readStorage(STORAGE_SALES_KEY, null);
-      const separatePurchases = readStorage(STORAGE_PURCHASES_KEY, null);
-      const separateExpenses = readStorage(STORAGE_EXPENSES_KEY, null);
-      const separateCredit = readStorage(STORAGE_CREDIT_KEY, null);
-      const separateChange = readStorage(STORAGE_CHANGE_KEY, null);
-      const separateMobileMoney = readStorage(STORAGE_MOBILE_MONEY_KEY, null);
-      const separateGas = readStorage(STORAGE_GAS_KEY, null);
-
-           const savedSessionUser = readStorage(STORAGE_SESSION_KEY, null);
 
       const normalized = normalizeData({
         ...raw,
@@ -493,24 +476,23 @@ async function readData() {
         mobileMoneyEntries: separateMobileMoney || raw.mobileMoneyEntries,
         gasEntries: separateGas || raw.gasEntries,
       });
-setData(prev => ({
-  ...prev,
-  products: (prev.products || []).filter(p => p.shop_id === prev.shop?.id)
-}));
-     await writeToDB(DB_DATA_KEY, normalized);
-// products no longer saved to localStorage
-return normalized;
+
+      await writeToDB(DB_DATA_KEY, normalized);
+      return normalized;
+    }
 
     console.log('No localStorage data found, checking IndexedDB...');
     const dbData = await readFromDB(DB_DATA_KEY);
 
     if (dbData) {
-  const cleaned = normalizeData({
-    ...dbData,
-    products: (dbData.products || []).filter(p => p.shop_id === dbData.shop?.id)
-  });
-  return cleaned;
-}
+      const cleaned = normalizeData({
+        ...dbData,
+        products: (dbData.products || []).filter(
+          (p) => p.shop_id === dbData.shop?.id || p.shop_id
+        ),
+      });
+      return cleaned;
+    }
 
     const fallbackData = normalizeData(seedData);
     await writeToDB(DB_DATA_KEY, fallbackData);
@@ -1057,7 +1039,9 @@ const [mobileMoneyForm, setMobileMoneyForm] = useState({
       const key = String(p.name || '')
   .trim()
   .toLowerCase()
-  .replace(/\s+/g, ' ');
+  .replace(/,/g, '')          // remove commas
+  .replace(/\s+/g, ' ')       // normalize spaces
+  .replace(/\.0+$/, '');      // remove .0 endings
 
       if (!acc[key]) {
         acc[key] = {
