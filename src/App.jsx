@@ -337,13 +337,13 @@ const seedData = {
     { id: 'shop-4', name: 'Shangwe Shop' },
     { id: 'shop-5', name: 'Mungu Mwema Shop' },
   ],
-  users: [
+ users: [
   { id: 'u-owner', username: 'admin', password: 'admin123', role: 'owner', shop_id: null, name: 'Owner Admin' },
-  { id: 'u-1', username: 'shop1', password: '1234', role: 'shop', shop_id: 'shop-1', shopId: 'shop-1', name: 'Nyumbani User' },
-  { id: 'u-2', username: 'shop2', password: '1234', role: 'shop', shop_id: 'shop-2', shopId: 'shop-2', name: 'Mkwajuni User' },
-  { id: 'u-3', username: 'shop3', password: '1234', role: 'shop', shop_id: 'shop-3', shopId: 'shop-3', name: 'Kwa Maganga User' },
-  { id: 'u-4', username: 'shop4', password: '1234', role: 'shop', shop_id: 'shop-4', shopId: 'shop-4', name: 'Shangwe User' },
-  { id: 'u-5', username: 'shop5', password: '1234', role: 'shop', shop_id: 'shop-5', shopId: 'shop-5', name: 'Mungu Mwema User' },
+  { id: 'u-1', username: 'shop1', password: '1234', role: 'shop', shop_id: 'shop-1', name: 'Nyumbani User' },
+  { id: 'u-2', username: 'shop2', password: '1234', role: 'shop', shop_id: 'shop-2', name: 'Mkwajuni User' },
+  { id: 'u-3', username: 'shop3', password: '1234', role: 'shop', shop_id: 'shop-3', name: 'Kwa Maganga User' },
+  { id: 'u-4', username: 'shop4', password: '1234', role: 'shop', shop_id: 'shop-4', name: 'Shangwe User' },
+  { id: 'u-5', username: 'shop5', password: '1234', role: 'shop', shop_id: 'shop-5', name: 'Mungu Mwema User' },
 ],
   products: [],
   sales: [],
@@ -379,7 +379,7 @@ function normalizeProduct(product) {
 
   const baseUnit = rest.baseUnit || unit || 'pc';
   const sellPrice = Number(rest.sellPrice || 0);
-  const normalizedShopId = rest.shop_id || shopId || shopid || '';
+  const normalizedShopId = rest.shop_id || '';
   let rawSubUnits = rest.subUnitsRaw || '';
 
   if (!rawSubUnits) {
@@ -427,31 +427,38 @@ async function readData() {
   try {
     if (navigator.onLine) {
       try {
-        const { data: cloudProducts } = await supabase.from('products').select('*');
+        const { data: cloudProducts } = await supabase
+          .from('products')
+          .select('*')
+          .eq('shop_id', savedSessionUser?.shop_id || savedSessionUser?.shopId);
 
-      if (cloudProducts) {
-  const normalized = normalizeData({
-    ...seedData,
-    products: (cloudProducts || []).map((p) => ({
-  id: p.id,
-  name: p.name,
-  buyPrice: Number(p.buyingprice || 0),
-  sellPrice: Number(p.sellingprice || 0),
-  stockBaseQty: Number(p.stock || 0),
-  stockQty: Number(p.stock || 0),
-  shop_id: p.shop_id || p.shopid || '',
-  baseUnit: p.baseunit || 'pc',
-  minStockLevel: 5,
-  expiryDate: '',
-  qrCode: '',
-  subUnitsRaw: '',
-  createdAt: p.createdAt || (p.created_at ? String(p.created_at).slice(0, 10) : ''),
-  confirmed: true,
-})),
-  });
-  await writeToDB(DB_DATA_KEY, normalized);
-  writeStorage(STORAGE_PRODUCTS_KEY, normalized.products);
-  return normalized;
+        if (cloudProducts) {
+          const normalized = normalizeData({
+            ...seedData,
+            products: (cloudProducts || []).filter(p => p.shop_id),
+          });
+          await writeToDB(DB_DATA_KEY, normalized);
+          // products no longer saved to localStorage
+          return normalized;
+        }
+      } catch (error) {
+        console.error('Cloud product read failed, falling back to local:', error);
+      }
+    }
+
+    console.log('Reading data from localStorage first...');
+
+    const raw = readStorage(STORAGE_KEY);
+
+    if (raw) {
+      const separateProducts = null;
+      const separateSales = readStorage(STORAGE_SALES_KEY, null);
+      const separatePurchases = readStorage(STORAGE_PURCHASES_KEY, null);
+      const separateExpenses = readStorage(STORAGE_EXPENSES_KEY, null);
+      const separateCredit = readStorage(STORAGE_CREDIT_KEY, null);
+      const separateChange = readStorage(STORAGE_CHANGE_KEY, null);
+      const separateMobileMoney = readStorage(STORAGE_MOBILE_MONEY_KEY, null);
+      const separateGas = readStorage(STORAGE_GAS_KEY, null);
 }
       } catch (error) {
         console.error('Cloud product read failed, falling back to local:', error);
@@ -463,7 +470,7 @@ async function readData() {
     const raw = readStorage(STORAGE_KEY);
 
     if (raw) {
-      const separateProducts = readStorage(STORAGE_PRODUCTS_KEY, null);
+      const separateProducts = null;
       const separateSales = readStorage(STORAGE_SALES_KEY, null);
       const separatePurchases = readStorage(STORAGE_PURCHASES_KEY, null);
       const separateExpenses = readStorage(STORAGE_EXPENSES_KEY, null);
@@ -477,7 +484,7 @@ async function readData() {
       const normalized = normalizeData({
         ...raw,
         currentUser: savedSessionUser,
-        products: separateProducts || raw.products,
+        products: [],
         sales: separateSales || raw.sales,
         purchases: separatePurchases || raw.purchases,
         expenses: separateExpenses || raw.expenses,
@@ -486,17 +493,24 @@ async function readData() {
         mobileMoneyEntries: separateMobileMoney || raw.mobileMoneyEntries,
         gasEntries: separateGas || raw.gasEntries,
       });
-
-      await writeToDB(DB_DATA_KEY, normalized);
-      return normalized;
-    }
+setData(prev => ({
+  ...prev,
+  products: (prev.products || []).filter(p => p.shop_id === prev.shop?.id)
+}));
+     await writeToDB(DB_DATA_KEY, normalized);
+// products no longer saved to localStorage
+return normalized;
 
     console.log('No localStorage data found, checking IndexedDB...');
     const dbData = await readFromDB(DB_DATA_KEY);
 
     if (dbData) {
-      return normalizeData(dbData);
-    }
+  const cleaned = normalizeData({
+    ...dbData,
+    products: (dbData.products || []).filter(p => p.shop_id === dbData.shop?.id)
+  });
+  return cleaned;
+}
 
     const fallbackData = normalizeData(seedData);
     await writeToDB(DB_DATA_KEY, fallbackData);
@@ -1035,9 +1049,45 @@ const [mobileMoneyForm, setMobileMoneyForm] = useState({
   notes: '',
 });
 
-  const products = data.products
-  .filter((p) => String(p.shop_id) === String(shop.id))
-  .map(normalizeProduct);
+  const products = Object.values(
+  (data.products || [])
+    .filter((p) => String(p.shop_id) === String(shop.id))
+    .map(normalizeProduct)
+    .reduce((acc, p) => {
+      const key = String(p.name || '')
+  .trim()
+  .toLowerCase()
+  .replace(/\s+/g, ' ');
+
+      if (!acc[key]) {
+        acc[key] = {
+          ...p,
+          stockBaseQty: Number(p.stockBaseQty || 0),
+          sourceRows: [
+            {
+              id: p.id,
+              stockBaseQty: Number(p.stockBaseQty || 0),
+            },
+          ],
+        };
+      } else {
+        acc[key] = {
+          ...acc[key],
+          stockBaseQty:
+            Number(acc[key].stockBaseQty || 0) + Number(p.stockBaseQty || 0),
+          sourceRows: [
+            ...(acc[key].sourceRows || []),
+            {
+              id: p.id,
+              stockBaseQty: Number(p.stockBaseQty || 0),
+            },
+          ],
+        };
+      }
+
+      return acc;
+    }, {})
+);
 
 const sales = data.sales.filter(
   (s) => String(s.shop_id) === String(shop.id)
@@ -1528,63 +1578,95 @@ saleLock.current = false;
       }
     }
 
-    cart.forEach((item) => {
-      const idx = nextProducts.findIndex((p) => p.id === item.productId);
-      if (idx >= 0) {
-        nextProducts[idx] = {
-          ...normalizeProduct(nextProducts[idx]),
-          stockBaseQty: Math.max(0, Number(nextProducts[idx].stockBaseQty || 0) - Number(item.quantity || 0)),
-        };
-      }
-    });
+    try {
+  cart.forEach((item) => {
+  const product = products.find((p) => p.id === item.productId);
+  if (!product) return;
 
-   const total = cart.reduce((a, c) => a + c.total, 0);
+  if (Array.isArray(product.sourceRows) && product.sourceRows.length > 0) {
+    let remainingQty = Number(item.quantity || 0);
 
-const saleRecord = {
-  id: `sale-${Date.now()}`,
-  shop_id: shop.id,
-  items: cart,
-  total,
-  type: 'cash',
-  date: todayISO(),
-  created_at: new Date().toISOString(),
-};
+    for (const row of product.sourceRows) {
+      if (remainingQty <= 0) break;
 
-saveData({
-  ...data,
-  products: nextProducts,
-  sales: [...data.sales, saleRecord],
+      const idx = nextProducts.findIndex((p) => p.id === row.id);
+      if (idx < 0) continue;
+
+      const currentStock = Number(nextProducts[idx].stockBaseQty || 0);
+      const deductQty = Math.min(currentStock, remainingQty);
+
+      nextProducts[idx] = {
+        ...normalizeProduct(nextProducts[idx]),
+        stockBaseQty: Math.max(0, currentStock - deductQty),
+      };
+
+      remainingQty -= deductQty;
+    }
+  } else {
+    const idx = nextProducts.findIndex((p) => p.id === item.productId);
+    if (idx >= 0) {
+      nextProducts[idx] = {
+        ...normalizeProduct(nextProducts[idx]),
+        stockBaseQty: Math.max(
+          0,
+          Number(nextProducts[idx].stockBaseQty || 0) - Number(item.quantity || 0)
+        ),
+      };
+    }
+  }
 });
 
-addToSyncQueue('sale_created', {
+  const total = cart.reduce((a, c) => a + c.total, 0);
+
+  const saleRecord = {
+    id: `sale-${Date.now()}`,
+    shop_id: shop.id,
+    items: cart,
+    total,
+    type: 'cash',
+    date: todayISO(),
+    created_at: new Date().toISOString(),
+  };
+
+  saveData({
+    ...data,
+    products: nextProducts,
+    sales: [...data.sales, saleRecord],
+  });
+
+  addToSyncQueue('sale_created', {
   ...saleRecord,
-  products: nextProducts,
+  products: nextProducts
+    .filter((p) => String(p.shop_id) === String(shop.id))
+    .map((p) => ({
+      id: p.id,
+      stockBaseQty: Number(p.stockBaseQty || 0),
+      shop_id: p.shop_id,
+    })),
 });
 
-console.log('Sending sale to Supabase:', saleRecord);
+  console.log('Sending sale to Supabase:', saleRecord);
 
-const { error } = await supabase
-  .from('sales')
-  .insert([
-    {
-      id: saleRecord.id,
-      shop_id: saleRecord.shop_id,
-      items: saleRecord.items,
-      total: saleRecord.total,
-      type: saleRecord.type,
-      date: saleRecord.date,
-      created_at: saleRecord.created_at,
-    },
-  ]);
+  const { error } = await supabase
+    .from('sales')
+    .insert([
+      {
+        id: saleRecord.id,
+        shop_id: saleRecord.shop_id,
+        items: saleRecord.items,
+        total: saleRecord.total,
+        type: saleRecord.type,
+        date: saleRecord.date,
+        created_at: saleRecord.created_at,
+      },
+    ]);
 
-if (error) {
-  alert(`Sales sync failed: ${error.message}`);
-  setSaleSaving(false);
-  saleLock.current = false;
-  return;
-}
+  if (error) {
+    alert(`Sales sync failed: ${error.message}`);
+    return;
+  }
 
-const productRows = nextProducts
+ const productRows = nextProducts
   .filter((p) => String(p.shop_id) === String(shop.id))
   .map((p) => ({
     id: p.id,
@@ -1597,23 +1679,25 @@ const productRows = nextProducts
     created_at: p.created_at || new Date().toISOString(),
   }));
 
-const { error: productError } = await supabase
-  .from('products')
-  .upsert(productRows, { onConflict: 'id' });
+  const { error: productError } = await supabase
+    .from('products')
+    .upsert(productRows, { onConflict: 'id' });
 
-if (productError) {
-  alert(`Product stock sync failed: ${productError.message}`);
-  setSaleSaving(false);
-  saleLock.current = false;
-  return;
-}
+  if (productError) {
+    alert(`Product stock sync failed: ${productError.message}`);
+    return;
+  }
 
 setCart([]);
 setSaleError('');
-setSaleSaving(false);
-saleLock.current = false;
+} catch (err) {
+  console.error('Unexpected commitSale error:', err);
+  alert(`Unexpected sale error: ${err.message || err}`);
+} finally {
+  setSaleSaving(false);
+  saleLock.current = false;
+}
 };
-
   const removeCartItem = (productId) => {
     setCart((prev) => prev.filter((item) => item.productId !== productId));
   };
@@ -1806,7 +1890,11 @@ if (usedInSales || usedInPurchases) {
   confirmed: true,
 });
 
-      const existingIndex = nextProducts.findIndex((p) => p.id === prepared.id);
+      const existingIndex = nextProducts.findIndex(
+  (p) =>
+    String(p.shop_id) === String(shop.id) &&
+    String(p.name || '').trim().toLowerCase() === String(prepared.name || '').trim().toLowerCase()
+);
       if (existingIndex >= 0) nextProducts[existingIndex] = prepared;
       else nextProducts.push(prepared);
     }
@@ -1864,7 +1952,7 @@ const savePurchaseRows = () => {
   unitCost,
   notes: row.notes || '',
   date: row.date || todayISO(),
-  confirmed: true,
+  confirmed: false,,
 };
 
 const existingPurchaseIndex = nextPurchases.findIndex(
@@ -1879,22 +1967,11 @@ if (existingPurchaseIndex >= 0) {
 
 const productIndex = nextProducts.findIndex((p) => p.id === preparedPurchase.productId);
 
-if (productIndex >= 0) {
-  nextProducts[productIndex] = {
-    ...nextProducts[productIndex],
-    stockBaseQty:
-      Number(nextProducts[productIndex].stockBaseQty || 0) +
-      Number(preparedPurchase.quantity || 0),
-    buyPrice:
-      Number(preparedPurchase.unitCost || nextProducts[productIndex].buyPrice || 0),
-  };
-}
+// stock will be updated only when Confirm Purchases is used
 });
 saveData({ ...data, purchases: nextPurchases, products: nextProducts });
 nextPurchases.forEach((purchase) => addToSyncQueue('purchase_created', purchase));
-nextPurchases.forEach((purchase) => {
-  supabase.from('purchases').insert([purchase]);
-});
+// purchases will sync only when Confirm Purchases is used
 setPurchaseRows([{ ...emptyPurchaseRow, productSearch: '' }]);
 };
 
@@ -2635,24 +2712,12 @@ supabase.from('mobileMoneyEntries').insert([record]);
         variant="outline"
         size="sm"
         onClick={() => {
-  const nextPurchases = data.purchases.filter((x) => x.id !== p.id);
-  const nextProducts = data.products.map((item) =>
-    item.id === p.productId
-      ? {
-          ...item,
-          stockBaseQty: Math.max(
-            0,
-            Number(item.stockBaseQty || 0) - Number(p.quantity || 0)
-          ),
-        }
-      : item
-  );
+const nextPurchases = data.purchases.filter((x) => x.id !== p.id);
 
-  saveData({
-    ...data,
-    purchases: nextPurchases,
-    products: nextProducts,
-  });
+saveData({
+  ...data,
+  purchases: nextPurchases,
+});
 }}
       >
         <Trash2 className="h-4 w-4" />
@@ -3854,13 +3919,46 @@ useEffect(() => {
 useEffect(() => {
   const loadCloudData = async () => {
     try {
-      const { data: products } = await supabase.from('products').select('*');     
-      const { data: sales } = await supabase.from('sales').select('*');
-      const { data: purchases } = await supabase.from('purchases').select('*');
-      const { data: expenses } = await supabase.from('expenses').select('*');
-      const { data: creditSales } = await supabase.from('creditSales').select('*');
-      const { data: mobileMoneyEntries } = await supabase.from('mobileMoneyEntries').select('*');
-      const { data: gasEntries } = await supabase.from('gasEntries').select('*');
+     const shopFilter =
+  data.currentUser?.role === 'shop'
+    ? data.currentUser?.shop_id
+    : activeShopId;
+
+const productsQuery = supabase.from('products').select('*');
+const salesQuery = supabase.from('sales').select('*');
+const purchasesQuery = supabase.from('purchases').select('*');
+const expensesQuery = supabase.from('expenses').select('*');
+const creditSalesQuery = supabase.from('creditSales').select('*');
+const mobileMoneyQuery = supabase.from('mobileMoneyEntries').select('*');
+const gasQuery = supabase.from('gasEntries').select('*');
+
+const { data: products } = shopFilter
+  ? await productsQuery.eq('shop_id', shopFilter)
+  : await productsQuery;
+
+const { data: sales } = shopFilter
+  ? await salesQuery.eq('shop_id', shopFilter)
+  : await salesQuery;
+
+const { data: purchases } = shopFilter
+  ? await purchasesQuery.eq('shop_id', shopFilter)
+  : await purchasesQuery;
+
+const { data: expenses } = shopFilter
+  ? await expensesQuery.eq('shop_id', shopFilter)
+  : await expensesQuery;
+
+const { data: creditSales } = shopFilter
+  ? await creditSalesQuery.eq('shop_id', shopFilter)
+  : await creditSalesQuery;
+
+const { data: mobileMoneyEntries } = shopFilter
+  ? await mobileMoneyQuery.eq('shop_id', shopFilter)
+  : await mobileMoneyQuery;
+
+const { data: gasEntries } = shopFilter
+  ? await gasQuery.eq('shop_id', shopFilter)
+  : await gasQuery;
 
 const fixedProducts = (products || []).map((p) => ({
   id: p.id,
@@ -3869,7 +3967,7 @@ const fixedProducts = (products || []).map((p) => ({
   sellPrice: Number(p.sellingprice || 0),
   stockBaseQty: Number(p.stock || 0),
   stockQty: Number(p.stock || 0),
-  shop_id: p.shop_id || p.shopid || '',
+  shop_id: p.shop_id,
   baseUnit: p.baseunit || 'pc',
   minStockLevel: 5,
   expiryDate: '',
@@ -3886,7 +3984,7 @@ console.log(
 
 setData((prev) => ({
   ...prev,
-  products: fixedProducts,
+  products: fixedProducts.filter((p) => p.shop_id),
   sales: sales?.length
     ? sales.map((s) => ({
         ...s,
@@ -3918,125 +4016,158 @@ setData((prev) => ({
     }
   };
 
-  loadCloudData();
+ loadCloudData();
 
 }, []);
+
 useEffect(() => {
   const productsChannel = supabase
-  .channel('products-changes')
+    .channel('products-changes')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'products' },
+      async () => {
+        const { data: products } = await supabase
+          .from('products')
+          .select('*')
+          .eq('shop_id', shop?.id);
+
+        setData(prev => ({
+          ...prev,
+          products: (products || []).filter(p => p.shop_id === shop?.id)
+        }));
+      }
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(productsChannel);
+  };
+}, [shop?.id]);
+
+  const salesChannel = supabase
+  .channel('sales-changes')
   .on(
     'postgres_changes',
-    { event: '*', schema: 'public', table: 'products' },
+    { event: '*', schema: 'public', table: 'sales' },
     async () => {
-      const { data: products } = await supabase.from('products').select('*');
+      const { data: sales } = await supabase
+        .from('sales')
+        .select('*')
+        .eq('shop_id', shop?.id);
 
       setData((prev) => ({
         ...prev,
-        products: (products || []).map((p) => ({
-  id: p.id,
-  name: p.name,
-  buyPrice: Number(p.buyingprice || 0),
-  sellPrice: Number(p.sellingprice || 0),
-  stockBaseQty: Number(p.stock || 0),
-  stockQty: Number(p.stock || 0),
-  shop_id: p.shop_id || p.shopid || '',
-  baseUnit: p.baseunit || 'pc',
-  minStockLevel: 5,
-  expiryDate: '',
-  qrCode: '',
-  subUnitsRaw: '',
-  createdAt: p.createdAt || (p.created_at ? String(p.created_at).slice(0, 10) : ''),
-  confirmed: true,
-}))
+        sales: sales || [],
       }));
     }
   )
   .subscribe();
 
-  const salesChannel = supabase
-    .channel('sales-changes')
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'sales' },
-      async () => {
-        const { data: sales } = await supabase.from('sales').select('*');
-        setData((prev) => ({ ...prev, sales: sales || [] }));
-      }
-    )
-    .subscribe();
-
   const purchasesChannel = supabase
-    .channel('purchases-changes')
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'purchases' },
-      async () => {
-        const { data: purchases } = await supabase.from('purchases').select('*');
-        setData((prev) => ({ ...prev, purchases: purchases || [] }));
-      }
-    )
-    .subscribe();
+  .channel('purchases-changes')
+  .on(
+    'postgres_changes',
+    { event: '*', schema: 'public', table: 'purchases' },
+    async () => {
+      const { data: purchases } = await supabase
+        .from('purchases')
+        .select('*')
+        .eq('shop_id', shop?.id);
+
+      setData((prev) => ({
+        ...prev,
+        purchases: purchases || [],
+      }));
+    }
+  )
+  .subscribe();
 
   const expensesChannel = supabase
-    .channel('expenses-changes')
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'expenses' },
-      async () => {
-        const { data: expenses } = await supabase.from('expenses').select('*');
-setData((prev) => ({
-  ...prev,
-  expenses: (expenses || []).map((e) => ({
-    id: e.id,
-    shopId: e.shopId,
-    title: e.title || e.description || '',
-    description: e.description || e.title || '',
-    amount: Number(e.amount || 0),
-    category: e.category || '',
-    date: e.date || (e.created_at ? String(e.created_at).slice(0, 10) : todayISO()),
-    notes: e.notes || '',
-    created_at: e.created_at || '',
-  })),
-}));
-      }
-    )
-    .subscribe();
+  .channel('expenses-changes')
+  .on(
+    'postgres_changes',
+    { event: '*', schema: 'public', table: 'expenses' },
+    async () => {
+      const { data: expenses } = await supabase
+        .from('expenses')
+        .select('*')
+        .eq('shop_id', shop?.id);
+
+      setData((prev) => ({
+        ...prev,
+        expenses: (expenses || []).map((e) => ({
+          id: e.id,
+          shop_id: e.shop_id || '',
+          title: e.title || e.description || '',
+          description: e.description || e.title || '',
+          amount: Number(e.amount || 0),
+          category: e.category || '',
+          date: e.date || (e.created_at ? String(e.created_at).slice(0, 10) : todayISO()),
+          notes: e.notes || '',
+          created_at: e.created_at || '',
+        })),
+      }));
+    }
+  )
+  .subscribe();
 
   const creditChannel = supabase
-    .channel('credit-changes')
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'creditSales' },
-      async () => {
-        const { data: creditSales } = await supabase.from('creditSales').select('*');
-        setData((prev) => ({ ...prev, creditSales: creditSales || [] }));
-      }
-    )
-    .subscribe();
+  .channel('credit-changes')
+  .on(
+    'postgres_changes',
+    { event: '*', schema: 'public', table: 'creditSales' },
+    async () => {
+      const { data: creditSales } = await supabase
+        .from('creditSales')
+        .select('*')
+        .eq('shop_id', shop?.id);
+
+      setData((prev) => ({
+        ...prev,
+        creditSales: creditSales || [],
+      }));
+    }
+  )
+  .subscribe();
 
   const mobileMoneyChannel = supabase
-    .channel('mobile-money-changes')
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'mobileMoneyEntries' },
-      async () => {
-        const { data: mobileMoneyEntries } = await supabase.from('mobileMoneyEntries').select('*');
-        setData((prev) => ({ ...prev, mobileMoneyEntries: mobileMoneyEntries || [] }));
-      }
-    )
-    .subscribe();
+  .channel('mobile-money-changes')
+  .on(
+    'postgres_changes',
+    { event: '*', schema: 'public', table: 'mobileMoneyEntries' },
+    async () => {
+      const { data: mobileMoneyEntries } = await supabase
+        .from('mobileMoneyEntries')
+        .select('*')
+        .eq('shop_id', shop?.id);
+
+      setData((prev) => ({
+        ...prev,
+        mobileMoneyEntries: mobileMoneyEntries || [],
+      }));
+    }
+  )
+  .subscribe();
 
   const gasChannel = supabase
-    .channel('gas-changes')
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'gasEntries' },
-      async () => {
-        const { data: gasEntries } = await supabase.from('gasEntries').select('*');
-        setData((prev) => ({ ...prev, gasEntries: gasEntries || [] }));
-      }
-    )
-    .subscribe();
+  .channel('gas-changes')
+  .on(
+    'postgres_changes',
+    { event: '*', schema: 'public', table: 'gasEntries' },
+    async () => {
+      const { data: gasEntries } = await supabase
+        .from('gasEntries')
+        .select('*')
+        .eq('shop_id', shop?.id);
+
+      setData((prev) => ({
+        ...prev,
+        gasEntries: gasEntries || [],
+      }));
+    }
+  )
+  .subscribe();
 
   return () => {
     supabase.removeChannel(productsChannel);
@@ -4047,7 +4178,7 @@ setData((prev) => ({
     supabase.removeChannel(mobileMoneyChannel);
     supabase.removeChannel(gasChannel);
   };
-}, []);
+}, [shop?.id]);
   const saveData = (next) => {
   const normalized = normalizeData(next);
 
@@ -4071,7 +4202,7 @@ if (current) {
 
   setData(normalized);
 writeStorage(STORAGE_KEY, normalized);
-writeStorage(STORAGE_PRODUCTS_KEY, normalized.products || []);
+// products no longer saved to localStorage
 writeStorage(STORAGE_SALES_KEY, normalized.sales || []);
 writeStorage(STORAGE_PURCHASES_KEY, normalized.purchases || []);
 writeStorage(STORAGE_EXPENSES_KEY, normalized.expenses || []);
@@ -4181,7 +4312,7 @@ const importBackup = () => {
     currentUser: user,
   }));
 
-  if (user.role === 'shop') setActiveShopId(user.shop_id || user.shopId);
+  if (user.role === 'shop') setActiveShopId(user.shop_id);
 };
 
   const logout = () => {
@@ -4210,7 +4341,7 @@ if (isHydrating) {
     return <Login onLogin={handleLogin} users={data.users} language={language} setLanguage={setLanguage} />;
   }
 
-  const selectedShopId = data.currentUser.role === 'shop' ? data.currentUser.shopId : activeShopId;
+  const selectedShopId = data.currentUser.role === 'shop' ? data.currentUser.shop_id : activeShopId;
   if (!selectedShopId) {
     return (
   <>
