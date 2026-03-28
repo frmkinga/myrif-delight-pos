@@ -2962,14 +2962,24 @@ supabase.from('mobileMoneyEntries').insert([record]);
               <CardTitle>{t(language, 'Search Product', 'Tafuta Bidhaa')}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <Input placeholder={t(language, 'Type product name...', 'Andika jina la bidhaa...')} value={quickSearch} onChange={(e) => setQuickSearch(e.target.value)} />
               <div className="flex items-center gap-2">
-                <Input placeholder={t(language, 'Scan QR code', 'Skeni QR code')} value={scanCode} onChange={(e) => setScanCode(e.target.value)} />
-                <Button type="button" variant="outline" onClick={handleScanAdd}>
-                  <QrCode className="mr-2 h-4 w-4" />
-                  {t(language, 'Scan', 'Skeni')}
-                </Button>
-              </div>
+  <Input
+    className="flex-[2]"
+    placeholder={t(language, 'Type product name...', 'Andika jina la bidhaa...')}
+    value={quickSearch}
+    onChange={(e) => setQuickSearch(e.target.value)}
+  />
+  <Input
+    className="flex-1"
+    placeholder={t(language, 'Scan QR code', 'Skeni QR code')}
+    value={scanCode}
+    onChange={(e) => setScanCode(e.target.value)}
+  />
+  <Button type="button" variant="outline" onClick={handleScanAdd}>
+    <QrCode className="mr-2 h-4 w-4" />
+    {t(language, 'Scan', 'Skeni')}
+  </Button>
+</div>
 
               {saleError ? <div className="rounded-2xl bg-red-50 p-3 text-sm text-red-600">{saleError}</div> : null}
 
@@ -2979,62 +2989,103 @@ supabase.from('mobileMoneyEntries').insert([record]);
                 <div className="text-sm text-red-600">{t(language, 'No product found.', 'Hakuna bidhaa iliyopatikana.')}</div>
               ) : (
                 <div className="space-y-3">
-                  {quickProducts.map((p) => (
+
+                {quickProducts.map((p) => (
   <div key={p.id} className="rounded-2xl border border-slate-200 p-3">
-    <div className="font-medium">{p.name}</div>
+    {p.baseUnit === 'pc' ? (
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="min-w-[220px] flex-1 font-medium">{p.name}</div>
 
-    <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
-      <span className="text-slate-500">
-        {t(language, 'Available', 'Iliyopo')}: {formatQty(p.stockBaseQty)} {p.baseUnit}
-      </span>
+        <div className="text-sm text-slate-500">
+          {formatQty(p.stockBaseQty)} {p.baseUnit}
+        </div>
 
-      <span className="font-medium text-green-600">
-        {t(language, 'Sale Price', 'Bei ya kuuza')}: TZS {currency(p.sellPrice)}
-      </span>
+        <div className="text-sm font-medium text-green-600">
+          TZS {currency(p.sellPrice)}
+        </div>
 
-      <Input
-        className="w-24"
-        type="number"
-        min="0.01"
-        step={p.baseUnit === 'pc' ? '1' : '0.01'}
-        defaultValue="1"
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            quickAddMeasured(p, e.currentTarget.value);
-            e.currentTarget.value = '1';
-          }
-        }}
-      />
+        <Input
+          className="w-20"
+          type="number"
+          min="1"
+          step="1"
+          defaultValue="1"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              quickAddMeasured(p, e.currentTarget.value);
+              e.currentTarget.value = '1';
+            }
+          }}
+        />
 
-      <Button
-        type="button"
-        onClick={(e) => {
-          const qtyInput = e.currentTarget.parentElement.querySelector('input');
-          const qty = Number(qtyInput?.value || 1);
-          quickAddMeasured(p, qty);
-        }}
-        disabled={Number(p.stockBaseQty || 0) < 0.01}
-      >
-        {t(language, 'Add', 'Ongeza')}
-      </Button>
-    </div>
-
-    {p.baseUnit !== 'pc' ? (
-      <div className="mt-3 flex flex-wrap gap-2">
-        {[0.25, 0.5, 0.75, 1].map((qty) => (
-          <Button
-            key={`${p.id}-${qty}`}
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => quickAddMeasured(p, qty)}
-            disabled={Number(p.stockBaseQty || 0) < qty}
-          >
-            {formatQty(qty)} {p.baseUnit}
-          </Button>
-        ))}
+        <Button
+          type="button"
+          onClick={(e) => {
+            const qtyInput = e.currentTarget.parentElement.querySelector('input');
+            const qty = Number(qtyInput?.value || 1);
+            quickAddMeasured(p, qty);
+          }}
+          disabled={Number(p.stockBaseQty || 0) < 1}
+        >
+          {t(language, 'Add', 'Ongeza')}
+        </Button>
       </div>
-    ) : null}
+    ) : (
+      <>
+        <div className="font-medium">{p.name}</div>
+
+        <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
+          <span className="text-slate-500">
+            {formatQty(p.stockBaseQty)} {p.baseUnit}
+          </span>
+
+          <span className="font-medium text-green-600">
+            TZS {currency(p.sellPrice)}
+          </span>
+
+          <Input
+            className="w-20"
+            type="number"
+            min="0.01"
+            step="0.01"
+            defaultValue="1"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                quickAddMeasured(p, e.currentTarget.value);
+                e.currentTarget.value = '1';
+              }
+            }}
+          />
+
+          <Button
+            type="button"
+            onClick={(e) => {
+              const qtyInput = e.currentTarget.parentElement.querySelector('input');
+              const qty = Number(qtyInput?.value || 1);
+              quickAddMeasured(p, qty);
+            }}
+            disabled={Number(p.stockBaseQty || 0) < 0.01}
+          >
+            {t(language, 'Add', 'Ongeza')}
+          </Button>
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          {[0.25, 0.5, 0.75, 1].map((qty) => (
+            <Button
+              key={`${p.id}-${qty}`}
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => quickAddMeasured(p, qty)}
+              disabled={Number(p.stockBaseQty || 0) < qty}
+            >
+              {formatQty(qty)} {p.baseUnit}
+            </Button>
+          ))}
+        </div>
+      </>
+    )}
   </div>
 ))}
                 </div>
