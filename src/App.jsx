@@ -431,49 +431,72 @@ function normalizeData(parsed = {}) {
 
 async function readData() {
   try {
-   if (navigator.onLine) {
-  try {
-    const savedSessionUser = readStorage(STORAGE_SESSION_KEY, null);
-    const sessionShopId = savedSessionUser?.shop_id || null;
+    if (navigator.onLine) {
+      try {
+        const savedSessionUser = readStorage(STORAGE_SESSION_KEY, null);
+        const sessionShopId = savedSessionUser?.shop_id || null;
 
-    let query = supabase.from('products').select('*');
+        let query = supabase.from('products').select('*');
 
-    if (sessionShopId) {
-      query = query.eq('shop_id', sessionShopId);
+        if (sessionShopId) {
+          query = query.eq('shop_id', sessionShopId);
+        }
+
+        const { data: cloudProducts } = await query;
+
+        if (cloudProducts) {
+          const normalized = normalizeData({
+            ...seedData,
+            currentUser: savedSessionUser,
+            products: (cloudProducts || []).map((p) => {
+              const rawStock =
+                p?.stock ??
+                p?.stockBaseQty ??
+                p?.stockQty ??
+                0;
+
+              const rawBuyPrice =
+                p?.buyingprice ??
+                p?.buyPrice ??
+                0;
+
+              const rawSellPrice =
+                p?.sellingprice ??
+                p?.sellPrice ??
+                0;
+
+              const rawBaseUnit =
+                p?.baseunit ??
+                p?.baseUnit ??
+                'pc';
+
+              return {
+                id: p?.id || '',
+                name: String(p?.name || '').trim(),
+                buyPrice: Number(rawBuyPrice || 0),
+                sellPrice: Number(rawSellPrice || 0),
+                stockBaseQty: Number(rawStock || 0),
+                stockQty: Number(rawStock || 0),
+                shop_id: String(p?.shop_id || p?.shopId || p?.shopid || '').trim(),
+                baseUnit: rawBaseUnit,
+                minStockLevel: Number(p?.minStockLevel || 5),
+                expiryDate: p?.expiryDate || '',
+                qrCode: p?.qrCode || '',
+                subUnitsRaw: p?.subUnitsRaw || '',
+                createdAt: p?.createdAt || (p?.created_at ? String(p.created_at).slice(0, 10) : ''),
+                confirmed: true,
+              };
+            }),
+          });
+
+          await writeToDB(DB_DATA_KEY, normalized);
+          return normalized;
+        }
+      } catch (error) {
+        console.error('Cloud product read failed, falling back to local:', error);
+      }
     }
 
-    const { data: cloudProducts } = await query;
-
-    if (cloudProducts) {
-      const normalized = normalizeData({
-        ...seedData,
-        currentUser: savedSessionUser,
-        products: (cloudProducts || []).map((p) => ({
-          id: p.id,
-          name: p.name,
-          buyPrice: Number(p.buyingprice || 0),
-          sellPrice: Number(p.sellingprice || 0),
-          stockBaseQty: Number(p.stock || 0),
-          stockQty: Number(p.stock || 0),
-          shop_id: p.shop_id || '',
-          baseUnit: p.baseunit || 'pc',
-          minStockLevel: 5,
-          expiryDate: '',
-          qrCode: '',
-          subUnitsRaw: '',
-          createdAt: p.createdAt || (p.created_at ? String(p.created_at).slice(0, 10) : ''),
-          confirmed: true,
-        })),
-      });
-
-      await writeToDB(DB_DATA_KEY, normalized);
-      // products no longer saved to localStorage
-      return normalized;
-    }
-  } catch (error) {
-    console.error('Cloud product read failed, falling back to local:', error);
-  }
-}
     console.log('Reading data from localStorage first...');
 
     const raw = readStorage(STORAGE_KEY);
