@@ -2980,63 +2980,63 @@ supabase.from('mobileMoneyEntries').insert([record]);
               ) : (
                 <div className="space-y-3">
                   {quickProducts.map((p) => (
-                    <div key={p.id} className="rounded-2xl border border-slate-200 p-3">
-                      <div className="font-medium">{p.name}</div>
-<div className="mt-1 text-slate-500">{t(language, 'Date Recorded', 'Tarehe ya Kusajili')}: {p.createdAt || '-'}</div>
-                      <div className="mt-2 flex flex-wrap gap-4 text-sm">
-                        <span className="text-slate-500">
-                          {t(language, 'Available', 'Iliyopo')}: {formatQty(p.stockBaseQty)} {p.baseUnit}
-                        </span>
-                        <span className="font-medium text-green-600">
-                          {t(language, 'Sale Price', 'Bei ya kuuza')}: TZS {currency(p.sellPrice)}
-                        </span>
-                      </div>
+  <div key={p.id} className="rounded-2xl border border-slate-200 p-3">
+    <div className="font-medium">{p.name}</div>
 
-                      <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <Input
-  className="w-24"
-  type="number"
-  min="0.01"
-  step={p.baseUnit === 'pc' ? '1' : '0.01'}
-  defaultValue="1"
-  onKeyDown={(e) => {
-    if (e.key === 'Enter') {
-      quickAddMeasured(p, e.currentTarget.value);
-      e.currentTarget.value = '1';
-    }
-  }}
-/>
-                        <Button
-  type="button"
-  onClick={(e) => {
-    const qtyInput = e.currentTarget.parentElement.querySelector('input');
-    const qty = Number(qtyInput?.value || 1);
-    quickAddMeasured(p, qty);
-  }}
-  disabled={Number(p.stockBaseQty || 0) < 0.01}
->
-  {t(language, 'Add', 'Ongeza')}
-</Button>
+    <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
+      <span className="text-slate-500">
+        {t(language, 'Available', 'Iliyopo')}: {formatQty(p.stockBaseQty)} {p.baseUnit}
+      </span>
 
-                        {p.baseUnit !== 'pc' ? (
-                          <>
-                            {[0.25, 0.5, 0.75, 1].map((qty) => (
-                              <Button
-                                key={`${p.id}-${qty}`}
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => quickAddMeasured(p, qty)}
-                                disabled={Number(p.stockBaseQty || 0) < qty}
-                              >
-                                {formatQty(qty)} {p.baseUnit}
-                              </Button>
-                            ))}
-                          </>
-                        ) : null}
-                      </div>
-                    </div>
-                  ))}
+      <span className="font-medium text-green-600">
+        {t(language, 'Sale Price', 'Bei ya kuuza')}: TZS {currency(p.sellPrice)}
+      </span>
+
+      <Input
+        className="w-24"
+        type="number"
+        min="0.01"
+        step={p.baseUnit === 'pc' ? '1' : '0.01'}
+        defaultValue="1"
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            quickAddMeasured(p, e.currentTarget.value);
+            e.currentTarget.value = '1';
+          }
+        }}
+      />
+
+      <Button
+        type="button"
+        onClick={(e) => {
+          const qtyInput = e.currentTarget.parentElement.querySelector('input');
+          const qty = Number(qtyInput?.value || 1);
+          quickAddMeasured(p, qty);
+        }}
+        disabled={Number(p.stockBaseQty || 0) < 0.01}
+      >
+        {t(language, 'Add', 'Ongeza')}
+      </Button>
+    </div>
+
+    {p.baseUnit !== 'pc' ? (
+      <div className="mt-3 flex flex-wrap gap-2">
+        {[0.25, 0.5, 0.75, 1].map((qty) => (
+          <Button
+            key={`${p.id}-${qty}`}
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => quickAddMeasured(p, qty)}
+            disabled={Number(p.stockBaseQty || 0) < qty}
+          >
+            {formatQty(qty)} {p.baseUnit}
+          </Button>
+        ))}
+      </div>
+    ) : null}
+  </div>
+))}
                 </div>
               )}
             </CardContent>
