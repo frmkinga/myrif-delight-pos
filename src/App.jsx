@@ -3047,13 +3047,13 @@ supabase.from('mobileMoneyEntries').insert([record]);
         />
 
         <Button
-          type="button"
-          size="sm"
-          onClick={(e) => {
-          onClick={() => {
-  setQuickSearch('');
-  setLastQuickProduct(null);
-}}
+  type="button"
+  size="sm"
+  onClick={() => {
+    setQuickSearch('');
+    setLastQuickProduct(null);
+  }}
+>
           disabled={Number(p.stockBaseQty || 0) < 1}
         >
           {t(language, 'Add', 'Ongeza')}
