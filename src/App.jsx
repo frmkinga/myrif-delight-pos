@@ -4537,7 +4537,6 @@ const importBackup = () => {
     setData(normalizeData(seedData));
     setActiveShopId(null);
   };
-
 const handleLogin = async (user) => {
   const { data: authData } = await supabase.auth.getUser();
   const authUserId = authData?.user?.id || null;
@@ -4565,39 +4564,40 @@ const handleLogin = async (user) => {
 
   const loaded = await readData();
 
-let products = loaded.products || [];
+  let products = loaded.products || [];
 
-if (shopId) {
-  const { data: freshProducts } = await supabase
-    .from('products')
-    .select('*')
-    .eq('shop_id', shopId);
+  if (shopId) {
+    const { data: freshProducts } = await supabase
+      .from('products')
+      .select('*')
+      .eq('shop_id', shopId);
 
-  products = (freshProducts || []).map((p) => ({
-    id: p.id,
-    name: p.name,
-    buyPrice: Number(p.buyingprice || 0),
-    sellPrice: Number(p.sellingprice || 0),
-    stockBaseQty: Number(p.stock || 0),
-    stockQty: Number(p.stock || 0),
-    shop_id: p.shop_id || p.shopid || '',
-    baseUnit: p.baseunit || 'pc',
-    minStockLevel: 5,
-    expiryDate: '',
-    qrCode: '',
-    subUnitsRaw: '',
-    createdAt: p.createdAt || (p.created_at ? String(p.created_at).slice(0, 10) : ''),
-    confirmed: true,
+    products = (freshProducts || []).map((p) => ({
+      id: p.id,
+      name: p.name,
+      buyPrice: Number(p.buyingprice || 0),
+      sellPrice: Number(p.sellingprice || 0),
+      stockBaseQty: Number(p.stock || 0),
+      stockQty: Number(p.stock || 0),
+      shop_id: p.shop_id || p.shopid || '',
+      baseUnit: p.baseunit || 'pc',
+      minStockLevel: 5,
+      expiryDate: '',
+      qrCode: '',
+      subUnitsRaw: '',
+      createdAt: p.createdAt || (p.created_at ? String(p.created_at).slice(0, 10) : ''),
+      confirmed: true,
+    }));
+  }
+
+  setData((prev) => ({
+    ...loaded,
+    users: loaded.users?.length ? loaded.users : seedData.users,
+    products,
+    expenses: loaded.expenses || prev.expenses || [],
+    currentUser: sessionUser,
   }));
-}
-
-setData((prev) => ({
-  ...loaded,
-  users: loaded.users?.length ? loaded.users : seedData.users,
-  products,
-  expenses: expenses.length ? expenses : prev.expenses,
-  currentUser: sessionUser,
-}));
+};
 const openShopDashboard = async (shopId) => {
   setActiveShopId(shopId);
 
