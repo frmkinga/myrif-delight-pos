@@ -3037,18 +3037,14 @@ supabase.from('mobileMoneyEntries').insert([record]);
   type="number"
   min="1"
   step="1"
-  value={p._draftQty || ''}
-  onChange={(e) => {
-    const value = e.target.value;
-    p._draftQty = value;
-  }}
+  defaultValue=""
   onKeyDown={(e) => {
     if (e.key === 'Enter') {
-      const rawQty = String(p._draftQty || '').trim();
+      const rawQty = e.currentTarget.value?.trim() || '';
       const qty = rawQty === '' ? 1 : Number(rawQty);
 
       quickAddMeasured(p, qty);
-      p._draftQty = '';
+      e.currentTarget.value = '';
       setQuickSearch('');
     }
   }}
@@ -3059,7 +3055,7 @@ supabase.from('mobileMoneyEntries').insert([record]);
   size="sm"
   onClick={(e) => {
     const row = e.currentTarget.parentElement;
-    const qtyInput = row?.querySelector('input');
+    const qtyInput = e.currentTarget.previousElementSibling;
     const rawQty = qtyInput?.value?.trim() || '';
     const qty = rawQty === '' ? 1 : Number(rawQty);
 
