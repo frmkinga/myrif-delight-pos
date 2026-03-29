@@ -3046,7 +3046,7 @@ supabase.from('mobileMoneyEntries').insert([record]);
           }}
         />
 
-      <Button
+<Button
   type="button"
   size="sm"
   onClick={(e) => {
@@ -3058,6 +3058,7 @@ supabase.from('mobileMoneyEntries').insert([record]);
     quickAddMeasured(p, qty);
     setQuickSearch('');
     setLastQuickProduct(undefined);
+    setTimeout(() => setQuickSearch(''), 0);
 
     if (qtyInput) {
       qtyInput.value = '1';
@@ -3065,9 +3066,8 @@ supabase.from('mobileMoneyEntries').insert([record]);
   }}
   disabled={Number(p.stockBaseQty || 0) < 1}
 >
-        >
-          {t(language, 'Add', 'Ongeza')}
-        </Button>
+  {t(language, 'Add', 'Ongeza')}
+</Button>
       </div>
     ) : (
       <>
