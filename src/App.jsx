@@ -1293,6 +1293,7 @@ const bankCommission = latestMobileEntry ? getBankCommissionTotal(latestMobileEn
  const stockValueRows = useMemo(
   () =>
     products
+      .filter((p) => !p.archived)
       .filter((p) =>
         String(p.name || '').toLowerCase().includes(stockSearch.toLowerCase())
       )
