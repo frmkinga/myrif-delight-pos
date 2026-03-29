@@ -3021,19 +3021,19 @@ supabase.from('mobileMoneyEntries').insert([record]);
                 {quickProducts.map((p) => (
   <div key={p.id} className="rounded-2xl border border-slate-200 p-3">
     {p.baseUnit === 'pc' ? (
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="min-w-[220px] flex-1 font-medium">{p.name}</div>
+      <div className="flex items-center gap-2 text-sm">
+        <div className="min-w-0 flex-1 truncate font-medium">{p.name}</div>
 
-        <div className="text-sm text-slate-500">
+        <div className="shrink-0 text-slate-500">
           {formatQty(p.stockBaseQty)} {p.baseUnit}
         </div>
 
-        <div className="text-sm font-medium text-green-600">
+        <div className="shrink-0 text-sm font-medium text-green-600">
           TZS {currency(p.sellPrice)}
         </div>
 
         <Input
-          className="w-20"
+          className="h-8 w-16 shrink-0"
           type="number"
           min="1"
           step="1"
@@ -3048,8 +3048,10 @@ supabase.from('mobileMoneyEntries').insert([record]);
 
         <Button
           type="button"
+          size="sm"
           onClick={(e) => {
-            const qtyInput = e.currentTarget.parentElement.querySelector('input');
+            const row = e.currentTarget.closest('.rounded-2xl');
+            const qtyInput = row?.querySelector('input');
             const qty = Number(qtyInput?.value || 1);
             quickAddMeasured(p, qty);
           }}
@@ -3060,19 +3062,19 @@ supabase.from('mobileMoneyEntries').insert([record]);
       </div>
     ) : (
       <>
-        <div className="font-medium">{p.name}</div>
+        <div className="flex items-center gap-2 text-sm">
+          <div className="min-w-0 flex-1 truncate font-medium">{p.name}</div>
 
-        <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
-          <span className="text-slate-500">
+          <div className="shrink-0 text-slate-500">
             {formatQty(p.stockBaseQty)} {p.baseUnit}
-          </span>
+          </div>
 
-          <span className="font-medium text-green-600">
+          <div className="shrink-0 text-sm font-medium text-green-600">
             TZS {currency(p.sellPrice)}
-          </span>
+          </div>
 
           <Input
-            className="w-20"
+            className="h-8 w-16 shrink-0"
             type="number"
             min="0.01"
             step="0.01"
@@ -3087,8 +3089,10 @@ supabase.from('mobileMoneyEntries').insert([record]);
 
           <Button
             type="button"
+            size="sm"
             onClick={(e) => {
-              const qtyInput = e.currentTarget.parentElement.querySelector('input');
+              const row = e.currentTarget.closest('.rounded-2xl');
+              const qtyInput = row?.querySelector('input');
               const qty = Number(qtyInput?.value || 1);
               quickAddMeasured(p, qty);
             }}
@@ -3098,7 +3102,7 @@ supabase.from('mobileMoneyEntries').insert([record]);
           </Button>
         </div>
 
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className="mt-2 flex flex-wrap gap-2">
           {[0.25, 0.5, 0.75, 1].map((qty) => (
             <Button
               key={`${p.id}-${qty}`}
