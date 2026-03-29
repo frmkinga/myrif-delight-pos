@@ -434,70 +434,113 @@ function normalizeData(parsed = {}) {
 async function readData() {
   try {
     if (navigator.onLine) {
-      try {
-        const savedSessionUser = readStorage(STORAGE_SESSION_KEY, null);
-        const sessionShopId = savedSessionUser?.shop_id || null;
+  try {
+    const savedSessionUser = readStorage(STORAGE_SESSION_KEY, null);
+    const {
+  data: { session },
+} = await supabase.auth.getSession();
 
-        let query = supabase.from('products').select('*');
+let sessionShopId = savedSessionUser?.shop_id || savedSessionUser?.shopId || null;
 
-        if (sessionShopId) {
-          query = query.eq('shop_id', sessionShopId);
-        }
+if (session?.user?.id) {
+  const { data: shopUserRow } = await supabase
+    .from('shop_users')
+    .select('shop_id')
+    .eq('id', session.user.id)
+    .maybeSingle();
 
-        const { data: cloudProducts } = await query;
+  if (shopUserRow?.shop_id) {
+    sessionShopId = shopUserRow.shop_id;
+  }
+}
 
-        if (cloudProducts) {
-          const normalized = normalizeData({
-            ...seedData,
-            currentUser: savedSessionUser,
-            products: (cloudProducts || []).map((p) => {
-              const rawStock =
-                p?.stock ??
-                p?.stockBaseQty ??
-                p?.stockQty ??
-                0;
+    let productsQuery = supabase.from('products').select('*');
+    let salesQuery = supabase.from('sales').select('*');
+    let purchasesQuery = supabase.from('purchases').select('*');
+    let expensesQuery = supabase.from('expenses').select('*');
+    let creditQuery = supabase.from('creditSales').select('*');
+    let mobileMoneyQuery = supabase.from('mobileMoneyEntries').select('*');
+    let gasQuery = supabase.from('gasEntries').select('*');
 
-              const rawBuyPrice =
-                p?.buyingprice ??
-                p?.buyPrice ??
-                0;
-
-              const rawSellPrice =
-                p?.sellingprice ??
-                p?.sellPrice ??
-                0;
-
-              const rawBaseUnit =
-                p?.baseunit ??
-                p?.baseUnit ??
-                'pc';
-
-              return {
-                id: p?.id || '',
-                name: String(p?.name || '').trim(),
-                buyPrice: Number(rawBuyPrice || 0),
-                sellPrice: Number(rawSellPrice || 0),
-                stockBaseQty: Number(rawStock || 0),
-                stockQty: Number(rawStock || 0),
-                shop_id: String(p?.shop_id || p?.shopId || p?.shopid || '').trim(),
-                baseUnit: rawBaseUnit,
-                minStockLevel: Number(p?.minStockLevel || 5),
-                expiryDate: p?.expiryDate || '',
-                qrCode: p?.qrCode || '',
-                subUnitsRaw: p?.subUnitsRaw || '',
-                createdAt: p?.createdAt || (p?.created_at ? String(p.created_at).slice(0, 10) : ''),
-                confirmed: true,
-              };
-            }),
-          });
-
-          await writeToDB(DB_DATA_KEY, normalized);
-          return normalized;
-        }
-      } catch (error) {
-        console.error('Cloud product read failed, falling back to local:', error);
-      }
+    if (sessionShopId) {
+      productsQuery = productsQuery.eq('shop_id', sessionShopId);
+      salesQuery = salesQuery.eq('shop_id', sessionShopId);
+      purchasesQuery = purchasesQuery.eq('shop_id', sessionShopId);
+      expensesQuery = expensesQuery.eq('shop_id', sessionShopId);
+      creditQuery = creditQuery.eq('shop_id', sessionShopId);
+      mobileMoneyQuery = mobileMoneyQuery.eq('shop_id', sessionShopId);
+      gasQuery = gasQuery.eq('shop_id', sessionShopId);
     }
+
+    const [
+      { data: cloudProducts },
+      { data: cloudSales },
+      { data: cloudPurchases },
+      { data: cloudExpenses },
+      { data: cloudCreditSales },
+      { data: cloudMobileMoneyEntries },
+      { data: cloudGasEntries },
+    ] = await Promise.all([
+      productsQuery,
+      salesQuery,
+      purchasesQuery,
+      expensesQuery,
+      creditQuery,
+      mobileMoneyQuery,
+      gasQuery,
+    ]);
+
+    const normalized = normalizeData({
+      ...seedData,
+      currentUser: savedSessionUser,
+      products: (cloudProducts || []).map((p) => ({
+        id: p?.id || '',
+        name: String(p?.name || '').trim(),
+        buyPrice: Number(p?.buyingprice || p?.buyPrice || 0),
+        sellPrice: Number(p?.sellingprice || p?.sellPrice || 0),
+        stockBaseQty: Number(p?.stock || p?.stockBaseQty || p?.stockQty || 0),
+        stockQty: Number(p?.stock || p?.stockBaseQty || p?.stockQty || 0),
+        shop_id: String(p?.shop_id || p?.shopId || p?.shopid || '').trim(),
+        baseUnit: p?.baseunit || p?.baseUnit || 'pc',
+        minStockLevel: Number(p?.minStockLevel || 5),
+        expiryDate: p?.expiryDate || '',
+        qrCode: p?.qrCode || '',
+        subUnitsRaw: p?.subUnitsRaw || '',
+        createdAt: p?.createdAt || (p?.created_at ? String(p.created_at).slice(0, 10) : ''),
+        confirmed: true,
+      })),
+      sales: (cloudSales || []).map((s) => ({
+        ...s,
+        shop_id: s?.shop_id || s?.shopid || '',
+        date: s?.date || (s?.created_at ? String(s.created_at).slice(0, 10) : todayISO()),
+      })),
+      purchases: (cloudPurchases || []).map((p) => ({
+        ...p,
+        shop_id: p?.shop_id || p?.shopid || '',
+        date: p?.date || (p?.created_at ? String(p.created_at).slice(0, 10) : todayISO()),
+      })),
+      expenses: (cloudExpenses || []).map((e) => ({
+        id: e?.id || '',
+        shop_id: e?.shop_id || e?.shopid || '',
+        title: e?.title || e?.description || '',
+        description: e?.description || e?.title || '',
+        amount: Number(e?.amount || 0),
+        category: e?.category || '',
+        date: e?.date || (e?.created_at ? String(e.created_at).slice(0, 10) : todayISO()),
+        notes: e?.notes || '',
+        created_at: e?.created_at || '',
+      })),
+      creditSales: cloudCreditSales || [],
+      mobileMoneyEntries: cloudMobileMoneyEntries || [],
+      gasEntries: cloudGasEntries || [],
+    });
+
+    await writeToDB(DB_DATA_KEY, normalized);
+    return normalized;
+  } catch (error) {
+    console.error('Cloud read failed, falling back to local:', error);
+  }
+}
 
     console.log('Reading data from localStorage first...');
 
@@ -518,7 +561,7 @@ async function readData() {
 const fallbackProducts = (separateProducts || raw.products || []).filter(
   (p) =>
     !savedSessionUser?.shop_id ||
-    String(p.shop_id || p.shopId || p.shopid || '') === String(savedSessionUser.shop_id)
+    String(p.shop_id || '') === String(savedSessionUser?.shop_id || savedSessionUser?.shopId || '')
 );
 
 const normalized = normalizeData({
@@ -527,7 +570,11 @@ const normalized = normalizeData({
   products: fallbackProducts,
   sales: separateSales || raw.sales,
   purchases: separatePurchases || raw.purchases,
-  expenses: separateExpenses || raw.expenses,
+    expenses: (separateExpenses || raw.expenses || []).filter(
+    (e) =>
+      !savedSessionUser?.shop_id ||
+      String(e.shop_id || e.shopId || e.shopid || '') === String(savedSessionUser.shop_id)
+  ),
   creditSales: separateCredit || raw.creditSales,
   changeLedger: separateChange || raw.changeLedger,
   mobileMoneyEntries: separateMobileMoney || raw.mobileMoneyEntries,
@@ -4301,6 +4348,69 @@ useEffect(() => {
     supabase.removeChannel(salesChannel);
   };
 }, [activeShopId]);
+useEffect(() => {
+  if (!activeShopId) return;
+
+  const loadExpensesForShop = async () => {
+  const { data: expenses } = await supabase
+    .from('expenses')
+    .select('*')
+    .eq('shop_id', activeShopId);
+
+  const mappedExpenses = (expenses || []).map((e) => ({
+    id: e.id,
+    shop_id: e.shop_id || e.shopid || '',
+    title: e.title || e.description || '',
+    description: e.description || e.title || '',
+    amount: Number(e.amount || 0),
+    category: e.category || '',
+    date: e.date || (e.created_at ? String(e.created_at).slice(0, 10) : todayISO()),
+    notes: e.notes || '',
+    created_at: e.created_at || '',
+  }));
+
+  setData((prev) => {
+    const existingShopExpenses = (prev.expenses || []).filter(
+      (e) => String(e.shop_id || '') === String(activeShopId)
+    );
+
+    if ((mappedExpenses.length === 0) && existingShopExpenses.length > 0) {
+      return prev;
+    }
+
+    const otherShopExpenses = (prev.expenses || []).filter(
+      (e) => String(e.shop_id || '') !== String(activeShopId)
+    );
+
+    return {
+      ...prev,
+      expenses: [...otherShopExpenses, ...mappedExpenses],
+    };
+  });
+};
+
+  loadExpensesForShop();
+
+  const expensesChannel = supabase
+    .channel('expenses-changes')
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'expenses',
+        filter: `shop_id=eq.${activeShopId}`,
+      },
+      async () => {
+        await loadExpensesForShop();
+      }
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(expensesChannel);
+  };
+}, [activeShopId]);
 
   const saveData = (next) => {
   const normalized = normalizeData(next);
@@ -4455,39 +4565,39 @@ const handleLogin = async (user) => {
 
   const loaded = await readData();
 
-  let products = [];
+let products = loaded.products || [];
 
-  if (shopId) {
-    const { data: freshProducts } = await supabase
-      .from('products')
-      .select('*')
-      .eq('shop_id', shopId);
+if (shopId) {
+  const { data: freshProducts } = await supabase
+    .from('products')
+    .select('*')
+    .eq('shop_id', shopId);
 
-    products = (freshProducts || []).map((p) => ({
-      id: p.id,
-      name: p.name,
-      buyPrice: Number(p.buyingprice || 0),
-      sellPrice: Number(p.sellingprice || 0),
-      stockBaseQty: Number(p.stock || 0),
-      stockQty: Number(p.stock || 0),
-      shop_id: p.shop_id || p.shopid || '',
-      baseUnit: p.baseunit || 'pc',
-      minStockLevel: 5,
-      expiryDate: '',
-      qrCode: '',
-      subUnitsRaw: '',
-      createdAt: p.createdAt || (p.created_at ? String(p.created_at).slice(0, 10) : ''),
-      confirmed: true,
-    }));
-  }
+  products = (freshProducts || []).map((p) => ({
+    id: p.id,
+    name: p.name,
+    buyPrice: Number(p.buyingprice || 0),
+    sellPrice: Number(p.sellingprice || 0),
+    stockBaseQty: Number(p.stock || 0),
+    stockQty: Number(p.stock || 0),
+    shop_id: p.shop_id || p.shopid || '',
+    baseUnit: p.baseunit || 'pc',
+    minStockLevel: 5,
+    expiryDate: '',
+    qrCode: '',
+    subUnitsRaw: '',
+    createdAt: p.createdAt || (p.created_at ? String(p.created_at).slice(0, 10) : ''),
+    confirmed: true,
+  }));
+}
 
-  setData({
-    ...loaded,
-    users: loaded.users?.length ? loaded.users : seedData.users,
-    products,
-    currentUser: sessionUser,
-  });
-};
+setData((prev) => ({
+  ...loaded,
+  users: loaded.users?.length ? loaded.users : seedData.users,
+  products,
+  expenses: expenses.length ? expenses : prev.expenses,
+  currentUser: sessionUser,
+}));
 const openShopDashboard = async (shopId) => {
   setActiveShopId(shopId);
 
@@ -4546,7 +4656,10 @@ if (isHydrating) {
     return <Login onLogin={handleLogin} users={data.users} language={language} setLanguage={setLanguage} />;
   }
 
-  const selectedShopId = data.currentUser.role === 'shop' ? data.currentUser.shopId : activeShopId;
+  const selectedShopId =
+  data.currentUser.role === 'shop'
+    ? (data.currentUser.shop_id || data.currentUser.shopId || null)
+    : activeShopId;
   if (!selectedShopId) {
     return (
   <>
