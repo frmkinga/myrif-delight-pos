@@ -3057,7 +3057,7 @@ supabase.from('mobileMoneyEntries').insert([record]);
 
     quickAddMeasured(p, qty);
     setQuickSearch('');
-    setLastQuickProduct(null);
+    setLastQuickProduct(undefined);
 
     if (qtyInput) {
       qtyInput.value = '1';
