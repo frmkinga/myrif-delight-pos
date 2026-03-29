@@ -3050,11 +3050,10 @@ supabase.from('mobileMoneyEntries').insert([record]);
           type="button"
           size="sm"
           onClick={(e) => {
-            const row = e.currentTarget.closest('.rounded-2xl');
-            const qtyInput = row?.querySelector('input');
-            const qty = Number(qtyInput?.value || 1);
-            quickAddMeasured(p, qty);
-          }}
+          onClick={() => {
+  setQuickSearch('');
+  setLastQuickProduct(null);
+}}
           disabled={Number(p.stockBaseQty || 0) < 1}
         >
           {t(language, 'Add', 'Ongeza')}
@@ -3090,12 +3089,10 @@ supabase.from('mobileMoneyEntries').insert([record]);
           <Button
             type="button"
             size="sm"
-            onClick={(e) => {
-              const row = e.currentTarget.closest('.rounded-2xl');
-              const qtyInput = row?.querySelector('input');
-              const qty = Number(qtyInput?.value || 1);
-              quickAddMeasured(p, qty);
-            }}
+            onClick={() => {
+  setQuickSearch('');
+  setLastQuickProduct(null);
+}}
             disabled={Number(p.stockBaseQty || 0) < 0.01}
           >
             {t(language, 'Add', 'Ongeza')}
