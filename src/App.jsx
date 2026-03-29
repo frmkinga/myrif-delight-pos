@@ -1283,8 +1283,8 @@ const mobileCommission = latestMobileEntry ? getMobileCommissionTotal(latestMobi
 const bankCommission = latestMobileEntry ? getBankCommissionTotal(latestMobileEntry) : 0;
 
     const quickProducts =
-  quickSearch.trim() === '' && lastQuickProduct
-    ? [lastQuickProduct]
+  quickSearch.trim() === ''
+    ? []
     : products.filter((p) =>
         p.name.toLowerCase().includes(quickSearch.toLowerCase())
       );
