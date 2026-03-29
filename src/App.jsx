@@ -1284,9 +1284,11 @@ const bankCommission = latestMobileEntry ? getBankCommissionTotal(latestMobileEn
   const quickProducts =
   quickSearch.trim() === ''
     ? []
-    : products.filter((p) =>
-        p.name.toLowerCase().includes(quickSearch.toLowerCase())
-      );
+    : products
+        .filter((p) => !p.archived)
+        .filter((p) =>
+          p.name.toLowerCase().includes(quickSearch.toLowerCase())
+        );
 
  const stockValueRows = useMemo(
   () =>
@@ -1570,7 +1572,6 @@ return [
   ...prev,
 ];
     });
-setLastQuickProduct(p);
     setQuickSearch('');
   };
   const handleScanAdd = () => {
