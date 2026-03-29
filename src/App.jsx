@@ -3103,7 +3103,7 @@ supabase.from('mobileMoneyEntries').insert([record]);
         </div>
 
         <div className="mt-2 flex flex-wrap gap-2">
-          {[0.25, 0.5, 0.75, 1].map((qty) => (
+          {[0.06, 0.12, 0.25, 0.5, 0.75, 1, 2, 3].map((qty) => (
             <Button
               key={`${p.id}-${qty}`}
               type="button"
