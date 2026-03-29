@@ -4121,19 +4121,18 @@ const [isHydrating, setIsHydrating] = useState(true);
 const [hasLoadedInitialData, setHasLoadedInitialData] = useState(false);
 
  useEffect(() => {
- useEffect(() => {
   (async () => {
     try {
-      const initial = await readData();
-
       const { data: authSession } = await supabase.auth.getSession();
       const authUser = authSession?.session?.user || null;
 
-      let restoredCurrentUser = initial.currentUser || null;
+      let restoredCurrentUser = null;
 
       if (authUser) {
-        const matchedUser = (initial.users || []).find(
-          (u) => String(u.email || '').toLowerCase() === String(authUser.email || '').toLowerCase()
+        const matchedUser = (seedData.users || []).find(
+          (u) =>
+            String(u.email || '').toLowerCase() ===
+            String(authUser.email || '').toLowerCase()
         );
 
         if (matchedUser) {
@@ -4148,6 +4147,8 @@ const [hasLoadedInitialData, setHasLoadedInitialData] = useState(false);
         writeStorage(STORAGE_SESSION_KEY, null);
       }
 
+      const initial = await readData();
+
       const nextData = {
         ...initial,
         currentUser: restoredCurrentUser,
@@ -4156,7 +4157,11 @@ const [hasLoadedInitialData, setHasLoadedInitialData] = useState(false);
       setData(nextData);
 
       if (restoredCurrentUser?.role === 'shop') {
-        setActiveShopId(restoredCurrentUser.shop_id || restoredCurrentUser.shopId || null);
+        setActiveShopId(
+          restoredCurrentUser.shop_id ||
+            restoredCurrentUser.shopId ||
+            null
+        );
       } else {
         setActiveShopId(null);
       }
@@ -4210,48 +4215,92 @@ useEffect(() => {
 }, []);
 
 useEffect(() => {
-  const productsChannel = supabase
-  .channel('products-changes')
-  .on(
-    'postgres_changes',
-    { event: '*', schema: 'public', table: 'products' },
-    async () => {
-      const { data: products } = await supabase.from('products').select('*');
+  if (!activeShopId) return;
 
-      setData((prev) => ({
-        ...prev,
-        products: (products || []).map((p) => ({
-  id: p.id,
-  name: p.name,
-  buyPrice: Number(p.buyingprice || 0),
-  sellPrice: Number(p.sellingprice || 0),
-  stockBaseQty: Number(p.stock || 0),
-  stockQty: Number(p.stock || 0),
-  shop_id: p.shop_id || p.shopid || '',
-  baseUnit: p.baseunit || 'pc',
-  minStockLevel: 5,
-  expiryDate: '',
-  qrCode: '',
-  subUnitsRaw: '',
-  createdAt: p.createdAt || (p.created_at ? String(p.created_at).slice(0, 10) : ''),
-  confirmed: true,
-}))
-      }));
-    }
-  )
-  .subscribe();
+  const loadProductsForShop = async () => {
+    const { data: products } = await supabase
+      .from('products')
+      .select('*')
+      .eq('shop_id', activeShopId);
+
+    setData((prev) => ({
+      ...prev,
+      products: (products || []).map((p) => ({
+        id: p.id,
+        name: p.name,
+        buyPrice: Number(p.buyingprice || 0),
+        sellPrice: Number(p.sellingprice || 0),
+        stockBaseQty: Number(p.stock || 0),
+        stockQty: Number(p.stock || 0),
+        shop_id: p.shop_id || p.shopid || '',
+        baseUnit: p.baseunit || 'pc',
+        minStockLevel: 5,
+        expiryDate: '',
+        qrCode: '',
+        subUnitsRaw: '',
+        createdAt: p.createdAt || (p.created_at ? String(p.created_at).slice(0, 10) : ''),
+        confirmed: true,
+      })),
+    }));
+  };
+
+  loadProductsForShop();
+
+  const productsChannel = supabase
+    .channel('products-changes')
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'products',
+        filter: `shop_id=eq.${activeShopId}`,
+      },
+      async () => {
+        await loadProductsForShop();
+      }
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(productsChannel);
+  };
+}, [activeShopId]);
+ useEffect(() => {
+  if (!activeShopId) return;
 
   const salesChannel = supabase
     .channel('sales-changes')
     .on(
       'postgres_changes',
-      { event: '*', schema: 'public', table: 'sales' },
+      {
+        event: '*',
+        schema: 'public',
+        table: 'sales',
+        filter: `shop_id=eq.${activeShopId}`,
+      },
       async () => {
-        const { data: sales } = await supabase.from('sales').select('*');
-        setData((prev) => ({ ...prev, sales: sales || [] }));
+        const { data: sales } = await supabase
+          .from('sales')
+          .select('*')
+          .eq('shop_id', activeShopId);
+
+        setData((prev) => ({
+          ...prev,
+          sales: (sales || []).map((s) => ({
+            ...s,
+            shop_id: s.shop_id || s.shopid || '',
+            date: s.date || (s.created_at ? String(s.created_at).slice(0, 10) : todayISO()),
+          })),
+        }));
       }
     )
     .subscribe();
+
+  return () => {
+    supabase.removeChannel(salesChannel);
+  };
+}, [activeShopId]);
 
   const purchasesChannel = supabase
     .channel('purchases-changes')
@@ -4462,7 +4511,7 @@ const importBackup = () => {
     setActiveShopId(null);
   };
 
- const handleLogin = async (user) => {
+const handleLogin = async (user) => {
   const { data: authData } = await supabase.auth.getUser();
   const authUserId = authData?.user?.id || null;
 
@@ -4473,16 +4522,84 @@ const importBackup = () => {
 
   writeStorage(STORAGE_SESSION_KEY, sessionUser);
 
+  const shopId =
+    user.role === 'shop'
+      ? user.shop_id || user.shopId || null
+      : null;
+
+  // Clear previous shop data first
   setData((prev) => ({
-    ...prev,
+    ...seedData,
+    users: prev.users,
     currentUser: sessionUser,
   }));
 
-  if (user.role === 'shop') setActiveShopId(user.shop_id || user.shopId || null);
-  else setActiveShopId(null);
-};
+  setActiveShopId(shopId);
 
-  const logout = async () => {
+  const loaded = await readData();
+
+  let products = [];
+
+  if (shopId) {
+    const { data: freshProducts } = await supabase
+      .from('products')
+      .select('*')
+      .eq('shop_id', shopId);
+
+    products = (freshProducts || []).map((p) => ({
+      id: p.id,
+      name: p.name,
+      buyPrice: Number(p.buyingprice || 0),
+      sellPrice: Number(p.sellingprice || 0),
+      stockBaseQty: Number(p.stock || 0),
+      stockQty: Number(p.stock || 0),
+      shop_id: p.shop_id || p.shopid || '',
+      baseUnit: p.baseunit || 'pc',
+      minStockLevel: 5,
+      expiryDate: '',
+      qrCode: '',
+      subUnitsRaw: '',
+      createdAt: p.createdAt || (p.created_at ? String(p.created_at).slice(0, 10) : ''),
+      confirmed: true,
+    }));
+  }
+
+  setData({
+    ...loaded,
+    users: loaded.users?.length ? loaded.users : seedData.users,
+    products,
+    currentUser: sessionUser,
+  });
+};
+const openShopDashboard = async (shopId) => {
+  setActiveShopId(shopId);
+
+  const { data: products } = await supabase
+    .from('products')
+    .select('*')
+    .eq('shop_id', shopId);
+
+  setData((prev) => ({
+    ...prev,
+    products: (products || []).map((p) => ({
+      id: p.id,
+      name: p.name,
+      buyPrice: Number(p.buyingprice || 0),
+      sellPrice: Number(p.sellingprice || 0),
+      stockBaseQty: Number(p.stock || 0),
+      stockQty: Number(p.stock || 0),
+      shop_id: p.shop_id || p.shopid || '',
+      baseUnit: p.baseunit || 'pc',
+      minStockLevel: 5,
+      expiryDate: '',
+      qrCode: '',
+      subUnitsRaw: '',
+      createdAt: p.createdAt || (p.created_at ? String(p.created_at).slice(0, 10) : ''),
+      confirmed: true,
+    })),
+  }));
+};
+const logout = async () => {
   await supabase.auth.signOut();
 
   writeStorage(STORAGE_SESSION_KEY, null);
@@ -4527,7 +4644,7 @@ if (isHydrating) {
     <OwnerDashboard
   data={data}
   setAppData={setData}
-  openShop={setActiveShopId}
+  openShop={openShopDashboard}
   logout={logout}
   exportBackup={exportBackup}
   importBackup={importBackup}
