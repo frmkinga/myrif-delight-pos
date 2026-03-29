@@ -3046,15 +3046,17 @@ supabase.from('mobileMoneyEntries').insert([record]);
           }}
         />
 
-        <Button
+       <Button
   type="button"
   size="sm"
-  onClick={() => {
-    setQuickSearch('');
-    setLastQuickProduct(null);
+  onClick={(e) => {
+    const row = e.currentTarget.closest('.rounded-2xl');
+    const qtyInput = row?.querySelector('input');
+    const qty = Number(qtyInput?.value || 1);
+    quickAddMeasured(p, qty);
   }}
+  disabled={Number(p.stockBaseQty || 0) < 1}
 >
-          disabled={Number(p.stockBaseQty || 0) < 1}
         >
           {t(language, 'Add', 'Ongeza')}
         </Button>
