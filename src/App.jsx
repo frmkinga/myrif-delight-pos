@@ -1000,7 +1000,6 @@ const shopExpenses = filterByPreset(
 function ShopDashboard({ shop, data, saveData, backToOwner, logout, canBack, language, setLanguage, exportBackup }) {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [quickSearch, setQuickSearch] = useState('');
-const [lastQuickProduct, setLastQuickProduct] = useState(null);
 const [stockSearch, setStockSearch] = useState('');
   const [scanCode, setScanCode] = useState('');
   const [cart, setCart] = useState([]);
@@ -1282,7 +1281,7 @@ const bankFloat = latestMobileEntry ? getBankFloatTotal(latestMobileEntry) : 0;
 const mobileCommission = latestMobileEntry ? getMobileCommissionTotal(latestMobileEntry) : 0;
 const bankCommission = latestMobileEntry ? getBankCommissionTotal(latestMobileEntry) : 0;
 
-    const quickProducts =
+  const quickProducts =
   quickSearch.trim() === ''
     ? []
     : products.filter((p) =>
@@ -3057,9 +3056,7 @@ supabase.from('mobileMoneyEntries').insert([record]);
 
     quickAddMeasured(p, qty);
     setQuickSearch('');
-    setLastQuickProduct(undefined);
-    setTimeout(() => setQuickSearch(''), 0);
-
+   
     if (qtyInput) {
       qtyInput.value = '1';
     }
@@ -3101,7 +3098,6 @@ supabase.from('mobileMoneyEntries').insert([record]);
             size="sm"
             onClick={() => {
   setQuickSearch('');
-  setLastQuickProduct(null);
 }}
             disabled={Number(p.stockBaseQty || 0) < 0.01}
           >
