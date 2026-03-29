@@ -3058,7 +3058,7 @@ supabase.from('mobileMoneyEntries').insert([record]);
   type="button"
   size="sm"
   onClick={(e) => {
-    const row = e.currentTarget.closest('.rounded-2xl');
+    const row = e.currentTarget.parentElement;
     const qtyInput = row?.querySelector('input');
     const rawQty = qtyInput?.value?.trim() || '';
     const qty = rawQty === '' ? 1 : Number(rawQty);
