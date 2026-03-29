@@ -3564,26 +3564,55 @@ onDeleteGas={deleteGas}
     <td className="py-3 pr-3">TZS {currency(row.stockValue)}</td>
     <td className="py-3 pr-3">TZS {currency(row.totalProfitIfSold)}</td>
     <td className="py-3 pr-3">
-      <div className="flex items-center gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => startEditProduct(row)}
-        >
-          <Pencil className="h-4 w-4" />
-        </Button>
+  <div className="flex items-center gap-2">
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      onClick={() => startEditProduct(row)}
+    >
+      <Pencil className="h-4 w-4" />
+    </Button>
 
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => deleteProduct(row.id)}
-        >
-          <Trash2 className="h-4 w-4" />
-        </Button>
-      </div>
-    </td>
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      onClick={() => deleteProduct(row.id)}
+    >
+      <Trash2 className="h-4 w-4" />
+    </Button>
+
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      onClick={async () => {
+  if (!confirm("Archive this product?")) return;
+
+  const nextProducts = data.products.map((p) =>
+    p.id === row.id ? { ...p, archived: true } : p
+  );
+
+        saveData({
+          ...data,
+          products: nextProducts,
+        });
+
+        const { error } = await supabase
+          .from('products')
+          .update({ archived: true })
+          .eq('id', row.id);
+
+        if (error) {
+          alert(`Product archive failed: ${error.message}`);
+        }
+      }}
+    >
+      Archive
+    </Button>
+  </div>
+</td>
   </tr>
 ))}
 
