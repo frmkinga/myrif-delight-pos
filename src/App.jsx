@@ -3033,7 +3033,7 @@ supabase.from('mobileMoneyEntries').insert([record]);
         </div>
 
         <Input
-          className="h-8 w-16 shrink-0"
+          className="!h-8 !w-16 shrink-0"
           type="number"
           min="1"
           step="1"
@@ -3074,7 +3074,7 @@ supabase.from('mobileMoneyEntries').insert([record]);
           </div>
 
           <Input
-            className="h-8 w-16 shrink-0"
+            className="!h-8 !w-16 shrink-0"
             type="number"
             min="0.01"
             step="0.01"
