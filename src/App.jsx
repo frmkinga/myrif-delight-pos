@@ -4639,12 +4639,15 @@ const handleLogin = async (user) => {
   }
 
   setData((prev) => ({
-    ...loaded,
-    users: loaded.users?.length ? loaded.users : seedData.users,
-    products,
-    expenses: loaded.expenses || prev.expenses || [],
-    currentUser: sessionUser,
-  }));
+  ...loaded,
+  users: loaded.users?.length ? loaded.users : seedData.users,
+  products: (products || []).map((p) => {
+    const existing = prev.products.find((x) => x.id === p.id);
+    return existing?.archived ? { ...p, archived: true } : p;
+  }),
+  expenses: loaded.expenses || prev.expenses || [],
+  currentUser: sessionUser,
+}));
 };
 const openShopDashboard = async (shopId) => {
   setActiveShopId(shopId);
