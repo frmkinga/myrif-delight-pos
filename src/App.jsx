@@ -3034,18 +3034,23 @@ supabase.from('mobileMoneyEntries').insert([record]);
         </div>
 
         <Input
+ <Input
   className="!h-8 !w-16 shrink-0"
   type="number"
   min="1"
   step="1"
-  defaultValue=""
+  value={p._draftQty || ''}
+  onChange={(e) => {
+    const value = e.target.value;
+    p._draftQty = value;
+  }}
   onKeyDown={(e) => {
     if (e.key === 'Enter') {
-      const rawQty = e.currentTarget.value?.trim() || '';
+      const rawQty = String(p._draftQty || '').trim();
       const qty = rawQty === '' ? 1 : Number(rawQty);
 
       quickAddMeasured(p, qty);
-      e.currentTarget.value = '';
+      p._draftQty = '';
       setQuickSearch('');
     }
   }}
