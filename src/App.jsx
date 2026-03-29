@@ -1574,7 +1574,6 @@ return [
   ...prev,
 ];
     });
-    setQuickSearch('');
   };
   const handleScanAdd = () => {
     const code = scanCode.trim();
