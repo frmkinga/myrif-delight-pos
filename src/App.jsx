@@ -3032,18 +3032,22 @@ supabase.from('mobileMoneyEntries').insert([record]);
         </div>
 
         <Input
-          className="!h-8 !w-16 shrink-0"
-          type="number"
-          min="1"
-          step="1"
-          defaultValue="1"
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              quickAddMeasured(p, e.currentTarget.value);
-              e.currentTarget.value = '1';
-            }
-          }}
-        />
+  className="!h-8 !w-16 shrink-0"
+  type="number"
+  min="1"
+  step="1"
+  defaultValue=""
+  onKeyDown={(e) => {
+    if (e.key === 'Enter') {
+      const rawQty = e.currentTarget.value?.trim() || '';
+      const qty = rawQty === '' ? 1 : Number(rawQty);
+
+      quickAddMeasured(p, qty);
+      e.currentTarget.value = '';
+      setQuickSearch('');
+    }
+  }}
+/>
 
 <Button
   type="button"
@@ -3055,11 +3059,12 @@ supabase.from('mobileMoneyEntries').insert([record]);
     const qty = rawQty === '' ? 1 : Number(rawQty);
 
     quickAddMeasured(p, qty);
-    setQuickSearch('');
-   
+
     if (qtyInput) {
-      qtyInput.value = '1';
+      qtyInput.value = '';
     }
+
+    setQuickSearch('');
   }}
   disabled={Number(p.stockBaseQty || 0) < 1}
 >
