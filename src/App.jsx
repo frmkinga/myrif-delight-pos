@@ -3033,7 +3033,7 @@ supabase.from('mobileMoneyEntries').insert([record]);
           TZS {currency(p.sellPrice)}
         </div>
  <Input
-  className="!h-8 !w-16 shrink-0"
+  className="!h-9 w-20 sm:w-16 shrink-0 text-center"
   type="number"
   min="1"
   step="1"
@@ -3086,7 +3086,7 @@ supabase.from('mobileMoneyEntries').insert([record]);
           </div>
 
           <Input
-            className="!h-8 !w-16 shrink-0"
+            className="!h-9 w-20 sm:w-16 shrink-0 text-center"
             type="number"
             min="0.01"
             step="0.01"
