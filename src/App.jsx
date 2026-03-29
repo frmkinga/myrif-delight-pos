@@ -1000,6 +1000,7 @@ const shopExpenses = filterByPreset(
 function ShopDashboard({ shop, data, saveData, backToOwner, logout, canBack, language, setLanguage, exportBackup }) {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [quickSearch, setQuickSearch] = useState('');
+const [lastQuickProduct, setLastQuickProduct] = useState(null);
 const [stockSearch, setStockSearch] = useState('');
   const [scanCode, setScanCode] = useState('');
   const [cart, setCart] = useState([]);
@@ -1281,13 +1282,12 @@ const bankFloat = latestMobileEntry ? getBankFloatTotal(latestMobileEntry) : 0;
 const mobileCommission = latestMobileEntry ? getMobileCommissionTotal(latestMobileEntry) : 0;
 const bankCommission = latestMobileEntry ? getBankCommissionTotal(latestMobileEntry) : 0;
 
-    const quickProducts = useMemo(() => {
-    const q = quickSearch.trim().toLowerCase();
-    if (!q) return [];
-    return products
-      .filter((p) => String(p.name || '').toLowerCase().includes(q))
-      .slice(0, 10);
-  }, [quickSearch, products]);
+    const quickProducts =
+  quickSearch.trim() === '' && lastQuickProduct
+    ? [lastQuickProduct]
+    : products.filter((p) =>
+        p.name.toLowerCase().includes(quickSearch.toLowerCase())
+      );
 
  const stockValueRows = useMemo(
   () =>
@@ -1571,7 +1571,7 @@ return [
   ...prev,
 ];
     });
-
+setLastQuickProduct(p);
     setQuickSearch('');
   };
   const handleScanAdd = () => {
