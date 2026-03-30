@@ -146,8 +146,8 @@ if (Array.isArray(item.payload.products)) {
         await supabase.from('purchases').upsert([item.payload], { onConflict: 'id' });
       } else if (item.actionType === 'expense_created') {
         await supabase.from('expenses').upsert([item.payload], { onConflict: 'id' });
-      } else if (item.actionType === 'credit_created') {
-        await supabase.from('creditSales').upsert([item.payload], { onConflict: 'id' });
+     } else if (item.actionType === 'credit_created') {
+  await supabase.from('creditSales').insert([item.payload]);
       } else if (item.actionType === 'mobile_money_created') {
         await supabase.from('mobileMoneyEntries').upsert([item.payload], { onConflict: 'id' });
       } else if (item.actionType === 'gas_created') {
