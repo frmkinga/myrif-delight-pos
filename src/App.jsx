@@ -531,7 +531,20 @@ if (session?.user?.id) {
         notes: e?.notes || '',
         created_at: e?.created_at || '',
       })),
-      creditSales: cloudCreditSales || [],
+      creditSales: (cloudCreditSales || []).map((c) => ({
+  ...c,
+  shop_id: c?.shop_id || c?.shopid || '',
+  customerName: c?.customerName || c?.customer_name || '',
+  phone: c?.phone || '',
+  notes: c?.notes || '',
+  amount: Number(c?.amount || 0),
+  paid: Number(c?.paid || 0),
+  balance:
+    c?.balance !== undefined && c?.balance !== null
+      ? Number(c.balance)
+      : Math.max(0, Number(c?.amount || 0) - Number(c?.paid || 0)),
+  date: c?.date || (c?.created_at ? String(c.created_at).slice(0, 10) : todayISO()),
+})),
       mobileMoneyEntries: cloudMobileMoneyEntries || [],
       gasEntries: cloudGasEntries || [],
     });
@@ -2077,7 +2090,7 @@ const saveExpenseRows = async () => {
     setCreditRows((prev) => prev.map((row, i) => (i === index ? { ...row, [field]: value } : row)));
   const removeCreditRow = (index) => setCreditRows((prev) => (prev.length === 1 ? prev : prev.filter((_, i) => i !== index)));
 
-  const saveCreditRows = () => {
+  const saveCreditRows = async () => {
     const rows = creditRows.filter((r) => r.customerName || r.amount);
     if (!rows.length) return;
 
@@ -2097,21 +2110,27 @@ const saveExpenseRows = async () => {
 }))
       ],
     });
-rows
-  .filter((r) => r.customerName && r.amount)
-  .forEach((row, idx) => {
-    const creditRecord = {
-  ...row,
+for (const [idx, row] of rows.filter((r) => r.customerName && r.amount).entries()) {
+  const creditRecord = {
   id: row.id || `credit-${Date.now()}-${idx}`,
   shop_id: shop.id,
+  customerName: row.customerName || '',
   amount: Number(row.amount || 0),
-  paid: 0,
-  date: todayISO(),
+  created_at: new Date().toISOString(),
 };
 
-    addToSyncQueue('credit_created', creditRecord);
-    supabase.from('creditSales').insert([creditRecord]);
-  });
+  addToSyncQueue('credit_created', creditRecord);
+  console.log('Sending credit to Supabase:', creditRecord);
+
+  const { error } = await supabase
+    .from('creditSales')
+    .upsert([creditRecord], { onConflict: 'id' });
+
+  if (error) {
+    console.log('Credit sync error:', error);
+    alert(`Credit sync failed: ${error.message}`);
+  }
+}
     setCreditRows([{ ...emptyCreditRow }]);
   };
 
