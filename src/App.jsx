@@ -2122,9 +2122,9 @@ for (const [idx, row] of rows.filter((r) => r.customerName && r.amount).entries(
   addToSyncQueue('credit_created', creditRecord);
   console.log('Sending credit to Supabase:', creditRecord);
 
-  const { error } = await supabase
-    .from('creditSales')
-    .upsert([creditRecord], { onConflict: 'id' });
+ const { error } = await supabase
+  .from('creditSales')
+  .insert([creditRecord]);
 
   if (error) {
     console.log('Credit sync error:', error);
