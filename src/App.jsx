@@ -1348,12 +1348,49 @@ map[item.productId] = {
     });
   });
 
-  const rows = Object.values(map);
+  const salesReportRows = useMemo(() => {
+  const map = {};
+
+  filteredSales.forEach((sale) => {
+    sale.items.forEach((item) => {
+      if (!map[item.productId]) {
+        const product = products.find((p) => p.id === item.productId);
+
+        if (!product) console.warn('Missing product for sale item:', item);
+        map[item.productId] = {
+          productId: item.productId,
+          name: item.name || product?.name || 'Unknown Product',
+          unit: item.unit || product?.baseUnit || '-',
+          buyPrice: Number(item.buyPrice ?? product?.buyPrice ?? 0),
+          sellPrice: Number(item.sellPrice ?? item.price ?? product?.sellPrice ?? 0),
+          balance: Number(product?.stockBaseQty || 0),
+          soldQty: 0,
+          profit: 0,
+          date: sale.date,
+        };
+      }
+
+      map[item.productId].soldQty += Number(item.quantity || 0);
+      map[item.productId].profit +=
+        Number(item.quantity || 0) *
+        (map[item.productId].sellPrice - map[item.productId].buyPrice);
+    });
+  });
+
+  const allRows = Object.values(map);
+
+  const rows = allRows
+    .filter((row) =>
+      String(row.name || '').toLowerCase().includes(stockSearch.toLowerCase())
+    )
+    .sort((a, b) => b.soldQty - a.soldQty);
+
   const totalSold = rows.reduce((a, r) => a + Number(r.soldQty || 0), 0);
   const totalProfit = rows.reduce((a, r) => a + Number(r.profit || 0), 0);
-  const totalSalesAmount = rows.reduce((a, r) => a + Number(r.soldQty || 0) * Number(r.sellPrice || 0), 0);
-
-  rows.sort((a, b) => b.soldQty - a.soldQty);
+  const totalSalesAmount = rows.reduce(
+    (a, r) => a + Number(r.soldQty || 0) * Number(r.sellPrice || 0),
+    0
+  );
 
   return {
     rows,
@@ -1361,7 +1398,7 @@ map[item.productId] = {
     totalProfit,
     totalSalesAmount,
   };
-}, [filteredSales, products]);
+}, [filteredSales, products, stockSearch]);
 const todayProfit = salesReportRows.totalProfit - todayExpenses; 
 const todayRetailProfit = salesReportRows.totalProfit - todayExpenses;
 const totalBusinessProfit =
