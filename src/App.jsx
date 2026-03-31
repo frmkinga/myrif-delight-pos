@@ -1439,6 +1439,21 @@ const expensesReportRows = useMemo(() => {
       amount: Number(expense.amount || 0),
     }));
 }, [filteredExpenses]);
+
+const changeLedgerReportRows = useMemo(() => {
+  return changeLedger
+    .slice()
+    .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))
+    .map((entry, index) => ({
+      sn: index + 1,
+      date: entry.date || '',
+      customerName: entry.customerName || '',
+      amountOwed: Number(entry.amountOwed || 0),
+      status: Number(entry.amountOwed || 0) > 0 ? 'Outstanding' : 'Cleared',
+      notes: entry.notes || '',
+    }));
+}, [changeLedger]);
+
 const profitLossReport = useMemo(() => {
   const productMap = Object.fromEntries(products.map((p) => [p.id, p]));
 
