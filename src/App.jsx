@@ -1964,7 +1964,25 @@ const saveProductRows = async () => {
       t(language, 'Please fill at least one product row.', 'Jaza angalau mstari mmoja wa bidhaa.')
     );
   }
+  const invalidRow = rows.find(
+    (row) =>
+      !String(row.name || '').trim() ||
+      !String(row.unit || '').trim() ||
+      row.buyPrice === '' ||
+      row.sellPrice === '' ||
+      row.stockQty === ''
+  );
 
+  if (invalidRow) {
+    setProductFormError(
+      t(
+        language,
+        'Please fill all required fields: product name, unit, buying price, selling price, and opening stock.',
+        'Tafadhali jaza sehemu zote za lazima: jina la bidhaa, kipimo, bei ya kununua, bei ya kuuza, na stock ya mwanzo.'
+      )
+    );
+    return;
+  }
   const nextProducts = [...data.products];
 
   for (let idx = 0; idx < rows.length; idx += 1) {
