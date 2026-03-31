@@ -1454,6 +1454,22 @@ const changeLedgerReportRows = useMemo(() => {
     }));
 }, [changeLedger]);
 
+const creditSalesReportRows = useMemo(() => {
+  return creditSales
+    .slice()
+    .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))
+    .map((entry, index) => ({
+      sn: index + 1,
+      date: entry.date || '',
+      customerName: entry.customerName || '',
+      phone: entry.phone || '',
+      amount: Number(entry.amount || 0),
+      balance: Number(entry.balance || 0),
+      status: Number(entry.balance || 0) > 0 ? 'Outstanding' : 'Cleared',
+      notes: entry.notes || '',
+    }));
+}, [creditSales]);
+
 const profitLossReport = useMemo(() => {
   const productMap = Object.fromEntries(products.map((p) => [p.id, p]));
 
@@ -3504,6 +3520,7 @@ onDeleteGas={deleteGas}
 <option value="profitLoss">{t(language, 'Profit & Loss Report', 'Ripoti ya Faida na Hasara')}</option>
 <option value="expensesReport">{t(language, 'Expenses Report', 'Ripoti ya Matumizi')}</option>
 <option value="changeLedgerReport">{t(language, 'Change Ledger Report', 'Ripoti ya Chenji ya Mteja')}</option>
+<option value="creditSalesReport">{t(language, 'Credit Sales Report', 'Ripoti ya Madeni')}</option>
                   <option value="wakala">{t(language, 'Wakala Summary', 'Muhtasari wa Wakala')}</option>
 <option value="mobileMoneyDetailed">
   {t(language, 'Mobile Money Detailed', 'Ripoti ya Wakala Kamilifu')}
@@ -3897,6 +3914,43 @@ onDeleteGas={deleteGas}
               <td className="py-3 pr-3">{row.date}</td>
               <td className="py-3 pr-3">{row.customerName}</td>
               <td className="py-3 pr-3">TZS {currency(row.amountOwed)}</td>
+              <td className="py-3 pr-3">{row.status}</td>
+              <td className="py-3 pr-3">{row.notes}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    )}
+  </div>
+) : reportType === 'creditSalesReport' ? (
+  <div className="overflow-x-auto">
+    {creditSalesReportRows.length === 0 ? (
+      <div className="text-sm text-slate-500">
+        {t(language, 'No credit sales in this period.', 'Hakuna madeni katika kipindi hiki.')}
+      </div>
+    ) : (
+      <table className="w-full min-w-[1100px] text-sm">
+        <thead>
+          <tr className="border-b text-left text-slate-500">
+            <th className="py-2 pr-3">S/N</th>
+            <th className="py-2 pr-3">{t(language, 'Date', 'Tarehe')}</th>
+            <th className="py-2 pr-3">{t(language, 'Customer Name', 'Jina la Mteja')}</th>
+            <th className="py-2 pr-3">{t(language, 'Phone', 'Simu')}</th>
+            <th className="py-2 pr-3">{t(language, 'Credit Amount', 'Kiasi cha Deni')}</th>
+            <th className="py-2 pr-3">{t(language, 'Balance', 'Salio')}</th>
+            <th className="py-2 pr-3">{t(language, 'Payment Status', 'Hali ya Malipo')}</th>
+            <th className="py-2 pr-3">{t(language, 'Notes', 'Maelezo')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {creditSalesReportRows.map((row) => (
+            <tr key={`${row.sn}-${row.date}-${row.customerName}`} className="border-b border-slate-100">
+              <td className="py-3 pr-3">{row.sn}</td>
+              <td className="py-3 pr-3">{row.date}</td>
+              <td className="py-3 pr-3">{row.customerName}</td>
+              <td className="py-3 pr-3">{row.phone}</td>
+              <td className="py-3 pr-3">TZS {currency(row.amount)}</td>
+              <td className="py-3 pr-3">TZS {currency(row.balance)}</td>
               <td className="py-3 pr-3">{row.status}</td>
               <td className="py-3 pr-3">{row.notes}</td>
             </tr>
