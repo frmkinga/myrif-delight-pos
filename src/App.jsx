@@ -3872,6 +3872,39 @@ onDeleteGas={deleteGas}
       </table>
     )}
   </div>
+) : reportType === 'changeLedgerReport' ? (
+  <div className="overflow-x-auto">
+    {changeLedgerReportRows.length === 0 ? (
+      <div className="text-sm text-slate-500">
+        {t(language, 'No customer change records in this period.', 'Hakuna rekodi za chenji ya mteja katika kipindi hiki.')}
+      </div>
+    ) : (
+      <table className="w-full min-w-[900px] text-sm">
+        <thead>
+          <tr className="border-b text-left text-slate-500">
+            <th className="py-2 pr-3">S/N</th>
+            <th className="py-2 pr-3">{t(language, 'Date', 'Tarehe')}</th>
+            <th className="py-2 pr-3">{t(language, 'Customer Name', 'Jina la Mteja')}</th>
+            <th className="py-2 pr-3">{t(language, 'Amount Owed', 'Kiasi Anachodaiwa')}</th>
+            <th className="py-2 pr-3">{t(language, 'Payment Status', 'Hali ya Malipo')}</th>
+            <th className="py-2 pr-3">{t(language, 'Notes', 'Maelezo')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {changeLedgerReportRows.map((row) => (
+            <tr key={`${row.sn}-${row.date}-${row.customerName}`} className="border-b border-slate-100">
+              <td className="py-3 pr-3">{row.sn}</td>
+              <td className="py-3 pr-3">{row.date}</td>
+              <td className="py-3 pr-3">{row.customerName}</td>
+              <td className="py-3 pr-3">TZS {currency(row.amountOwed)}</td>
+              <td className="py-3 pr-3">{row.status}</td>
+              <td className="py-3 pr-3">{row.notes}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    )}
+  </div>
 ) : reportType === 'profitLoss' ? (
   <div className="space-y-4 text-sm">
 
