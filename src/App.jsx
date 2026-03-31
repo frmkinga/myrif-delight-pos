@@ -1333,33 +1333,6 @@ const bankCommission = latestMobileEntry ? getBankCommissionTotal(latestMobileEn
       })),
   [products, stockSearch],
 );
-const salesReportRows = useMemo(() => {
-  const map = {};
-
-  filteredSales.forEach((sale) => {
-    sale.items.forEach((item) => {
-      if (!map[item.productId]) {
-  const product = products.find((p) => p.id === item.productId);
-
-  if (!product) console.warn('Missing product for sale item:', item);
-map[item.productId] = {
-  productId: item.productId,
-  name: item.name || product?.name || 'Unknown Product',
-  unit: item.unit || product?.baseUnit || '-',
-  buyPrice: Number(item.buyPrice ?? product?.buyPrice ?? 0),
-  sellPrice: Number(item.sellPrice ?? item.price ?? product?.sellPrice ?? 0),
-  balance: Number(product?.stockBaseQty || 0),
-  soldQty: 0,
-  profit: 0,
-  date: sale.date,
-};
-}
-      map[item.productId].soldQty += Number(item.quantity || 0);
-      map[item.productId].profit +=
-        Number(item.quantity || 0) *
-        (map[item.productId].sellPrice - map[item.productId].buyPrice);
-    });
-  });
 
   const salesReportRows = useMemo(() => {
   const map = {};
