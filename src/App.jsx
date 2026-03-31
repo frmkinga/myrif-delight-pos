@@ -1428,6 +1428,17 @@ const lowStockCount = products.filter(
   );
 
   const purchasesTotal = filteredPurchases.reduce((a, p) => a + Number(p.quantity || 0) * Number(p.unitCost || 0), 0);
+const expensesReportRows = useMemo(() => {
+  return filteredExpenses
+    .slice()
+    .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))
+    .map((expense, index) => ({
+      sn: index + 1,
+      date: expense.date || '',
+      title: expense.title || expense.description || '',
+      amount: Number(expense.amount || 0),
+    }));
+}, [filteredExpenses]);
 const profitLossReport = useMemo(() => {
   const productMap = Object.fromEntries(products.map((p) => [p.id, p]));
 
@@ -3551,6 +3562,7 @@ onDeleteGas={deleteGas}
 <option value="expiryAlert">{t(language, 'Lock Stock Alert', 'Tahadhari ya Bidhaa Zinazoisha Muda')}</option>
                   <option value="salesReport">{t(language, 'Sales Report', 'Ripoti ya Mauzo')}</option>
 <option value="profitLoss">{t(language, 'Profit & Loss Report', 'Ripoti ya Faida na Hasara')}</option>
+<option value="expensesReport">{t(language, 'Expenses Report', 'Ripoti ya Matumizi')}</option>
                   <option value="wakala">{t(language, 'Wakala Summary', 'Muhtasari wa Wakala')}</option>
 <option value="mobileMoneyDetailed">
   {t(language, 'Mobile Money Detailed', 'Ripoti ya Wakala Kamilifu')}
@@ -3890,6 +3902,35 @@ onDeleteGas={deleteGas}
                   </tbody>
                 </table>
               </div>
+) : reportType === 'expensesReport' ? (
+  <div className="overflow-x-auto">
+    {expensesReportRows.length === 0 ? (
+      <div className="text-sm text-slate-500">
+        {t(language, 'No expenses in this period.', 'Hakuna matumizi katika kipindi hiki.')}
+      </div>
+    ) : (
+      <table className="w-full min-w-[700px] text-sm">
+        <thead>
+          <tr className="border-b text-left text-slate-500">
+            <th className="py-2 pr-3">S/N</th>
+            <th className="py-2 pr-3">{t(language, 'Date', 'Tarehe')}</th>
+            <th className="py-2 pr-3">{t(language, 'Expense Name', 'Jina la Matumizi')}</th>
+            <th className="py-2 pr-3">{t(language, 'Amount', 'Kiasi')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {expensesReportRows.map((row) => (
+            <tr key={`${row.sn}-${row.date}-${row.title}`} className="border-b border-slate-100">
+              <td className="py-3 pr-3">{row.sn}</td>
+              <td className="py-3 pr-3">{row.date}</td>
+              <td className="py-3 pr-3">{row.title}</td>
+              <td className="py-3 pr-3">TZS {currency(row.amount)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    )}
+  </div>
 ) : reportType === 'profitLoss' ? (
   <div className="space-y-4 text-sm">
 
