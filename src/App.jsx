@@ -454,30 +454,33 @@ if (session?.user?.id) {
   }
 }
 
-    let productsQuery = supabase.from('products').select('*');
+        let productsQuery = supabase.from('products').select('*');
     let salesQuery = supabase.from('sales').select('*');
     let purchasesQuery = supabase.from('purchases').select('*');
     let expensesQuery = supabase.from('expenses').select('*');
     let creditQuery = supabase.from('creditSales').select('*');
+    let changeQuery = supabase.from('changeLedger').select('*');
     let mobileMoneyQuery = supabase.from('mobileMoneyEntries').select('*');
     let gasQuery = supabase.from('gasEntries').select('*');
 
-    if (sessionShopId) {
+        if (sessionShopId) {
       productsQuery = productsQuery.eq('shop_id', sessionShopId);
       salesQuery = salesQuery.eq('shop_id', sessionShopId);
       purchasesQuery = purchasesQuery.eq('shop_id', sessionShopId);
       expensesQuery = expensesQuery.eq('shop_id', sessionShopId);
       creditQuery = creditQuery.eq('shop_id', sessionShopId);
+      changeQuery = changeQuery.eq('shop_id', sessionShopId);
       mobileMoneyQuery = mobileMoneyQuery.eq('shop_id', sessionShopId);
       gasQuery = gasQuery.eq('shop_id', sessionShopId);
     }
 
-    const [
+        const [
       { data: cloudProducts },
       { data: cloudSales },
       { data: cloudPurchases },
       { data: cloudExpenses },
       { data: cloudCreditSales },
+      { data: cloudChangeLedger },
       { data: cloudMobileMoneyEntries },
       { data: cloudGasEntries },
     ] = await Promise.all([
@@ -486,6 +489,7 @@ if (session?.user?.id) {
       purchasesQuery,
       expensesQuery,
       creditQuery,
+      changeQuery,
       mobileMoneyQuery,
       gasQuery,
     ]);
@@ -545,6 +549,15 @@ if (session?.user?.id) {
       : Math.max(0, Number(c?.amount || 0) - Number(c?.paid || 0)),
   date: c?.date || (c?.created_at ? String(c.created_at).slice(0, 10) : todayISO()),
 })),
+      changeLedger: (cloudChangeLedger || []).map((c) => ({
+        id: c?.id || '',
+        shop_id: c?.shop_id || c?.shopid || '',
+        customerName: c?.customerName || '',
+        amountOwed: Number(c?.amountOwed || 0),
+        notes: c?.notes || '',
+        date: c?.date || (c?.created_at ? String(c.created_at).slice(0, 10) : todayISO()),
+        created_at: c?.created_at || '',
+      })),
       mobileMoneyEntries: cloudMobileMoneyEntries || [],
       gasEntries: cloudGasEntries || [],
     });
@@ -2193,27 +2206,50 @@ setCreditReduceMap((prev) => ({ ...prev, [creditId]: '' }));
     setChangeRows((prev) => prev.map((row, i) => (i === index ? { ...row, [field]: value } : row)));
   const removeChangeRow = (index) => setChangeRows((prev) => (prev.length === 1 ? prev : prev.filter((_, i) => i !== index)));
 
-  const saveChangeRows = () => {
-    const rows = changeRows.filter((r) => r.customerName || r.amountOwed);
-    if (!rows.length) return;
+  const saveChangeRows = async () => {
+  const rows = changeRows.filter((r) => r.customerName && r.amountOwed);
+  if (!rows.length) return;
 
-    saveData({
-      ...data,
-      changeLedger: [
-        ...data.changeLedger,
-        ...rows
-          .filter((r) => r.customerName && r.amountOwed)
-          .map((row, idx) => ({
-  ...row,
-  id: row.id || `change-${Date.now()}-${idx}`,
-  shop_id: shop.id,
-  amountOwed: Number(row.amountOwed || 0),
-  date: todayISO(),
-}))
-      ],
-    });
-    setChangeRows([{ ...emptyChangeRow }]);
-  };
+  const nextChangeLedger = [...data.changeLedger];
+
+  for (const [idx, row] of rows.entries()) {
+    const preparedChange = {
+      ...row,
+      id: row.id || `change-${Date.now()}-${idx}`,
+      shop_id: shop.id,
+      customerName: row.customerName || '',
+      amountOwed: Number(row.amountOwed || 0),
+      date: row.date || todayISO(),
+      notes: row.notes || '',
+      created_at: row.created_at || new Date().toISOString(),
+    };
+
+    const existingIndex = nextChangeLedger.findIndex((x) => x.id === preparedChange.id);
+    if (existingIndex >= 0) {
+      nextChangeLedger[existingIndex] = preparedChange;
+    } else {
+      nextChangeLedger.push(preparedChange);
+    }
+
+    console.log('Sending change ledger to Supabase:', preparedChange);
+
+    const { error } = await supabase
+      .from('changeLedger')
+      .insert([preparedChange]);
+
+    if (error) {
+      console.log('Change ledger sync error:', error);
+      alert(`Change ledger sync failed: ${error.message}`);
+    }
+  }
+
+  saveData({
+    ...data,
+    changeLedger: nextChangeLedger,
+  });
+
+  setChangeRows([{ ...emptyChangeRow }]);
+};
 
   const reduceChange = (changeId) => {
   const amount = Number(changeReduceMap[changeId] || 0);
