@@ -3488,6 +3488,7 @@ onDeleteGas={deleteGas}
                   <option value="salesReport">{t(language, 'Sales Report', 'Ripoti ya Mauzo')}</option>
 <option value="profitLoss">{t(language, 'Profit & Loss Report', 'Ripoti ya Faida na Hasara')}</option>
 <option value="expensesReport">{t(language, 'Expenses Report', 'Ripoti ya Matumizi')}</option>
+<option value="changeLedgerReport">{t(language, 'Change Ledger Report', 'Ripoti ya Chenji ya Mteja')}</option>
                   <option value="wakala">{t(language, 'Wakala Summary', 'Muhtasari wa Wakala')}</option>
 <option value="mobileMoneyDetailed">
   {t(language, 'Mobile Money Detailed', 'Ripoti ya Wakala Kamilifu')}
