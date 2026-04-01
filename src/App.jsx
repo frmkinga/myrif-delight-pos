@@ -1741,58 +1741,16 @@ saleLock.current = false;
       }),
   });
 
-  console.log('Sending sale to Supabase:', saleRecord);
-
-    setCart([]);
-  setSaleError('');
-
-  if (navigator.onLine) {
-    try {
-      const { error } = await supabase
-        .from('sales')
-        .insert([
-          {
-            id: saleRecord.id,
-            shop_id: saleRecord.shop_id,
-            items: saleRecord.items,
-            total: saleRecord.total,
-            type: saleRecord.type,
-            date: saleRecord.date,
-            created_at: saleRecord.created_at,
-          },
-        ]);
-
-      if (error) {
-        console.error('Sales sync failed:', error);
-      }
-
-      const productRows = nextProducts
-        .filter((p) => String(p.shop_id) === String(shop.id))
-        .map((p) => ({
-          id: p.id,
-          name: p.name,
-          buyingprice: Number(p.buyPrice || 0),
-          sellingprice: Number(p.sellPrice || 0),
-          stock: Number(p.stockBaseQty || 0),
-          shop_id: p.shop_id,
-          baseunit: p.baseUnit || 'pc',
-          created_at: p.created_at || (p.createdAt ? new Date(p.createdAt).toISOString() : new Date().toISOString()),
-        }));
-
-      const { error: productError } = await supabase
-        .from('products')
-        .upsert(productRows, { onConflict: 'id' });
-
-      if (productError) {
-        console.error('Product stock sync failed:', productError);
-      }
-    } catch (syncError) {
-      console.error('Deferred sales sync error:', syncError);
-    }
-  }
+ console.log('Sending sale to Supabase:', saleRecord);
 
 setCart([]);
 setSaleError('');
+
+if (navigator.onLine) {
+  processSyncQueue().catch((syncError) => {
+    console.error('Queued sales sync error:', syncError);
+  });
+}
 } catch (err) {
   console.error('Unexpected commitSale error:', err);
   alert(`Unexpected sale error: ${err.message || err}`);
@@ -1801,10 +1759,9 @@ setSaleError('');
   saleLock.current = false;
 }
 };
-  const removeCartItem = (productId) => {
-    setCart((prev) => prev.filter((item) => item.productId !== productId));
-  };
-
+const removeCartItem = (productId) => {
+  setCart((prev) => prev.filter((item) => item.productId !== productId));
+};
   const importProductsFromExcel = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
