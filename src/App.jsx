@@ -1743,45 +1743,52 @@ saleLock.current = false;
 
   console.log('Sending sale to Supabase:', saleRecord);
 
-  const { error } = await supabase
-    .from('sales')
-    .insert([
-      {
-        id: saleRecord.id,
-        shop_id: saleRecord.shop_id,
-        items: saleRecord.items,
-        total: saleRecord.total,
-        type: saleRecord.type,
-        date: saleRecord.date,
-        created_at: saleRecord.created_at,
-      },
-    ]);
+    setCart([]);
+  setSaleError('');
 
-  if (error) {
-    alert(`Sales sync failed: ${error.message}`);
-    return;
-  }
+  if (navigator.onLine) {
+    try {
+      const { error } = await supabase
+        .from('sales')
+        .insert([
+          {
+            id: saleRecord.id,
+            shop_id: saleRecord.shop_id,
+            items: saleRecord.items,
+            total: saleRecord.total,
+            type: saleRecord.type,
+            date: saleRecord.date,
+            created_at: saleRecord.created_at,
+          },
+        ]);
 
-  const productRows = nextProducts
-    .filter((p) => String(p.shop_id) === String(shop.id))
-    .map((p) => ({
-      id: p.id,
-      name: p.name,
-      buyingprice: Number(p.buyPrice || 0),
-      sellingprice: Number(p.sellPrice || 0),
-      stock: Number(p.stockBaseQty || 0),
-      shop_id: p.shop_id,
-      baseunit: p.baseUnit || 'pc',
-      created_at: p.created_at || (p.createdAt ? new Date(p.createdAt).toISOString() : new Date().toISOString()),
-    }));
+      if (error) {
+        console.error('Sales sync failed:', error);
+      }
 
-  const { error: productError } = await supabase
-    .from('products')
-    .upsert(productRows, { onConflict: 'id' });
+      const productRows = nextProducts
+        .filter((p) => String(p.shop_id) === String(shop.id))
+        .map((p) => ({
+          id: p.id,
+          name: p.name,
+          buyingprice: Number(p.buyPrice || 0),
+          sellingprice: Number(p.sellPrice || 0),
+          stock: Number(p.stockBaseQty || 0),
+          shop_id: p.shop_id,
+          baseunit: p.baseUnit || 'pc',
+          created_at: p.created_at || (p.createdAt ? new Date(p.createdAt).toISOString() : new Date().toISOString()),
+        }));
 
-  if (productError) {
-    alert(`Product stock sync failed: ${productError.message}`);
-    return;
+      const { error: productError } = await supabase
+        .from('products')
+        .upsert(productRows, { onConflict: 'id' });
+
+      if (productError) {
+        console.error('Product stock sync failed:', productError);
+      }
+    } catch (syncError) {
+      console.error('Deferred sales sync error:', syncError);
+    }
   }
 
 setCart([]);
