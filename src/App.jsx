@@ -2025,12 +2025,15 @@ const saveProductRows = async () => {
     setPurchaseRows((prev) => prev.map((row, i) => (i === index ? { ...row, [field]: value } : row)));
   const removePurchaseRow = (index) => setPurchaseRows((prev) => (prev.length === 1 ? prev : prev.filter((_, i) => i !== index)));
 
+
+
 const savePurchaseRows = () => {
   const rows = purchaseRows.filter((r) => r.productId && r.quantity && r.unitCost);
   if (!rows.length) return;
 
   const nextPurchases = [...data.purchases];
   const nextProducts = [...data.products];
+  const newlyPreparedPurchases = [];
 
   rows.forEach((row, idx) => {
     if (!row.productId || !row.quantity || !row.unitCost) return;
@@ -2038,46 +2041,54 @@ const savePurchaseRows = () => {
     const quantity = Number(row.quantity || 0);
     const unitCost = Number(row.unitCost || 0);
 
-   const preparedPurchase = {
-  id: row.id || `purchase-${Date.now()}-${idx}`,
-  shop_id: shop.id,
-  productId: row.productId,
-  quantity,
-  unitCost,
-  notes: row.notes || '',
-  date: row.date || todayISO(),
-  confirmed: true,
-};
+    const preparedPurchase = {
+      id: row.id || `purchase-${Date.now()}-${idx}`,
+      shop_id: shop.id,
+      productId: row.productId,
+      quantity,
+      unitCost,
+      notes: row.notes || '',
+      date: row.date || todayISO(),
+      confirmed: true,
+    };
 
-const existingPurchaseIndex = nextPurchases.findIndex(
-  (p) => p.id === preparedPurchase.id
-);
+    newlyPreparedPurchases.push(preparedPurchase);
 
-if (existingPurchaseIndex >= 0) {
-  nextPurchases[existingPurchaseIndex] = preparedPurchase;
-} else {
-  nextPurchases.push(preparedPurchase);
-}
+    const existingPurchaseIndex = nextPurchases.findIndex(
+      (p) => p.id === preparedPurchase.id
+    );
 
-const productIndex = nextProducts.findIndex((p) => p.id === preparedPurchase.productId);
+    if (existingPurchaseIndex >= 0) {
+      nextPurchases[existingPurchaseIndex] = preparedPurchase;
+    } else {
+      nextPurchases.push(preparedPurchase);
+    }
 
-if (productIndex >= 0) {
-  nextProducts[productIndex] = {
-    ...nextProducts[productIndex],
-    stockBaseQty:
-      Number(nextProducts[productIndex].stockBaseQty || 0) +
-      Number(preparedPurchase.quantity || 0),
-    buyPrice:
-      Number(preparedPurchase.unitCost || nextProducts[productIndex].buyPrice || 0),
-  };
-}
-});
-saveData({ ...data, purchases: nextPurchases, products: nextProducts });
-nextPurchases.forEach((purchase) => addToSyncQueue('purchase_created', purchase));
-nextPurchases.forEach((purchase) => {
-  supabase.from('purchases').insert([purchase]);
-});
-setPurchaseRows([{ ...emptyPurchaseRow, productSearch: '' }]);
+    const productIndex = nextProducts.findIndex((p) => p.id === preparedPurchase.productId);
+
+    if (productIndex >= 0) {
+      nextProducts[productIndex] = {
+        ...nextProducts[productIndex],
+        stockBaseQty:
+          Number(nextProducts[productIndex].stockBaseQty || 0) +
+          Number(preparedPurchase.quantity || 0),
+        buyPrice:
+          Number(preparedPurchase.unitCost || nextProducts[productIndex].buyPrice || 0),
+      };
+    }
+  });
+
+  saveData({ ...data, purchases: nextPurchases, products: nextProducts });
+
+  newlyPreparedPurchases.forEach((purchase) => addToSyncQueue('purchase_created', purchase));
+
+  setPurchaseRows([{ ...emptyPurchaseRow, productSearch: '' }]);
+
+  if (navigator.onLine) {
+    processSyncQueue().catch((syncError) => {
+      console.error('Queued purchases sync error:', syncError);
+    });
+  }
 };
 
 const addExpenseRow = () => setExpenseRows((prev) => [...prev, { ...emptyExpenseRow }]);
