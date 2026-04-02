@@ -164,8 +164,10 @@ if (Array.isArray(item.payload.products)) {
       } else if (item.actionType === 'expense_created') {
 
         await supabase.from('expenses').upsert([item.payload], { onConflict: 'id' });
-     } else if (item.actionType === 'credit_created') {
-  await supabase.from('creditSales').insert([item.payload]);
+          } else if (item.actionType === 'credit_created') {
+        await supabase.from('creditSales').upsert([item.payload], { onConflict: 'id' });
+      } else if (item.actionType === 'credit_deleted') {
+        await supabase.from('creditSales').delete().eq('id', item.payload.id);
       } else if (item.actionType === 'mobile_money_created') {
         await supabase.from('mobileMoneyEntries').upsert([item.payload], { onConflict: 'id' });
       } else if (item.actionType === 'gas_created') {
@@ -2132,24 +2134,28 @@ const updateExpenseRow = (index, field, value) =>
   setExpenseRows((prev) => prev.map((row, i) => (i === index ? { ...row, [field]: value } : row)));
 const removeExpenseRow = (index) => setExpenseRows((prev) => (prev.length === 1 ? prev : prev.filter((_, i) => i !== index)));
 
-const saveExpenseRows = async () => {
+
+const saveExpenseRows = () => {
   const rows = expenseRows.filter((r) => r.title && r.amount);
   if (!rows.length) return;
 
   const nextExpenses = [...data.expenses];
+  const newlyPreparedExpenses = [];
 
   for (const [idx, row] of rows.entries()) {
     const preparedExpense = {
-  ...row,
-  id: row.id || `expense-${Date.now()}-${idx}`,
-  shop_id: shop.id,
-  title: row.title || '',
-  description: row.title || '',
-  amount: Number(row.amount || 0),
-  category: row.category || '',
-  date: row.date || todayISO(),
-  created_at: row.created_at || new Date().toISOString(),
-};
+      ...row,
+      id: row.id || `expense-${Date.now()}-${idx}`,
+      shop_id: shop.id,
+      title: row.title || '',
+      description: row.title || '',
+      amount: Number(row.amount || 0),
+      category: row.category || '',
+      date: row.date || todayISO(),
+      created_at: row.created_at || new Date().toISOString(),
+    };
+
+    newlyPreparedExpenses.push(preparedExpense);
 
     const existingIndex = nextExpenses.findIndex((x) => x.id === preparedExpense.id);
     if (existingIndex >= 0) {
@@ -2159,16 +2165,6 @@ const saveExpenseRows = async () => {
     }
 
     addToSyncQueue('expense_created', preparedExpense);
-    console.log('Sending to Supabase:', preparedExpense);
-
-    const { error } = await supabase
-      .from('expenses')
-      .upsert([preparedExpense], { onConflict: 'id' });
-
-    if (error) {
-      console.log('Expense sync error:', error);
-      alert(`Expense sync failed: ${error.message}`);
-    }
   }
 
   saveData({
@@ -2177,72 +2173,98 @@ const saveExpenseRows = async () => {
   });
 
   setExpenseRows([{ ...emptyExpenseRow }]);
+
+  if (navigator.onLine) {
+    processSyncQueue().catch((syncError) => {
+      console.error('Queued expenses sync error:', syncError);
+    });
+  }
 };
+    
 
   const addCreditRow = () => setCreditRows((prev) => [...prev, { ...emptyCreditRow }]);
   const updateCreditRow = (index, field, value) =>
     setCreditRows((prev) => prev.map((row, i) => (i === index ? { ...row, [field]: value } : row)));
   const removeCreditRow = (index) => setCreditRows((prev) => (prev.length === 1 ? prev : prev.filter((_, i) => i !== index)));
 
-  const saveCreditRows = async () => {
-    const rows = creditRows.filter((r) => r.customerName || r.amount);
-    if (!rows.length) return;
+ 
+ const saveCreditRows = () => {
+  const rows = creditRows.filter((r) => r.customerName || r.amount);
+  if (!rows.length) return;
 
-    saveData({
-      ...data,
-      creditSales: [
-        ...data.creditSales,
-        ...rows
-          .filter((r) => r.customerName && r.amount)
-          .map((row, idx) => ({
-  ...row,
-  id: row.id || `credit-${Date.now()}-${idx}`,
-  shop_id: shop.id,
-  amount: Number(row.amount || 0),
-  balance: Number(row.amount || 0),
-  date: todayISO(),
-}))
-      ],
+  const validRows = rows.filter((r) => r.customerName && r.amount);
+  const preparedCredits = validRows.map((row, idx) => ({
+    ...row,
+    id: row.id || `credit-${Date.now()}-${idx}`,
+    shop_id: shop.id,
+    customerName: row.customerName || '',
+    amount: Number(row.amount || 0),
+    balance: Number(row.amount || 0),
+    phone: row.phone || '',
+    notes: row.notes || '',
+    date: row.date || todayISO(),
+    created_at: row.created_at || new Date().toISOString(),
+  }));
+
+  saveData({
+    ...data,
+    creditSales: [
+      ...data.creditSales,
+      ...preparedCredits,
+    ],
+  });
+
+  preparedCredits.forEach((creditRecord) => {
+    addToSyncQueue('credit_created', creditRecord);
+  });
+
+  setCreditRows([{ ...emptyCreditRow }]);
+
+  if (navigator.onLine) {
+    processSyncQueue().catch((syncError) => {
+      console.error('Queued credit sync error:', syncError);
     });
-for (const [idx, row] of rows.filter((r) => r.customerName && r.amount).entries()) {
-  const creditRecord = {
-  id: row.id || `credit-${Date.now()}-${idx}`,
-  shop_id: shop.id,
-  customerName: row.customerName || '',
-  amount: Number(row.amount || 0),
-  created_at: new Date().toISOString(),
+  }
 };
 
-  addToSyncQueue('credit_created', creditRecord);
-  console.log('Sending credit to Supabase:', creditRecord);
-
- const { error } = await supabase
-  .from('creditSales')
-  .insert([creditRecord]);
-
-  if (error) {
-    console.log('Credit sync error:', error);
-    alert(`Credit sync failed: ${error.message}`);
-  }
-}
-    setCreditRows([{ ...emptyCreditRow }]);
-  };
-
   const reduceCredit = (creditId) => {
-    const amount = Number(creditReduceMap[creditId] || 0);
-    if (amount <= 0) return;
-    saveData({
-  ...data,
-  creditSales: data.creditSales
+  const amount = Number(creditReduceMap[creditId] || 0);
+  if (amount <= 0) return;
+
+  const currentCredit = data.creditSales.find((c) => c.id === creditId);
+  if (!currentCredit) return;
+
+  const nextBalance = Math.max(0, Number(currentCredit.balance || 0) - amount);
+
+  const nextCreditSales = data.creditSales
     .map((c) =>
       c.id === creditId
-        ? { ...c, balance: Math.max(0, Number(c.balance || 0) - amount) }
+        ? { ...c, balance: nextBalance }
         : c
     )
-    .filter((c) => Number(c.balance || 0) > 0),
-});
+    .filter((c) => Number(c.balance || 0) > 0);
 
-setCreditReduceMap((prev) => ({ ...prev, [creditId]: '' }));
+  saveData({
+    ...data,
+    creditSales: nextCreditSales,
+  });
+
+  if (nextBalance > 0) {
+    addToSyncQueue('credit_created', {
+      ...currentCredit,
+      balance: nextBalance,
+    });
+  } else {
+    addToSyncQueue('credit_deleted', { id: creditId });
+  }
+
+  setCreditReduceMap((prev) => ({ ...prev, [creditId]: '' }));
+
+  if (navigator.onLine) {
+    processSyncQueue().catch((syncError) => {
+      console.error('Queued credit reduce sync error:', syncError);
+    });
+  }
 };
 
   const addChangeRow = () => setChangeRows((prev) => [...prev, { ...emptyChangeRow }]);
