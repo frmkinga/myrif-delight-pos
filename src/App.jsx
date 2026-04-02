@@ -513,6 +513,62 @@ if (session?.user?.id) {
       mobileMoneyQuery,
       gasQuery,
     ]);
+    const pendingQueue = readSyncQueue();
+
+    const pendingCreditCreates = pendingQueue
+      .filter((item) => item.actionType === 'credit_created' && item.synced === false)
+      .map((item) => item.payload);
+
+    const pendingCreditDeletes = new Set(
+      pendingQueue
+        .filter((item) => item.actionType === 'credit_deleted' && item.synced === false)
+        .map((item) => item.payload?.id)
+        .filter(Boolean)
+    );
+
+    const mergedCreditMap = new Map();
+
+    (cloudCreditSales || []).forEach((c) => {
+      const normalizedCredit = {
+        ...c,
+        shop_id: c?.shop_id || c?.shopid || '',
+        customerName: c?.customerName || c?.customer_name || '',
+        phone: c?.phone || '',
+        notes: c?.notes || '',
+        amount: Number(c?.amount || 0),
+        paid: Number(c?.paid || 0),
+        balance:
+          c?.balance !== undefined && c?.balance !== null
+            ? Number(c.balance)
+            : Math.max(0, Number(c?.amount || 0) - Number(c?.paid || 0)),
+        date: c?.date || (c?.created_at ? String(c.created_at).slice(0, 10) : todayISO()),
+      };
+
+      if (!pendingCreditDeletes.has(normalizedCredit.id)) {
+        mergedCreditMap.set(normalizedCredit.id, normalizedCredit);
+      }
+    });
+
+    pendingCreditCreates.forEach((c) => {
+      if (!c?.id || pendingCreditDeletes.has(c.id)) return;
+
+      mergedCreditMap.set(c.id, {
+        ...c,
+        shop_id: c?.shop_id || c?.shopid || '',
+        customerName: c?.customerName || c?.customer_name || '',
+        phone: c?.phone || '',
+        notes: c?.notes || '',
+        amount: Number(c?.amount || 0),
+        paid: Number(c?.paid || 0),
+        balance:
+          c?.balance !== undefined && c?.balance !== null
+            ? Number(c.balance)
+            : Math.max(0, Number(c?.amount || 0) - Number(c?.paid || 0)),
+        date: c?.date || (c?.created_at ? String(c.created_at).slice(0, 10) : todayISO()),
+      });
+    });
+
+    const mergedCreditSales = Array.from(mergedCreditMap.values());
 
     const normalized = normalizeData({
       ...seedData,
@@ -555,20 +611,8 @@ if (session?.user?.id) {
         notes: e?.notes || '',
         created_at: e?.created_at || '',
       })),
-      creditSales: (cloudCreditSales || []).map((c) => ({
-  ...c,
-  shop_id: c?.shop_id || c?.shopid || '',
-  customerName: c?.customerName || c?.customer_name || '',
-  phone: c?.phone || '',
-  notes: c?.notes || '',
-  amount: Number(c?.amount || 0),
-  paid: Number(c?.paid || 0),
-  balance:
-    c?.balance !== undefined && c?.balance !== null
-      ? Number(c.balance)
-      : Math.max(0, Number(c?.amount || 0) - Number(c?.paid || 0)),
-  date: c?.date || (c?.created_at ? String(c.created_at).slice(0, 10) : todayISO()),
-})),
+     creditSales: mergedCreditSales,
+
       changeLedger: (cloudChangeLedger || []).map((c) => ({
         id: c?.id || '',
         shop_id: c?.shop_id || c?.shopid || '',
