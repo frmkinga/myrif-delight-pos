@@ -142,9 +142,27 @@ if (Array.isArray(item.payload.products)) {
       .upsert(safeProductRows, { onConflict: 'id' });
   }
 }
-      } else if (item.actionType === 'purchase_created') {
-        await supabase.from('purchases').upsert([item.payload], { onConflict: 'id' });
+           } else if (item.actionType === 'purchase_created') {
+        const purchasePayload = {
+          id: item.payload.id,
+          shop_id: item.payload.shop_id,
+          productId: item.payload.productId,
+          quantity: item.payload.quantity,
+          unitCost: item.payload.unitCost,
+          notes: item.payload.notes || '',
+          date: item.payload.date,
+          confirmed: item.payload.confirmed ?? true,
+        };
+
+        await supabase.from('purchases').upsert([purchasePayload], { onConflict: 'id' });
+
+        if (Array.isArray(item.payload.products) && item.payload.products.length) {
+          await supabase
+            .from('products')
+            .upsert(item.payload.products, { onConflict: 'id' });
+        }
       } else if (item.actionType === 'expense_created') {
+
         await supabase.from('expenses').upsert([item.payload], { onConflict: 'id' });
      } else if (item.actionType === 'credit_created') {
   await supabase.from('creditSales').insert([item.payload]);
@@ -2078,17 +2096,35 @@ const savePurchaseRows = () => {
     }
   });
 
-  saveData({ ...data, purchases: nextPurchases, products: nextProducts });
+ saveData({ ...data, purchases: nextPurchases, products: nextProducts });
 
-  newlyPreparedPurchases.forEach((purchase) => addToSyncQueue('purchase_created', purchase));
+const productRowsForSync = nextProducts
+  .filter((p) => String(p.shop_id) === String(shop.id))
+  .map((p) => ({
+    id: p.id,
+    name: p.name,
+    buyingprice: Number(p.buyPrice || 0),
+    sellingprice: Number(p.sellPrice || 0),
+    stock: Number(p.stockBaseQty || 0),
+    shop_id: p.shop_id,
+    baseunit: p.baseUnit || 'pc',
+    created_at: p.created_at || (p.createdAt ? new Date(p.createdAt).toISOString() : new Date().toISOString()),
+  }));
 
-  setPurchaseRows([{ ...emptyPurchaseRow, productSearch: '' }]);
+newlyPreparedPurchases.forEach((purchase) =>
+  addToSyncQueue('purchase_created', {
+    ...purchase,
+    products: productRowsForSync,
+  })
+);
 
-  if (navigator.onLine) {
-    processSyncQueue().catch((syncError) => {
-      console.error('Queued purchases sync error:', syncError);
-    });
-  }
+setPurchaseRows([{ ...emptyPurchaseRow, productSearch: '' }]);
+
+if (navigator.onLine) {
+  processSyncQueue().catch((syncError) => {
+    console.error('Queued purchases sync error:', syncError);
+  });
+}
 };
 
 const addExpenseRow = () => setExpenseRows((prev) => [...prev, { ...emptyExpenseRow }]);
