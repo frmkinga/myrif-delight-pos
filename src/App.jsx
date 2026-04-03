@@ -164,11 +164,9 @@ if (Array.isArray(item.payload.products)) {
       } else if (item.actionType === 'expense_created') {
 
         await supabase.from('expenses').upsert([item.payload], { onConflict: 'id' });
-          } else if (item.actionType === 'credit_created') {
-        await supabase.from('creditSales').upsert([item.payload], { onConflict: 'id' });
-      } else if (item.actionType === 'credit_deleted') {
-        await supabase.from('creditSales').delete().eq('id', item.payload.id);
-      } else if (item.actionType === 'mobile_money_created') {
+              } else if (item.actionType === 'credit_created') {
+  await supabase.from('creditSales').upsert([item.payload], { onConflict: 'id' });
+} else if (item.actionType === 'mobile_money_created') {
         await supabase.from('mobileMoneyEntries').upsert([item.payload], { onConflict: 'id' });
       } else if (item.actionType === 'gas_created') {
         await supabase.from('gasEntries').upsert([item.payload], { onConflict: 'id' });
@@ -513,62 +511,8 @@ if (session?.user?.id) {
       mobileMoneyQuery,
       gasQuery,
     ]);
-    const pendingQueue = readSyncQueue();
+    
 
-    const pendingCreditCreates = pendingQueue
-      .filter((item) => item.actionType === 'credit_created' && item.synced === false)
-      .map((item) => item.payload);
-
-    const pendingCreditDeletes = new Set(
-      pendingQueue
-        .filter((item) => item.actionType === 'credit_deleted' && item.synced === false)
-        .map((item) => item.payload?.id)
-        .filter(Boolean)
-    );
-
-    const mergedCreditMap = new Map();
-
-    (cloudCreditSales || []).forEach((c) => {
-      const normalizedCredit = {
-        ...c,
-        shop_id: c?.shop_id || c?.shopid || '',
-        customerName: c?.customerName || c?.customer_name || '',
-        phone: c?.phone || '',
-        notes: c?.notes || '',
-        amount: Number(c?.amount || 0),
-        paid: Number(c?.paid || 0),
-        balance:
-          c?.balance !== undefined && c?.balance !== null
-            ? Number(c.balance)
-            : Math.max(0, Number(c?.amount || 0) - Number(c?.paid || 0)),
-        date: c?.date || (c?.created_at ? String(c.created_at).slice(0, 10) : todayISO()),
-      };
-
-      if (!pendingCreditDeletes.has(normalizedCredit.id)) {
-        mergedCreditMap.set(normalizedCredit.id, normalizedCredit);
-      }
-    });
-
-    pendingCreditCreates.forEach((c) => {
-      if (!c?.id || pendingCreditDeletes.has(c.id)) return;
-
-      mergedCreditMap.set(c.id, {
-        ...c,
-        shop_id: c?.shop_id || c?.shopid || '',
-        customerName: c?.customerName || c?.customer_name || '',
-        phone: c?.phone || '',
-        notes: c?.notes || '',
-        amount: Number(c?.amount || 0),
-        paid: Number(c?.paid || 0),
-        balance:
-          c?.balance !== undefined && c?.balance !== null
-            ? Number(c.balance)
-            : Math.max(0, Number(c?.amount || 0) - Number(c?.paid || 0)),
-        date: c?.date || (c?.created_at ? String(c.created_at).slice(0, 10) : todayISO()),
-      });
-    });
-
-    const mergedCreditSales = Array.from(mergedCreditMap.values());
 
     const normalized = normalizeData({
       ...seedData,
@@ -611,7 +555,20 @@ if (session?.user?.id) {
         notes: e?.notes || '',
         created_at: e?.created_at || '',
       })),
-     creditSales: mergedCreditSales,
+           creditSales: (cloudCreditSales || []).map((c) => ({
+        ...c,
+        shop_id: c?.shop_id || c?.shopid || '',
+        customerName: c?.customerName || c?.customer_name || '',
+        phone: c?.phone || '',
+        notes: c?.notes || '',
+        amount: Number(c?.amount || 0),
+        paid: Number(c?.paid || 0),
+        balance:
+          c?.balance !== undefined && c?.balance !== null
+            ? Number(c.balance)
+            : Math.max(0, Number(c?.amount || 0) - Number(c?.paid || 0)),
+        date: c?.date || (c?.created_at ? String(c.created_at).slice(0, 10) : todayISO()),
+      })),
 
       changeLedger: (cloudChangeLedger || []).map((c) => ({
         id: c?.id || '',
@@ -2231,24 +2188,24 @@ const saveExpenseRows = () => {
     setCreditRows((prev) => prev.map((row, i) => (i === index ? { ...row, [field]: value } : row)));
   const removeCreditRow = (index) => setCreditRows((prev) => (prev.length === 1 ? prev : prev.filter((_, i) => i !== index)));
 
- 
- const saveCreditRows = () => {
+const saveCreditRows = async () => {
   const rows = creditRows.filter((r) => r.customerName || r.amount);
   if (!rows.length) return;
 
-  const validRows = rows.filter((r) => r.customerName && r.amount);
-  const preparedCredits = validRows.map((row, idx) => ({
-    ...row,
-    id: row.id || `credit-${Date.now()}-${idx}`,
-    shop_id: shop.id,
-    customerName: row.customerName || '',
-    amount: Number(row.amount || 0),
-    balance: Number(row.amount || 0),
-    phone: row.phone || '',
-    notes: row.notes || '',
-    date: row.date || todayISO(),
-    created_at: row.created_at || new Date().toISOString(),
-  }));
+  const preparedCredits = rows
+    .filter((r) => r.customerName && r.amount)
+    .map((row, idx) => ({
+      ...row,
+      id: row.id || `credit-${Date.now()}-${idx}`,
+      shop_id: shop.id,
+      customerName: row.customerName || '',
+      amount: Number(row.amount || 0),
+      balance: Number(row.amount || 0),
+      phone: row.phone || '',
+      notes: row.notes || '',
+      date: row.date || todayISO(),
+      created_at: row.created_at || new Date().toISOString(),
+    }));
 
   saveData({
     ...data,
@@ -2258,59 +2215,72 @@ const saveExpenseRows = () => {
     ],
   });
 
-  preparedCredits.forEach((creditRecord) => {
+  for (const creditRecord of preparedCredits) {
     addToSyncQueue('credit_created', creditRecord);
-  });
+    console.log('Sending credit to Supabase:', creditRecord);
+
+    const { error } = await supabase
+      .from('creditSales')
+      .upsert([creditRecord], { onConflict: 'id' });
+
+    if (error) {
+      console.log('Credit sync error:', error);
+      alert(`Credit sync failed: ${error.message}`);
+    }
+  }
 
   setCreditRows([{ ...emptyCreditRow }]);
-
-  if (navigator.onLine) {
-    processSyncQueue().catch((syncError) => {
-      console.error('Queued credit sync error:', syncError);
-    });
-  }
 };
-
-  const reduceCredit = (creditId) => {
+   
+ const reduceCredit = async (creditId) => {
   const amount = Number(creditReduceMap[creditId] || 0);
   if (amount <= 0) return;
 
-  const currentCredit = data.creditSales.find((c) => c.id === creditId);
-  if (!currentCredit) return;
+  const target = data.creditSales.find((c) => c.id === creditId);
+  if (!target) return;
 
-  const nextBalance = Math.max(0, Number(currentCredit.balance || 0) - amount);
-
-  const nextCreditSales = data.creditSales
-    .map((c) =>
-      c.id === creditId
-        ? { ...c, balance: nextBalance }
-        : c
-    )
-    .filter((c) => Number(c.balance || 0) > 0);
+  const nextBalance = Math.max(0, Number(target.balance || 0) - amount);
 
   saveData({
     ...data,
-    creditSales: nextCreditSales,
+    creditSales: data.creditSales
+      .map((c) =>
+        c.id === creditId
+          ? { ...c, balance: nextBalance }
+          : c
+      )
+      .filter((c) => Number(c.balance || 0) > 0),
   });
 
-  if (nextBalance > 0) {
-    addToSyncQueue('credit_created', {
-      ...currentCredit,
-      balance: nextBalance,
-    });
-  } else {
-    addToSyncQueue('credit_deleted', { id: creditId });
+  try {
+    if (nextBalance > 0) {
+      const { error } = await supabase
+        .from('creditSales')
+        .update({ balance: nextBalance })
+        .eq('id', creditId);
+
+      if (error) {
+        alert(`Credit update failed: ${error.message}`);
+      }
+    } else {
+      const { error } = await supabase
+        .from('creditSales')
+        .delete()
+        .eq('id', creditId);
+
+      if (error) {
+        alert(`Credit delete failed: ${error.message}`);
+      }
+    }
+  } catch (error) {
+    alert(`Credit sync failed: ${error.message}`);
   }
 
   setCreditReduceMap((prev) => ({ ...prev, [creditId]: '' }));
-
-  if (navigator.onLine) {
-    processSyncQueue().catch((syncError) => {
-      console.error('Queued credit reduce sync error:', syncError);
-    });
-  }
 };
+  
 
+  
   const addChangeRow = () => setChangeRows((prev) => [...prev, { ...emptyChangeRow }]);
   const updateChangeRow = (index, field, value) =>
     setChangeRows((prev) => prev.map((row, i) => (i === index ? { ...row, [field]: value } : row)));
