@@ -2236,7 +2236,7 @@ const saveExpenseRows = () => {
 const saveCreditRows = async () => {
  for (const row of creditRows) {
   if (!row.customerName || !row.amount || !row.phone) {
-    alert('Please fill all required fields (Customer Name, Phone, Amount)');
+    alert('Tafadhali jaza sehemu zote muhimu (Jina la mteja, Namba ya simu, Kiasi)');
     return;
   }
 }
