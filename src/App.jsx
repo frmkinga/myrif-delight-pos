@@ -2234,8 +2234,12 @@ const saveExpenseRows = () => {
   const removeCreditRow = (index) => setCreditRows((prev) => (prev.length === 1 ? prev : prev.filter((_, i) => i !== index)));
 
 const saveCreditRows = async () => {
-  const rows = creditRows.filter((r) => r.customerName || r.amount);
-  if (!rows.length) return;
+ for (const row of creditRows) {
+  if (!row.customerName || !row.amount || !row.phone) {
+    alert('Please fill all required fields (Customer Name, Phone, Amount)');
+    return;
+  }
+}
 
   const preparedCredits = rows
     .filter((r) => r.customerName && r.amount)
