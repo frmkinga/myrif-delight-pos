@@ -2376,8 +2376,8 @@ if (!rows.length) return;s
     console.log('Sending change ledger to Supabase:', preparedChange);
 
     const { error } = await supabase
-      .from('changeLedger')
-      .insert([preparedChange]);
+  .from('changeLedger')
+  .upsert([preparedChange], { onConflict: 'id' });
 
     if (error) {
       console.log('Change ledger sync error:', error);
