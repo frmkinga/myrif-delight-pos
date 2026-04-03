@@ -2340,8 +2340,17 @@ if (!rows.length) return;
   const removeChangeRow = (index) => setChangeRows((prev) => (prev.length === 1 ? prev : prev.filter((_, i) => i !== index)));
 
   const saveChangeRows = async () => {
-  const rows = changeRows.filter((r) => r.customerName && r.amountOwed);
-  if (!rows.length) return;
+ for (const row of changeRows) {
+  if (!row.customerName || !row.amountOwed || !row.notes) {
+    alert('Tafadhali jaza sehemu zote muhimu (Jina la mteja, Kiasi anachodaiwa, Maelezo)');
+    return;
+  }
+}
+
+const rows = changeRows.filter(
+  (r) => r.customerName && r.amountOwed && r.notes
+);
+if (!rows.length) return;s
 
   const nextChangeLedger = [...data.changeLedger];
 
