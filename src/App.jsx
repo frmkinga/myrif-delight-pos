@@ -2383,20 +2383,49 @@ if (!rows.length) return;
   setChangeRows([{ ...emptyChangeRow }]);
 };
 
-  const reduceChange = (changeId) => {
+ const reduceChange = async (changeId) => {
   const amount = Number(changeReduceMap[changeId] || 0);
   if (amount <= 0) return;
+
+  const target = data.changeLedger.find((c) => c.id === changeId);
+  if (!target) return;
+
+  const nextAmountOwed = Math.max(0, Number(target.amountOwed || 0) - amount);
 
   saveData({
     ...data,
     changeLedger: data.changeLedger
       .map((c) =>
         c.id === changeId
-          ? { ...c, amountOwed: Math.max(0, Number(c.amountOwed || 0) - amount) }
+          ? { ...c, amountOwed: nextAmountOwed }
           : c
       )
       .filter((c) => Number(c.amountOwed || 0) > 0),
   });
+
+  try {
+    if (nextAmountOwed > 0) {
+      const { error } = await supabase
+        .from('changeLedger')
+        .update({ amountOwed: nextAmountOwed })
+        .eq('id', changeId);
+
+      if (error) {
+        alert(`Change ledger update failed: ${error.message}`);
+      }
+    } else {
+      const { error } = await supabase
+        .from('changeLedger')
+        .delete()
+        .eq('id', changeId);
+
+      if (error) {
+        alert(`Change ledger delete failed: ${error.message}`);
+      }
+    }
+  } catch (error) {
+    alert(`Change ledger sync failed: ${error.message}`);
+  }
 
   setChangeReduceMap((prev) => ({ ...prev, [changeId]: '' }));
 };
