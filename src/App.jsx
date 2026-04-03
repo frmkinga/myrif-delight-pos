@@ -2340,17 +2340,8 @@ if (!rows.length) return;
   const removeChangeRow = (index) => setChangeRows((prev) => (prev.length === 1 ? prev : prev.filter((_, i) => i !== index)));
 
   const saveChangeRows = async () => {
- for (const row of changeRows) {
-  if (!row.customerName || !row.amountOwed || !row.notes) {
-    alert('Tafadhali jaza sehemu zote muhimu (Jina la mteja, Kiasi anachodaiwa, Maelezo)');
-    return;
-  }
-}
-
-const rows = changeRows.filter(
-  (r) => r.customerName && r.amountOwed && r.notes
-);
-if (!rows.length) return;s
+ const rows = changeRows.filter((r) => r.customerName && r.amountOwed);
+if (!rows.length) return;
 
   const nextChangeLedger = [...data.changeLedger];
 
@@ -2377,8 +2368,7 @@ if (!rows.length) return;s
 
     const { error } = await supabase
   .from('changeLedger')
-  .upsert([preparedChange], { onConflict: 'id' });
-
+  .insert([preparedChange]);
     if (error) {
       console.log('Change ledger sync error:', error);
       alert(`Change ledger sync failed: ${error.message}`);
