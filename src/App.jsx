@@ -332,6 +332,38 @@ const emptyCreditRow = { id: '', customerName: '', amount: '', phone: '', notes:
 const emptyChangeRow = { id: '', customerName: '', amountOwed: '', notes: '' };
 const emptyNetworkRow = { provider: 'M-Pesa', float: '', commission: '' };
 const emptyBankRow = { bankName: 'CRDB', float: '', commission: '' };
+const RECURRING_EXPENSES_BY_SHOP = {
+  'shop-1': [
+    { title: 'Home Expenses', amount: '10000', category: 'Recurring', notes: '' },
+    { title: 'Salaries', amount: '10000', category: 'Recurring', notes: '' },
+    { title: 'Medical', amount: '1500', category: 'Recurring', notes: '' },
+    { title: 'TRA', amount: '1500', category: 'Recurring', notes: '' },
+  ],
+  'shop-2': [
+    { title: 'Home Expenses', amount: '10000', category: 'Recurring', notes: '' },
+    { title: 'Salaries', amount: '10000', category: 'Recurring', notes: '' },
+    { title: 'Medical', amount: '1500', category: 'Recurring', notes: '' },
+    { title: 'TRA', amount: '1500', category: 'Recurring', notes: '' },
+  ],
+  'shop-3': [
+    { title: 'Home Expenses', amount: '5000', category: 'Recurring', notes: '' },
+    { title: 'Salaries', amount: '5000', category: 'Recurring', notes: '' },
+    { title: 'Medical', amount: '1000', category: 'Recurring', notes: '' },
+    { title: 'TRA', amount: '1000', category: 'Recurring', notes: '' },
+  ],
+  'shop-4': [
+    { title: 'Home Expenses', amount: '0', category: 'Recurring', notes: '' },
+    { title: 'Salaries', amount: '5000', category: 'Recurring', notes: '' },
+    { title: 'Medical', amount: '1000', category: 'Recurring', notes: '' },
+    { title: 'TRA', amount: '1000', category: 'Recurring', notes: '' },
+  ],
+  'shop-5': [
+    { title: 'Home Expenses', amount: '5000', category: 'Recurring', notes: '' },
+    { title: 'Salaries', amount: '5000', category: 'Recurring', notes: '' },
+    { title: 'Medical', amount: '1000', category: 'Recurring', notes: '' },
+    { title: 'TRA', amount: '1000', category: 'Recurring', notes: '' },
+  ],
+};
 const emptyGasForm = {
   id: '',
   date: todayISO(),
@@ -1053,7 +1085,20 @@ const [stockSearch, setStockSearch] = useState('');
   const [cart, setCart] = useState([]);
   const [newProductRows, setNewProductRows] = useState([{ ...emptyProductRow }]);
   const [purchaseRows, setPurchaseRows] = useState([{ ...emptyPurchaseRow }]);
-  const [expenseRows, setExpenseRows] = useState([{ ...emptyExpenseRow }]);
+  const [expenseRows, setExpenseRows] = useState(() => {
+  const defaults = RECURRING_EXPENSES_BY_SHOP[shop.id] || [];
+  return defaults.length
+    ? defaults.map((item, idx) => ({
+        ...emptyExpenseRow,
+        id: `recurring-${shop.id}-${idx}`,
+        title: item.title,
+        amount: item.amount,
+        category: item.category,
+        notes: item.notes,
+        date: todayISO(),
+      }))
+    : [{ ...emptyExpenseRow }];
+});
   const [creditRows, setCreditRows] = useState([{ ...emptyCreditRow }]);
   const [changeRows, setChangeRows] = useState([{ ...emptyChangeRow }]);
   const [reportPreset, setReportPreset] = useState('today');
