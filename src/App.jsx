@@ -2234,13 +2234,17 @@ const saveExpenseRows = () => {
   const removeCreditRow = (index) => setCreditRows((prev) => (prev.length === 1 ? prev : prev.filter((_, i) => i !== index)));
 
 const saveCreditRows = async () => {
- for (const row of creditRows) {
-  if (!row.customerName || !row.amount || !row.phone) {
-    alert('Tafadhali jaza sehemu zote muhimu (Jina la mteja, Namba ya simu, Kiasi)');
+for (const row of creditRows) {
+  if (!row.customerName || !row.phone || !row.amount || !row.notes) {
+    alert('Tafadhali jaza sehemu zote muhimu (Jina la mteja, Namba ya simu, Kiasi, Maelezo)');
     return;
   }
 }
 
+const rows = creditRows.filter(
+  (r) => r.customerName && r.phone && r.amount && r.notes
+);
+if (!rows.length) return;
   const preparedCredits = rows
     .filter((r) => r.customerName && r.amount)
     .map((row, idx) => ({
