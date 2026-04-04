@@ -504,8 +504,14 @@ function normalizeData(parsed = {}) {
 
 async function readData() {
   try {
+    const dbData = await readFromDB(DB_DATA_KEY);
+console.log("IndexedDB data:", dbData);
+
+    if (dbData) {
+      return normalizeData(dbData);
+    }
+
     if (navigator.onLine) {
-  try {
     const savedSessionUser = readStorage(STORAGE_SESSION_KEY, null);
     const {
   data: { session },
