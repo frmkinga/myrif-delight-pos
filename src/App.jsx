@@ -455,7 +455,7 @@ function normalizeProduct(product) {
 
   const baseUnit = rest.baseUnit || unit || 'pc';
   const sellPrice = Number(rest.sellPrice || 0);
-  const normalizedShopId = rest.shop_id || shopId || shopid || '';
+  const normalizedShopId = String(rest.shop_id || shopId || shopid || '').trim();
   let rawSubUnits = rest.subUnitsRaw || '';
 
   if (!rawSubUnits) {
