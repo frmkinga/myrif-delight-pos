@@ -505,6 +505,7 @@ function normalizeData(parsed = {}) {
 async function readData() {
   try {
     const dbData = await readFromDB(DB_DATA_KEY);
+console.log("STEP1 IndexedDB used:", !!dbData);
 
     if (dbData) {
       return normalizeData(dbData);
