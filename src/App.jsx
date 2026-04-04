@@ -517,7 +517,7 @@ async function readData() {
   data: { session },
 } = await supabase.auth.getSession();
 
-let sessionShopId = savedSessionUser?.shop_id || savedSessionUser?.shopId || null;
+let sessionShopId = String(savedSessionUser?.shop_id || '').trim() || null;
 
 if (session?.user?.id) {
   const { data: shopUserRow } = await supabase
@@ -583,7 +583,7 @@ if (session?.user?.id) {
   sellPrice: Number(p?.sellingprice || p?.sellPrice || 0),
   stockBaseQty: Number(p?.stock || p?.stockBaseQty || p?.stockQty || 0),
   stockQty: Number(p?.stock || p?.stockBaseQty || p?.stockQty || 0),
-  shop_id: String(p?.shop_id || p?.shopId || p?.shopid || '').trim(),
+  shop_id: String(p?.shop_id || '').trim(),
   baseUnit: p?.baseunit || p?.baseUnit || 'pc',
   minStockLevel: Number(p?.minStockLevel || 5),
   expiryDate: p?.expiryDate || '',
@@ -595,17 +595,17 @@ if (session?.user?.id) {
 })),
       sales: (cloudSales || []).map((s) => ({
         ...s,
-        shop_id: s?.shop_id || s?.shopid || '',
+        shop_id: String(s?.shop_id || '').trim(),
         date: s?.date || (s?.created_at ? String(s.created_at).slice(0, 10) : todayISO()),
       })),
       purchases: (cloudPurchases || []).map((p) => ({
         ...p,
-        shop_id: p?.shop_id || p?.shopid || '',
+        shop_id: String(p?.shop_id || '').trim(),
         date: p?.date || (p?.created_at ? String(p.created_at).slice(0, 10) : todayISO()),
       })),
       expenses: (cloudExpenses || []).map((e) => ({
         id: e?.id || '',
-        shop_id: e?.shop_id || e?.shopid || '',
+        shop_id: String(e?.shop_id || '').trim(),
         title: e?.title || e?.description || '',
         description: e?.description || e?.title || '',
         amount: Number(e?.amount || 0),
@@ -616,7 +616,7 @@ if (session?.user?.id) {
       })),
            creditSales: (cloudCreditSales || []).map((c) => ({
         ...c,
-        shop_id: c?.shop_id || c?.shopid || '',
+        shop_id: String(c?.shop_id || '').trim(),
         customerName: c?.customerName || c?.customer_name || '',
         phone: c?.phone || '',
         notes: c?.notes || '',
@@ -631,7 +631,7 @@ if (session?.user?.id) {
 
       changeLedger: (cloudChangeLedger || []).map((c) => ({
         id: c?.id || '',
-        shop_id: c?.shop_id || c?.shopid || '',
+        shop_id: String(c?.shop_id || '').trim(),
         customerName: c?.customerName || '',
         amountOwed: Number(c?.amountOwed || 0),
         notes: c?.notes || '',
