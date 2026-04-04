@@ -511,6 +511,7 @@ async function readData() {
     }
 
     if (navigator.onLine) {
+      try {
     const savedSessionUser = readStorage(STORAGE_SESSION_KEY, null);
     const {
   data: { session },
