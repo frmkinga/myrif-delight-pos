@@ -2462,7 +2462,7 @@ if (!rows.length) return;
       banks: prev.banks.length === 1 ? prev.banks : prev.banks.filter((_, i) => i !== index),
     }));
 
-  const saveMobileMoney = () => {
+  const saveMobileMoney = async () => {
   const record = {
   id: mobileMoneyForm.id || `mm-${Date.now()}`,
   shop_id: shop.id,
@@ -2491,7 +2491,14 @@ if (!rows.length) return;
 
     saveData({ ...data, mobileMoneyEntries: next });
 addToSyncQueue('mobile_money_created', record);
-supabase.from('mobileMoneyEntries').insert([record]);
+
+const { error } = await supabase
+  .from('mobileMoneyEntries')
+  .insert([record]);
+
+if (error) {
+  alert(`Mobile money sync failed: ${error.message}`);
+}
     setMobileMoneyForm({
   id: '',
   date: todayISO(),
