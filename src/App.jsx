@@ -693,11 +693,11 @@ const normalized = normalizeData({
     }
 
     console.log('No localStorage data found, checking IndexedDB...');
-    const dbData = await readFromDB(DB_DATA_KEY);
+const fallbackDbData = await readFromDB(DB_DATA_KEY);
 
-    if (dbData) {
-      return normalizeData(dbData);
-    }
+if (fallbackDbData) {
+  return normalizeData(fallbackDbData);
+}
 
     const fallbackData = normalizeData(seedData);
     await writeToDB(DB_DATA_KEY, fallbackData);
