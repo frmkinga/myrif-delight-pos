@@ -1,6 +1,25 @@
 import React, { useMemo } from 'react';
 import { Pencil, Trash2 } from 'lucide-react';
-
+const GAS_PRICE_BOOK = {
+  'Taifa Gas': {
+    smallBuy: 20000,
+    smallSell: 23000,
+    bigBuy: 45000,
+    bigSell: 50000,
+  },
+  'Oryx Gas': {
+    smallBuy: 21000,
+    smallSell: 24000,
+    bigBuy: 46000,
+    bigSell: 51000,
+  },
+  'O Gas': {
+    smallBuy: 20500,
+    smallSell: 23500,
+    bigBuy: 45500,
+    bigSell: 50500,
+  },
+};
 function getGasProfitBreakdown(entry) {
   const smallGasProfit =
     (Number(entry.smallGasSellPrice || 0) - Number(entry.smallGasBuyPrice || 0)) * Number(entry.smallGasSoldToday || 0);
@@ -182,35 +201,7 @@ setShowGasPrices,
       />
     </div>
 
-    <div>
-      <div className="mb-1 text-sm text-slate-600">{t(language, 'Gas Type', 'Aina ya Gesi')}</div>
-      <select
-        className="h-10 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm"
-        value={gasForm.gasType || 'Taifa Gas'}
-        onChange={(e) => setGasForm((prev) => ({ ...prev, gasType: e.target.value }))}
-      >
-        {gasTypes.map((type) => (
-          <option key={type} value={type}>
-            {type}
-          </option>
-        ))}
-      </select>
-    </div>
-
-    <div>
-      <div className="mb-1 text-sm text-slate-600">{t(language, 'Cylinder Size', 'Ukubwa wa Mtungi')}</div>
-      <select
-        className="h-10 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm"
-        value={gasForm.cylinderSize || 'Small Cylinder'}
-        onChange={(e) => setGasForm((prev) => ({ ...prev, cylinderSize: e.target.value }))}
-      >
-        {gasCylinderSizes.map((size) => (
-          <option key={size} value={size}>
-            {size}
-          </option>
-        ))}
-      </select>
-    </div>
+    
 
     <div>
       <div className="mb-1 text-sm text-slate-600">{t(language, 'Total Cylinders', 'Jumla ya Mitungi')}</div>
@@ -325,6 +316,47 @@ setShowGasPrices,
 
 {showGasPrices && (
   <div className="md:col-span-2 grid gap-3 md:grid-cols-2">
+<div>
+  <div className="mb-1 text-sm text-slate-600">{t(language, 'Gas Type', 'Aina ya Gesi')}</div>
+  <select
+    className="h-10 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm"
+    value={gasForm.gasType || 'Taifa Gas'}
+    onChange={(e) => {
+      const nextType = e.target.value;
+      const priceSet = GAS_PRICE_BOOK[nextType] || GAS_PRICE_BOOK['Taifa Gas'];
+
+      setGasForm((prev) => ({
+        ...prev,
+        gasType: nextType,
+        smallGasBuyPrice: String(priceSet.smallBuy),
+        smallGasSellPrice: String(priceSet.smallSell),
+        bigGasBuyPrice: String(priceSet.bigBuy),
+        bigGasSellPrice: String(priceSet.bigSell),
+      }));
+    }}
+  >
+    {gasTypes.map((type) => (
+      <option key={type} value={type}>
+        {type}
+      </option>
+    ))}
+  </select>
+</div>
+
+<div>
+  <div className="mb-1 text-sm text-slate-600">{t(language, 'Cylinder Size', 'Ukubwa wa Mtungi')}</div>
+  <select
+    className="h-10 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm"
+    value={gasForm.cylinderSize || 'Small Cylinder'}
+    onChange={(e) => setGasForm((prev) => ({ ...prev, cylinderSize: e.target.value }))}
+  >
+    {gasCylinderSizes.map((size) => (
+      <option key={size} value={size}>
+        {size}
+      </option>
+    ))}
+  </select>
+</div>
     <Input
       type="number"
       placeholder={t(language, 'Small Gas Buy Price', 'Bei ya Kununua Gesi Ndogo')}
@@ -405,10 +437,10 @@ setShowGasPrices,
             bigEmptyCylinders: '',
             smallGasSoldToday: '',
             bigGasSoldToday: '',
-            smallGasBuyPrice: '',
-            smallGasSellPrice: '',
-            bigGasBuyPrice: '',
-            bigGasSellPrice: '',
+            smallGasBuyPrice: String(GAS_PRICE_BOOK['Taifa Gas'].smallBuy),
+smallGasSellPrice: String(GAS_PRICE_BOOK['Taifa Gas'].smallSell),
+bigGasBuyPrice: String(GAS_PRICE_BOOK['Taifa Gas'].bigBuy),
+bigGasSellPrice: String(GAS_PRICE_BOOK['Taifa Gas'].bigSell),
           })
         }
       >

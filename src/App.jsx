@@ -47,6 +47,26 @@ const MOBILE_PROVIDERS = ['M-Pesa', 'Mixx by Yas', 'Airtel Money', 'HaloPesa'];
 const BANKS = ['CRDB', 'NMB', 'NBC', 'Equity', 'Absa', 'Stanbic', 'Exim', 'DTB', 'Azania'];
 const GAS_TYPES = ['Taifa Gas', 'Oryx Gas', 'Mihan / Taifa Gas', 'O Gas', 'Other'];
 const GAS_CYLINDER_SIZES = ['Small Cylinder', 'Big Cylinder'];
+const GAS_PRICE_BOOK = {
+  'Taifa Gas': {
+    smallBuy: 20000,
+    smallSell: 23000,
+    bigBuy: 45000,
+    bigSell: 50000,
+  },
+  'Oryx Gas': {
+    smallBuy: 21000,
+    smallSell: 24000,
+    bigBuy: 46000,
+    bigSell: 51000,
+  },
+  'O Gas': {
+    smallBuy: 20500,
+    smallSell: 23500,
+    bigBuy: 45500,
+    bigSell: 50500,
+  },
+};
 const t = (language, en, sw) => (language === 'sw' ? sw : en);
 function readStorage(key, fallback = null) {
 try {
@@ -1113,7 +1133,15 @@ const [saleSaving, setSaleSaving] = useState(false);
 const saleLock = useRef(false);
   const [creditReduceMap, setCreditReduceMap] = useState({});
   const [changeReduceMap, setChangeReduceMap] = useState({});
-const [gasForm, setGasForm] = useState({ ...emptyGasForm });
+const [gasForm, setGasForm] = useState({
+  ...emptyGasForm,
+  gasType: 'Taifa Gas',
+  cylinderSize: 'Small Cylinder',
+  smallGasBuyPrice: String(GAS_PRICE_BOOK['Taifa Gas'].smallBuy),
+  smallGasSellPrice: String(GAS_PRICE_BOOK['Taifa Gas'].smallSell),
+  bigGasBuyPrice: String(GAS_PRICE_BOOK['Taifa Gas'].bigBuy),
+  bigGasSellPrice: String(GAS_PRICE_BOOK['Taifa Gas'].bigSell),
+});
 const [showGasStatus, setShowGasStatus] = useState(false);
 const [showGasSales, setShowGasSales] = useState(false);
 const [showGasPrices, setShowGasPrices] = useState(false);
@@ -1150,7 +1178,16 @@ const saveGas = async () => {
     return;
   }
 
-  setGasForm({ ...emptyGasForm, date: todayISO() });
+  setGasForm({
+  ...emptyGasForm,
+  date: todayISO(),
+  gasType: 'Taifa Gas',
+  cylinderSize: 'Small Cylinder',
+  smallGasBuyPrice: String(GAS_PRICE_BOOK['Taifa Gas'].smallBuy),
+  smallGasSellPrice: String(GAS_PRICE_BOOK['Taifa Gas'].smallSell),
+  bigGasBuyPrice: String(GAS_PRICE_BOOK['Taifa Gas'].bigBuy),
+  bigGasSellPrice: String(GAS_PRICE_BOOK['Taifa Gas'].bigSell),
+});
 };
 const editGas = (entry) => {
   setGasForm({
