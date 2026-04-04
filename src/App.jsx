@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { supabase } from './supabaseClient';
 import { GasBusinessSection, GasDashboardCard, GasReportBlock, buildGasRecord, getGasDashboardSummary } from './GasBusinessSection';
+import RentalPropertySection from './RentalPropertySection';
 import {
   ShoppingCart,
   AlertTriangle,
@@ -2757,8 +2758,14 @@ if (error) {
     ['credit', t(language, 'Credit', 'Madeni')],
     ['change', t(language, 'Customer Change', 'Chenji ya Mteja')],
     ['mobilemoney', t(language, 'Mobile Money', 'Wakala')],
-    ['gas', t(language, 'Gas Business', 'Biashara ya Gesi')],
-    ['reports', t(language, 'Reports', 'Ripoti')],
+['gas', t(language, 'Gas Business', 'Biashara ya Gesi')],
+...(
+  data.currentUser?.role === 'owner' ||
+  String(data.currentUser?.shop_id || data.currentUser?.shopId || '') === 'shop-1'
+    ? [['rental', 'Rental Property']]
+    : []
+),
+['reports', t(language, 'Reports', 'Ripoti')],
   ].map(([value, label]) => (
     <TabsTrigger key={value} value={value} activeValue={activeTab} onClick={() => setActiveTab(value)}>
       {label}
@@ -3656,6 +3663,10 @@ setShowGasPrices={setShowGasPrices}
 onEditGas={editGas}
 onDeleteGas={deleteGas}
   />
+
+</TabsContent>
+<TabsContent value="rental" activeValue={activeTab}>
+  <RentalPropertySection />
 </TabsContent>
       <TabsContent value="reports" activeValue={activeTab}>
         <Card>
