@@ -506,14 +506,17 @@ async function readData() {
   try {
     if (navigator.onLine) {
       try {
-    const savedSessionUser = readStorage(STORAGE_SESSION_KEY, null);
-    const {
+   const savedSessionUser = readStorage(STORAGE_SESSION_KEY, null);
+const {
   data: { session },
 } = await supabase.auth.getSession();
 
-let sessionShopId = String(savedSessionUser?.shop_id || '').trim() || null;
+const isOwnerUser = String(savedSessionUser?.role || '') === 'owner';
+let sessionShopId = isOwnerUser
+  ? null
+  : String(savedSessionUser?.shop_id || '').trim() || null;
 
-if (session?.user?.id) {
+if (session?.user?.id && !isOwnerUser) {
   const { data: shopUserRow } = await supabase
     .from('shop_users')
     .select('shop_id')
@@ -521,7 +524,7 @@ if (session?.user?.id) {
     .maybeSingle();
 
   if (shopUserRow?.shop_id) {
-    sessionShopId = shopUserRow.shop_id;
+    sessionShopId = String(shopUserRow.shop_id).trim();
   }
 }
 
