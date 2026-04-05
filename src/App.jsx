@@ -3788,6 +3788,9 @@ onDeleteGas={deleteGas}
 <option value="expiryAlert">{t(language, 'Lock Stock Alert', 'Tahadhari ya Bidhaa Zinazoisha Muda')}</option>
                   <option value="salesReport">{t(language, 'Sales Report', 'Ripoti ya Mauzo')}</option>
 <option value="profitLoss">{t(language, 'Profit & Loss Report', 'Ripoti ya Faida na Hasara')}</option>
+<option value="mostProfitableProducts">
+  {t(language, 'Most Profitable Products', 'Bidhaa Zenye Faida Kubwa')}
+</option>
 <option value="expensesReport">{t(language, 'Expenses Report', 'Ripoti ya Matumizi')}</option>
 <option value="changeLedgerReport">{t(language, 'Change Ledger Report', 'Ripoti ya Chenji ya Mteja')}</option>
 <option value="creditSalesReport">{t(language, 'Credit Sales Report', 'Ripoti ya Madeni')}</option>
