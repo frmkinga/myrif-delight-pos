@@ -4916,65 +4916,64 @@ useEffect(() => {
   try {
     // rotate old backups
     for (let i = BACKUP_KEYS.length - 1; i > 0; i--) {
-  const prev = readStorage(BACKUP_KEYS[i - 1], null);
-  if (prev) {
-    writeStorage(BACKUP_KEYS[i], prev);
-  }
-}
+      const prev = readStorage(BACKUP_KEYS[i - 1], null);
+      if (prev) {
+        writeStorage(BACKUP_KEYS[i], prev);
+      }
+    }
 
-    // save current data as newest backup
-    const current = readStorage(STORAGE_KEY, null);
-if (current) {
-  writeStorage(BACKUP_KEYS[0], current);
-}
+    // save current metadata snapshot as newest backup
+    const currentMeta = readStorage(STORAGE_META_KEY, null);
+    if (currentMeta) {
+      writeStorage(BACKUP_KEYS[0], currentMeta);
+    }
   } catch (err) {
     console.warn('Backup rotation failed', err);
   }
 
   setData(normalized);
-writeStorage(STORAGE_KEY, normalized);
-writeStorage(STORAGE_PRODUCTS_KEY, normalized.products || []);
-writeStorage(STORAGE_SALES_KEY, normalized.sales || []);
-writeStorage(STORAGE_PURCHASES_KEY, normalized.purchases || []);
-writeStorage(STORAGE_EXPENSES_KEY, normalized.expenses || []);
-writeStorage(STORAGE_CREDIT_KEY, normalized.creditSales || []);
-writeStorage(STORAGE_CHANGE_KEY, normalized.changeLedger || []);
-writeStorage(STORAGE_MOBILE_MONEY_KEY, normalized.mobileMoneyEntries || []);
-writeStorage(STORAGE_GAS_KEY, normalized.gasEntries || []);
-writeStorage(STORAGE_META_KEY, { lastSavedAt: Date.now(), version: "v1" });
-writeToDB(DB_DATA_KEY, normalized).catch((err) => {
-  console.error('IndexedDB save failed:', err);
-});
-};
-const exportBackup = () => {
 
+  // keep only metadata in localStorage
+  writeStorage(STORAGE_META_KEY, {
+    lastSavedAt: Date.now(),
+    version: "v2",
+  });
+
+  // store full business data only in IndexedDB
+  writeToDB(DB_DATA_KEY, normalized).catch((err) => {
+    console.error('IndexedDB save failed:', err);
+  });
+};
+const exportBackup = async () => {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-if (!raw) {
-  alert('No backup data found.');
-  return;
-}
+    const dbData = await readFromDB(DB_DATA_KEY);
 
-const parsed = raw;
-const backupPayload = {
-  app: 'rafikiai-multi-shop-pos',
-  version: APP_BACKUP_VERSION,
-  createdAt: new Date().toISOString(),
-  data: parsed,
-};
+    if (!dbData) {
+      alert('No backup data found.');
+      return;
+    }
 
-const blob = new Blob([JSON.stringify(backupPayload, null, 2)], { type: 'application/json' });
+    const payload = {
+      version: APP_BACKUP_VERSION,
+      exportedAt: new Date().toISOString(),
+      data: normalizeData(dbData),
+    };
+
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: 'application/json',
+    });
+
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `POS_Backup_${todayISO()}.json`;
+    a.download = `rafikiai-backup-${todayISO()}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  } catch (err) {
-    console.error(err);
-    alert('Export backup failed.');
+  } catch (error) {
+    console.error('Export backup failed:', error);
+    alert('Backup export failed.');
   }
 };
 const importBackup = () => {
