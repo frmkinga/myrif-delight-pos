@@ -1074,6 +1074,20 @@ const shopExpenses = filterByPreset(
   ownerPeriod,
   todayISO()
 ).reduce((a, e) => a + Number(e.amount || 0), 0);
+const shopRetailProfit = filterByPreset(
+  data.sales.filter((s) => String(s.shop_id) === String(shop.id)),
+  ownerPeriod,
+  todayISO()
+).reduce((sum, sale) => {
+  return sum + (sale.items || []).reduce((itemSum, item) => {
+    const qty = Number(item.quantity || 0);
+    const sellPrice = Number(item.sellPrice ?? item.price ?? 0);
+    const buyPrice = Number(item.buyPrice ?? 0);
+    return itemSum + qty * (sellPrice - buyPrice);
+  }, 0);
+}, 0);
+
+const shopProfit = shopRetailProfit - shopExpenses;
           const latest = getLatestEntryForShop(data.mobileMoneyEntries, shop.id);
           const mobileCapital = latest ? getMobileCapital(latest) : 0;
           const bankCapital = latest ? getBankCapital(latest) : 0;
@@ -1086,7 +1100,7 @@ const shopExpenses = filterByPreset(
               <CardContent className="space-y-2 text-sm">
                 <div>{t(language, 'Sales', 'Mauzo')}: TZS {currency(shopSales)}</div>
                 <div>{t(language, 'Expenses', 'Matumizi')}: TZS {currency(shopExpenses)}</div>
-                <div>{t(language, 'Profit', 'Faida')}: TZS {currency(shopSales - shopExpenses)}</div>
+                <div>{t(language, 'Profit', 'Faida')}: TZS {currency(shopProfit)}</div>
                 <div>{t(language, 'Mobile Money Capital', 'Mtaji wa Simu')}: TZS {currency(mobileCapital)}</div>
                 <div>{t(language, 'Bank Capital', 'Mtaji wa Benki')}: TZS {currency(bankCapital)}</div>
                 <Button type="button" className="mt-2" onClick={() => openShop(shop.id)}>
