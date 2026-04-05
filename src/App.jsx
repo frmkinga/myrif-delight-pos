@@ -502,8 +502,14 @@ function normalizeData(parsed = {}) {
   };
 }
 
-async function readData() {
+async function readData({ preferFresh = true } = {}) {
   try {
+    const dbData = await readFromDB(DB_DATA_KEY);
+
+    if (!preferFresh && dbData) {
+      return normalizeData(dbData);
+    }
+
     if (navigator.onLine) {
       try {
    const savedSessionUser = readStorage(STORAGE_SESSION_KEY, null);
@@ -639,9 +645,13 @@ if (session?.user?.id && !isOwnerUser) {
       gasEntries: cloudGasEntries || [],
     });
 
-    await writeToDB(DB_DATA_KEY, normalized);
+        await writeToDB(DB_DATA_KEY, normalized);
     return normalized;
   } catch (error) {
+    if (!preferFresh) {
+      console.error('Cloud read failed during background refresh:', error);
+      return dbData ? normalizeData(dbData) : normalizeData(seedData);
+    }
     console.error('Cloud read failed, falling back to local:', error);
   }
 }
@@ -4588,7 +4598,8 @@ const [hasLoadedInitialData, setHasLoadedInitialData] = useState(false);
         writeStorage(STORAGE_SESSION_KEY, null);
       }
 
-      const initial = await readData();
+      // ✅ 1. Load fast from cache
+      const initial = await readData({ preferFresh: false });
 
       const nextData = {
         ...initial,
@@ -4596,6 +4607,19 @@ const [hasLoadedInitialData, setHasLoadedInitialData] = useState(false);
       };
 
       setData(nextData);
+
+      // ✅ 2. Refresh from Supabase in background
+      readData({ preferFresh: true })
+        .then((freshData) => {
+          const refreshedData = {
+            ...freshData,
+            currentUser: restoredCurrentUser,
+          };
+          setData(refreshedData);
+        })
+        .catch((error) => {
+          console.error('Background refresh failed:', error);
+        });
 
       if (restoredCurrentUser?.role === 'shop') {
         setActiveShopId(
