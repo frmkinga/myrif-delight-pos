@@ -504,12 +504,6 @@ function normalizeData(parsed = {}) {
 
 async function readData() {
   try {
-    const dbData = await readFromDB(DB_DATA_KEY);
-
-    if (dbData) {
-      return normalizeData(dbData);
-    }
-
     if (navigator.onLine) {
       try {
     const savedSessionUser = readStorage(STORAGE_SESSION_KEY, null);
@@ -699,9 +693,9 @@ if (fallbackDbData) {
   return normalizeData(fallbackDbData);
 }
 
-    const fallbackData = normalizeData(seedData);
-    await writeToDB(DB_DATA_KEY, fallbackData);
-    return fallbackData;
+const fallbackData = normalizeData(seedData);
+await writeToDB(DB_DATA_KEY, fallbackData);
+return fallbackData;
   } catch (error) {
     console.error('readData failed:', error);
     return normalizeData(seedData);
