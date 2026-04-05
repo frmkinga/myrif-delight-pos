@@ -1600,7 +1600,49 @@ const creditSalesReportRows = useMemo(() => {
       notes: entry.notes || '',
     }));
 }, [creditSales]);
+const mostProfitableProductsRows = useMemo(() => {
+  const productMap = Object.fromEntries(products.map((p) => [p.id, p]));
+  const itemMap = {};
 
+  filteredSales.forEach((sale) => {
+    (sale.items || []).forEach((item) => {
+      const productId = item.productId || '';
+      const fallbackProduct = productMap[productId] || {};
+
+      const qty = Number(item.quantity || 0);
+      const sellPrice = Number(item.sellPrice ?? item.price ?? fallbackProduct.sellPrice ?? 0);
+      const buyPrice = Number(item.buyPrice ?? fallbackProduct.buyPrice ?? 0);
+
+      const salesAmount = qty * sellPrice;
+      const profitAmount = qty * (sellPrice - buyPrice);
+      const marginPercent = salesAmount > 0 ? (profitAmount / salesAmount) * 100 : 0;
+
+      if (!itemMap[productId]) {
+        itemMap[productId] = {
+          productId,
+          name: item.name || fallbackProduct.name || 'Unknown Product',
+          soldQty: 0,
+          totalSales: 0,
+          totalProfit: 0,
+          marginPercent: 0,
+          currentStock: Number(fallbackProduct.stockBaseQty || 0),
+        };
+      }
+
+      itemMap[productId].soldQty += qty;
+      itemMap[productId].totalSales += salesAmount;
+      itemMap[productId].totalProfit += profitAmount;
+    });
+  });
+
+  return Object.values(itemMap)
+    .map((row) => ({
+      ...row,
+      marginPercent:
+        row.totalSales > 0 ? (row.totalProfit / row.totalSales) * 100 : 0,
+    }))
+    .sort((a, b) => b.totalProfit - a.totalProfit);
+}, [filteredSales, products]);
 const profitLossReport = useMemo(() => {
   const productMap = Object.fromEntries(products.map((p) => [p.id, p]));
 
@@ -4042,6 +4084,39 @@ onDeleteGas={deleteGas}
       ))
     )}
   </div>
+) : reportType === 'mostProfitableProducts' ? (
+  <div className="overflow-x-auto">
+    {mostProfitableProductsRows.length === 0 ? (
+      <div className="text-sm text-slate-500">
+        {t(language, 'No profitable product data in this period.', 'Hakuna taarifa ya bidhaa zenye faida katika kipindi hiki.')}
+      </div>
+    ) : (
+      <table className="w-full min-w-[700px] text-sm">
+        <thead>
+          <tr className="border-b text-left text-slate-500">
+            <th className="py-2 pr-3">{t(language, 'Product Name', 'Jina la Bidhaa')}</th>
+            <th className="py-2 pr-3">{t(language, 'Sold Qty', 'Jumla Iliyouzwa')}</th>
+            <th className="py-2 pr-3">{t(language, 'Total Sales', 'Jumla ya Mauzo')}</th>
+            <th className="py-2 pr-3">{t(language, 'Total Profit', 'Jumla ya Faida')}</th>
+            <th className="py-2 pr-3">{t(language, 'Margin %', 'Asilimia ya Faida')}</th>
+            <th className="py-2 pr-3">{t(language, 'Current Stock', 'Stock Iliyobaki')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {mostProfitableProductsRows.map((row) => (
+            <tr key={row.productId || row.name} className="border-b border-slate-100">
+              <td className="py-3 pr-3">{row.name}</td>
+              <td className="py-3 pr-3">{formatQty(row.soldQty)}</td>
+              <td className="py-3 pr-3">TZS {currency(row.totalSales)}</td>
+              <td className="py-3 pr-3">TZS {currency(row.totalProfit)}</td>
+              <td className="py-3 pr-3">{Number(row.marginPercent || 0).toFixed(1)}%</td>
+              <td className="py-3 pr-3">{formatQty(row.currentStock)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    )}
+  </div>
 ) : reportType === 'salesReport' ? (
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[800px] text-sm">
@@ -4088,6 +4163,7 @@ onDeleteGas={deleteGas}
                   </tbody>
                 </table>
               </div>
+
 ) : reportType === 'expensesReport' ? (
   <div className="overflow-x-auto">
     {expensesReportRows.length === 0 ? (
