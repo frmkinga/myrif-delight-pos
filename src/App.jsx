@@ -986,6 +986,10 @@ console.log('OWNER STATE CHECK', {
 });
  const expensesPeriod = filterByPreset(data.expenses, ownerPeriod, todayISO());
   const totalSales = salesPeriod.reduce((a, s) => a + Number(s.total || 0), 0);
+console.log('TOTAL CHECK', {
+  totalSales,
+  count: salesPeriod.length
+});
   const totalExpenses = expensesPeriod.reduce((a, e) => a + Number(e.amount || 0), 0);
   const totalRetailProfit = salesPeriod.reduce((sum, sale) => {
   return sum + (sale.items || []).reduce((itemSum, item) => {
