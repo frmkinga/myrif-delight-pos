@@ -1080,24 +1080,11 @@ const totalBusinessProfit = totalProfit + totalGasProfit + totalWakalaCommission
 </Card>
       <div className="mt-6 grid gap-4 lg:grid-cols-3 text-base">
   {data.shops.map((shop) => {
-    const shopSalesReportRows = (() => {
-      const shopProducts = data.products
-        .filter((p) => String(p?.shop_id || '') === String(shop.id))
-        .map(normalizeProduct)
-        .filter((p) => p.id && String(p.name || '').trim());
-
-      const filteredShopSales = filterByPreset(
-        data.sales.filter((s) => String(s.shop_id) === String(shop.id)),
-        ownerPeriod,
-        todayISO()
-      );
-
-      const map = {};
-
-      filteredShopSales.forEach((sale) => {
-        (sale.items || []).forEach((item) => {
-          if (!map[item.productId]) {
-            const product = shopProducts.find((p) => p.id === item.productId);
+    const shopSales = filterByPreset(
+  data.sales.filter((s) => String(s.shop_id) === String(shop.id)),
+  ownerPeriod,
+  todayISO()
+).reduce((a, s) => a + Number(s.total || 0), 0);
 
             map[item.productId] = {
               productId: item.productId,
@@ -1121,10 +1108,10 @@ const totalBusinessProfit = totalProfit + totalGasProfit + totalWakalaCommission
 
       const rows = Object.values(map);
 
-      const totalSalesAmount = rows.reduce(
-        (a, r) => a + Number(r.soldQty || 0) * Number(r.sellPrice || 0),
-        0
-      );
+      const totalSalesAmount = filteredSales.reduce(
+  (a, s) => a + Number(s.total || 0),
+  0
+);
 
       return {
         rows,
