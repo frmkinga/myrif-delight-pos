@@ -635,10 +635,13 @@ function ReportsSection({
 
 <td className="py-2 pr-3">
   <div className="flex gap-2">
-   <button
+  <button
   type="button"
   className="rounded-lg bg-amber-500 px-3 py-1 text-white"
-  onClick={() => onEditHouse(row)}
+  onClick={() => {
+    alert('edit clicked');
+    onEditHouse(row);
+  }}
 >
   Edit
 </button>
