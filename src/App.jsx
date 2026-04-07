@@ -5133,10 +5133,17 @@ const handleLogin = async (user) => {
 const openShopDashboard = async (shopId) => {
   setActiveShopId(shopId);
 
-  const { data: products } = await supabase
-    .from('products')
-    .select('*')
-    .eq('shop_id', shopId);
+  const [
+    { data: products },
+    { data: sales },
+    { data: expenses },
+    { data: purchases },
+  ] = await Promise.all([
+    supabase.from('products').select('*').eq('shop_id', shopId),
+    supabase.from('sales').select('*').eq('shop_id', shopId),
+    supabase.from('expenses').select('*').eq('shop_id', shopId),
+    supabase.from('purchases').select('*').eq('shop_id', shopId),
+  ]);
 
   setData((prev) => ({
     ...prev,
@@ -5147,15 +5154,36 @@ const openShopDashboard = async (shopId) => {
       sellPrice: Number(p.sellingprice || 0),
       stockBaseQty: Number(p.stock || 0),
       stockQty: Number(p.stock || 0),
-      shop_id: p.shop_id || p.shopid || '',
+      shop_id: String(p.shop_id || p.shopid || '').trim(),
       baseUnit: p.baseunit || 'pc',
-      minStockLevel: 5,
-      expiryDate: '',
-      qrCode: '',
-      subUnitsRaw: '',
-archived: Boolean(p.archived),
+      minStockLevel: Number(p.minStockLevel || 5),
+      expiryDate: p.expiryDate || '',
+      qrCode: p.qrCode || '',
+      subUnitsRaw: p.subUnitsRaw || '',
+      archived: Boolean(p.archived),
       createdAt: p.createdAt || (p.created_at ? String(p.created_at).slice(0, 10) : ''),
       confirmed: true,
+    })),
+    sales: (sales || []).map((s) => ({
+      ...s,
+      shop_id: String(s.shop_id || '').trim(),
+      date: s.date || (s.created_at ? String(s.created_at).slice(0, 10) : todayISO()),
+    })),
+    expenses: (expenses || []).map((e) => ({
+      id: e.id || '',
+      shop_id: String(e.shop_id || '').trim(),
+      title: e.title || e.description || '',
+      description: e.description || e.title || '',
+      amount: Number(e.amount || 0),
+      category: e.category || '',
+      date: e.date || (e.created_at ? String(e.created_at).slice(0, 10) : todayISO()),
+      notes: e.notes || '',
+      created_at: e.created_at || '',
+    })),
+    purchases: (purchases || []).map((p) => ({
+      ...p,
+      shop_id: String(p.shop_id || '').trim(),
+      date: p.date || (p.created_at ? String(p.created_at).slice(0, 10) : todayISO()),
     })),
   }));
 };
