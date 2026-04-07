@@ -676,7 +676,7 @@ if (session?.user?.id && !isOwnerUser) {
 
     console.log('Reading data from localStorage first...');
 
-    const raw = readStorage(STORAGE_KEY);
+    const raw = null;
 
     if (raw) {
       const separateProducts = readStorage(STORAGE_PRODUCTS_KEY, null);
