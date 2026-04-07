@@ -974,6 +974,12 @@ setAppData(nextData);
   setConfirmPasswordInput('');
 };
   const salesPeriod = filterByPreset(data.sales, ownerPeriod, todayISO());
+console.log('OWNER STATE CHECK', {
+  ownerPeriod,
+  totalSalesInState: Array.isArray(data.sales) ? data.sales.length : 0,
+  filteredSalesCount: Array.isArray(salesPeriod) ? salesPeriod.length : 0,
+  firstThreeSales: Array.isArray(data.sales) ? data.sales.slice(0, 3) : [],
+});
  const expensesPeriod = filterByPreset(data.expenses, ownerPeriod, todayISO());
   const totalSales = salesPeriod.reduce((a, s) => a + Number(s.total || 0), 0);
   const totalExpenses = expensesPeriod.reduce((a, e) => a + Number(e.amount || 0), 0);
