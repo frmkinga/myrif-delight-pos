@@ -134,7 +134,7 @@ function PreviewValue({ label, value }) {
   );
 }
 
-export default function RentalPropertySectionPreview({ language = 'sw', data, saveData }) {
+export default function RentalPropertySectionPreview({ language = 'sw', setLanguage, data, saveData }) {
   const [activeTab, setActiveTab] = useState('dashboard');
 
   const houses = Array.isArray(data?.houses) ? data.houses : [];
