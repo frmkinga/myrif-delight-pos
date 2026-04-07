@@ -292,6 +292,24 @@ export default function RentalPropertySectionPreview({ language = 'sw', data, sa
 
   setServiceChargeForm({ ...emptyServiceChargeForm });
 };
+const editHouse = (row) => {
+  setHouseForm({
+    id: row.id || '',
+    houseNumber: row.houseNumber || '',
+    tenantName: row.tenantName || '',
+    rentPaidDate: row.rentPaidDate || todayISO(),
+    rentStartDate: row.rentStartDate || '',
+    rentEndDate: row.rentEndDate || '',
+    monthlyRentAmount: String(row.monthlyRentAmount || ''),
+    amountPaid: String(row.amountPaid || ''),
+    rentDurationMonths: String(row.rentDurationMonths || '1'),
+    paymentType: row.paymentType || 'Full',
+    houseStatus: row.houseStatus || 'Occupied',
+    itemsIssued: row.itemsIssued || '',
+  });
+
+  setActiveTab('houses');
+};
   const today = todayISO();
 
   const dueSoon = houses.filter((h) => h.nextPaymentDate && daysBetween(today, h.nextPaymentDate) !== null && daysBetween(today, h.nextPaymentDate) >= 0 && daysBetween(today, h.nextPaymentDate) <= 7);
@@ -527,21 +545,20 @@ export default function RentalPropertySectionPreview({ language = 'sw', data, sa
           </div>
         )}
 
-        {activeTab === 'reports' && (
-  <ReportsSection
-    language={language}
-    houses={houses}
-    meters={meters}
-    serviceCharges={serviceCharges}
-    totalRent={totalRent}
-    totalPaid={totalPaid}
-    totalOutstanding={totalOutstanding}
-    totalUnitsUsed={totalUnitsUsed}
-    totalWaterAmount={totalWaterAmount}
-    totalDiscount={totalDiscount}
-    totalServiceCharge={totalServiceCharge}
-  />
-)}
+        <ReportsSection
+  language={language}
+  houses={houses}
+  meters={meters}
+  serviceCharges={serviceCharges}
+  totalRent={totalRent}
+  totalPaid={totalPaid}
+  totalOutstanding={totalOutstanding}
+  totalUnitsUsed={totalUnitsUsed}
+  totalWaterAmount={totalWaterAmount}
+  totalDiscount={totalDiscount}
+  totalServiceCharge={totalServiceCharge}
+  onEditHouse={editHouse}
+/>
       </div>
     </div>
   );
