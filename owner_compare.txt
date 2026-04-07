@@ -1,0 +1,495 @@
+diff --git a/src/App.jsx b/src/App.jsx
+index 2de0096..8bc2d0a 100644
+--- a/src/App.jsx
++++ b/src/App.jsx
+@@ -302,12 +302,12 @@ function filterByPreset(items, preset, customDate) {
+     if (preset === 'today') return d.getTime() === now.getTime();
+     if (preset === 'yesterday') return d.getTime() === addDays(now, -1).getTime();
+     if (preset === 'date') {
+-  const value = item.date || item.createdAt || todayISO();
+-  if (typeof customDate === 'object' && customDate?.start && customDate?.end) {
+-    return value >= customDate.start && value <= customDate.end;
+-  }
+-  return value === customDate;
+-}
++      const value = item.date || item.createdAt || todayISO();
++      if (typeof customDate === 'object' && customDate?.start && customDate?.end) {
++        return value >= customDate.start && value <= customDate.end;
++      }
++      return value === customDate;
++    }
+     if (preset === 'week') return d >= addDays(now, -6) && d <= now;
+     if (preset === 'month') return d >= startOfMonth(now) && d <= now;
+     if (preset === '3months') return d >= addDays(now, -89) && d <= now;
+@@ -317,6 +317,7 @@ function filterByPreset(items, preset, customDate) {
+   });
+ }
+ 
++
+ function makeSubUnits(unit, sellPrice, raw = '0.5,0.25') {
+   const values = String(raw || '')
+     .split(',')
+@@ -421,14 +422,17 @@ const seedData = {
+   { id: 'u-4', username: 'shop4', email: 'shangwe@shop4.com', password: '1234', role: 'shop', shop_id: 'shop-4', shopId: 'shop-4', name: 'Shangwe User' },
+   { id: 'u-5', username: 'shop5', email: 'mungumwema@shop5.com', password: '1234', role: 'shop', shop_id: 'shop-5', shopId: 'shop-5', name: 'Mungu Mwema User' },
+ ],
+-  products: [],
++    products: [],
+   sales: [],
+   creditSales: [],
+   changeLedger: [],
+   expenses: [],
+-    purchases: [],
++  purchases: [],
+   mobileMoneyEntries: [],
+   gasEntries: [],
++  houses: [],
++  meters: [],
++  serviceCharges: [],
+ };
+ 
+ function getLegacyData() {
+@@ -499,21 +503,33 @@ function normalizeData(parsed = {}) {
+     purchases: Array.isArray(parsed.purchases) ? parsed.purchases : [],
+     mobileMoneyEntries: Array.isArray(parsed.mobileMoneyEntries) ? parsed.mobileMoneyEntries : [],
+     gasEntries: Array.isArray(parsed.gasEntries) ? parsed.gasEntries : [],
++    houses: Array.isArray(parsed.houses) ? parsed.houses : [],
++    meters: Array.isArray(parsed.meters) ? parsed.meters : [],
++    serviceCharges: Array.isArray(parsed.serviceCharges) ? parsed.serviceCharges : [],
+   };
+ }
+ 
+-async function readData() {
++async function readData({ preferFresh = true } = {}) {
+   try {
++    const dbData = await readFromDB(DB_DATA_KEY);
++
++    if (!preferFresh && dbData) {
++      return normalizeData(dbData);
++    }
++
+     if (navigator.onLine) {
+       try {
+-    const savedSessionUser = readStorage(STORAGE_SESSION_KEY, null);
+-    const {
++   const savedSessionUser = readStorage(STORAGE_SESSION_KEY, null);
++const {
+   data: { session },
+ } = await supabase.auth.getSession();
+ 
+-let sessionShopId = String(savedSessionUser?.shop_id || '').trim() || null;
++const isOwnerUser = String(savedSessionUser?.role || '') === 'owner';
++let sessionShopId = isOwnerUser
++  ? null
++  : String(savedSessionUser?.shop_id || '').trim() || null;
+ 
+-if (session?.user?.id) {
++if (session?.user?.id && !isOwnerUser) {
+   const { data: shopUserRow } = await supabase
+     .from('shop_users')
+     .select('shop_id')
+@@ -521,7 +537,7 @@ if (session?.user?.id) {
+     .maybeSingle();
+ 
+   if (shopUserRow?.shop_id) {
+-    sessionShopId = shopUserRow.shop_id;
++    sessionShopId = String(shopUserRow.shop_id).trim();
+   }
+ }
+ 
+@@ -564,13 +580,20 @@ if (session?.user?.id) {
+       mobileMoneyQuery,
+       gasQuery,
+     ]);
+-    
+-
+-
++    console.log('OWNER DEBUG', {
++  savedSessionUser,
++  isOwnerUser,
++  sessionShopId,
++  cloudSalesCount: Array.isArray(cloudSales) ? cloudSales.length : 0,
++  cloudExpensesCount: Array.isArray(cloudExpenses) ? cloudExpenses.length : 0,
++});
+     const normalized = normalizeData({
+-      ...seedData,
+-      currentUser: savedSessionUser,
+-      products: (cloudProducts || []).map((p) => ({
++  ...seedData,
++  houses: Array.isArray(dbData?.houses) ? dbData.houses : [],
++  meters: Array.isArray(dbData?.meters) ? dbData.meters : [],
++  serviceCharges: Array.isArray(dbData?.serviceCharges) ? dbData.serviceCharges : [],
++  currentUser: savedSessionUser,
++  products: (cloudProducts || []).map((p) => ({
+   id: p?.id || '',
+   name: String(p?.name || '').trim(),
+   buyPrice: Number(p?.buyingprice || p?.buyPrice || 0),
+@@ -636,9 +659,13 @@ if (session?.user?.id) {
+       gasEntries: cloudGasEntries || [],
+     });
+ 
+-    await writeToDB(DB_DATA_KEY, normalized);
++        await writeToDB(DB_DATA_KEY, normalized);
+     return normalized;
+   } catch (error) {
++    if (!preferFresh) {
++      console.error('Cloud read failed during background refresh:', error);
++      return dbData ? normalizeData(dbData) : normalizeData(seedData);
++    }
+     console.error('Cloud read failed, falling back to local:', error);
+   }
+ }
+@@ -947,7 +974,7 @@ setAppData(nextData);
+   setConfirmPasswordInput('');
+ };
+   const salesPeriod = filterByPreset(data.sales, ownerPeriod, todayISO());
+-  const expensesPeriod = filterByPreset(data.expenses, ownerPeriod, todayISO());
++ const expensesPeriod = filterByPreset(data.expenses, ownerPeriod, todayISO());
+   const totalSales = salesPeriod.reduce((a, s) => a + Number(s.total || 0), 0);
+   const totalExpenses = expensesPeriod.reduce((a, e) => a + Number(e.amount || 0), 0);
+   const totalRetailProfit = salesPeriod.reduce((sum, sale) => {
+@@ -1059,18 +1086,33 @@ const totalBusinessProfit = totalProfit + totalGasProfit + totalWakalaCommission
+   </CardContent>
+ </Card>
+       <div className="mt-6 grid gap-4 lg:grid-cols-3 text-base">
+-        {data.shops.map((shop) => {
+-          const shopSales = filterByPreset(
++  {data.shops.map((shop) => {
++    const shopSales = filterByPreset(
+   data.sales.filter((s) => String(s.shop_id) === String(shop.id)),
+   ownerPeriod,
+   todayISO()
+ ).reduce((a, s) => a + Number(s.total || 0), 0);
+ 
+-const shopExpenses = filterByPreset(
+-  data.expenses.filter((e) => String(e.shop_id) === String(shop.id)),
+-  ownerPeriod,
+-  todayISO()
+-).reduce((a, e) => a + Number(e.amount || 0), 0);
++        const shopExpenses = filterByPreset(
++      data.expenses.filter((e) => String(e.shop_id) === String(shop.id)),
++      ownerPeriod,
++      todayISO()
++    ).reduce((a, e) => a + Number(e.amount || 0), 0);
++
++    const shopRetailProfit = filterByPreset(
++      data.sales.filter((s) => String(s.shop_id) === String(shop.id)),
++      ownerPeriod,
++      todayISO()
++    ).reduce((sum, sale) => {
++      return sum + (sale.items || []).reduce((itemSum, item) => {
++        const qty = Number(item.quantity || 0);
++        const sellPrice = Number(item.sellPrice ?? item.price ?? 0);
++        const buyPrice = Number(item.buyPrice ?? 0);
++        return itemSum + qty * (sellPrice - buyPrice);
++      }, 0);
++    }, 0);
++
++    const shopProfit = shopRetailProfit - shopExpenses;
+           const latest = getLatestEntryForShop(data.mobileMoneyEntries, shop.id);
+           const mobileCapital = latest ? getMobileCapital(latest) : 0;
+           const bankCapital = latest ? getBankCapital(latest) : 0;
+@@ -1083,7 +1125,7 @@ const shopExpenses = filterByPreset(
+               <CardContent className="space-y-2 text-sm">
+                 <div>{t(language, 'Sales', 'Mauzo')}: TZS {currency(shopSales)}</div>
+                 <div>{t(language, 'Expenses', 'Matumizi')}: TZS {currency(shopExpenses)}</div>
+-                <div>{t(language, 'Profit', 'Faida')}: TZS {currency(shopSales - shopExpenses)}</div>
++                <div>{t(language, 'Profit', 'Faida')}: TZS {currency(shopProfit)}</div>
+                 <div>{t(language, 'Mobile Money Capital', 'Mtaji wa Simu')}: TZS {currency(mobileCapital)}</div>
+                 <div>{t(language, 'Bank Capital', 'Mtaji wa Benki')}: TZS {currency(bankCapital)}</div>
+                 <Button type="button" className="mt-2" onClick={() => openShop(shop.id)}>
+@@ -1477,10 +1519,10 @@ const bankCommission = latestMobileEntry ? getBankCommissionTotal(latestMobileEn
+ 
+   const totalSold = rows.reduce((a, r) => a + Number(r.soldQty || 0), 0);
+   const totalProfit = rows.reduce((a, r) => a + Number(r.profit || 0), 0);
+-  const totalSalesAmount = rows.reduce(
+-    (a, r) => a + Number(r.soldQty || 0) * Number(r.sellPrice || 0),
+-    0
+-  );
++  const totalSalesAmount = filteredSales.reduce(
++  (a, s) => a + Number(s.total || 0),
++  0
++);
+ 
+   return {
+     rows,
+@@ -1573,7 +1615,49 @@ const creditSalesReportRows = useMemo(() => {
+       notes: entry.notes || '',
+     }));
+ }, [creditSales]);
++const mostProfitableProductsRows = useMemo(() => {
++  const productMap = Object.fromEntries(products.map((p) => [p.id, p]));
++  const itemMap = {};
++
++  filteredSales.forEach((sale) => {
++    (sale.items || []).forEach((item) => {
++      const productId = item.productId || '';
++      const fallbackProduct = productMap[productId] || {};
++
++      const qty = Number(item.quantity || 0);
++      const sellPrice = Number(item.sellPrice ?? item.price ?? fallbackProduct.sellPrice ?? 0);
++      const buyPrice = Number(item.buyPrice ?? fallbackProduct.buyPrice ?? 0);
++
++      const salesAmount = qty * sellPrice;
++      const profitAmount = qty * (sellPrice - buyPrice);
++      const marginPercent = salesAmount > 0 ? (profitAmount / salesAmount) * 100 : 0;
++
++      if (!itemMap[productId]) {
++        itemMap[productId] = {
++          productId,
++          name: item.name || fallbackProduct.name || 'Unknown Product',
++          soldQty: 0,
++          totalSales: 0,
++          totalProfit: 0,
++          marginPercent: 0,
++          currentStock: Number(fallbackProduct.stockBaseQty || 0),
++        };
++      }
++
++      itemMap[productId].soldQty += qty;
++      itemMap[productId].totalSales += salesAmount;
++      itemMap[productId].totalProfit += profitAmount;
++    });
++  });
+ 
++  return Object.values(itemMap)
++    .map((row) => ({
++      ...row,
++      marginPercent:
++        row.totalSales > 0 ? (row.totalProfit / row.totalSales) * 100 : 0,
++    }))
++    .sort((a, b) => b.totalProfit - a.totalProfit);
++}, [filteredSales, products]);
+ const profitLossReport = useMemo(() => {
+   const productMap = Object.fromEntries(products.map((p) => [p.id, p]));
+ 
+@@ -1811,7 +1895,7 @@ saleLock.current = false;
+     items: cart,
+     total,
+     type: 'cash',
+-    date: todayISO(),
++    date: new Date().toISOString().slice(0, 10),
+     created_at: new Date().toISOString(),
+   };
+ 
+@@ -3703,7 +3787,11 @@ onDeleteGas={deleteGas}
+ 
+ </TabsContent>
+ <TabsContent value="rental" activeValue={activeTab}>
+-  <RentalPropertySection />
++  <RentalPropertySection
++    language={language}
++    data={data}
++    saveData={saveData}
++  />
+ </TabsContent>
+       <TabsContent value="reports" activeValue={activeTab}>
+         <Card>
+@@ -3719,6 +3807,9 @@ onDeleteGas={deleteGas}
+ <option value="expiryAlert">{t(language, 'Lock Stock Alert', 'Tahadhari ya Bidhaa Zinazoisha Muda')}</option>
+                   <option value="salesReport">{t(language, 'Sales Report', 'Ripoti ya Mauzo')}</option>
+ <option value="profitLoss">{t(language, 'Profit & Loss Report', 'Ripoti ya Faida na Hasara')}</option>
++<option value="mostProfitableProducts">
++  {t(language, 'Most Profitable Products', 'Bidhaa Zenye Faida Kubwa')}
++</option>
+ <option value="expensesReport">{t(language, 'Expenses Report', 'Ripoti ya Matumizi')}</option>
+ <option value="changeLedgerReport">{t(language, 'Change Ledger Report', 'Ripoti ya Chenji ya Mteja')}</option>
+ <option value="creditSalesReport">{t(language, 'Credit Sales Report', 'Ripoti ya Madeni')}</option>
+@@ -4015,6 +4106,39 @@ onDeleteGas={deleteGas}
+       ))
+     )}
+   </div>
++) : reportType === 'mostProfitableProducts' ? (
++  <div className="overflow-x-auto">
++    {mostProfitableProductsRows.length === 0 ? (
++      <div className="text-sm text-slate-500">
++        {t(language, 'No profitable product data in this period.', 'Hakuna taarifa ya bidhaa zenye faida katika kipindi hiki.')}
++      </div>
++    ) : (
++      <table className="w-full min-w-[700px] text-sm">
++        <thead>
++          <tr className="border-b text-left text-slate-500">
++            <th className="py-2 pr-3">{t(language, 'Product Name', 'Jina la Bidhaa')}</th>
++            <th className="py-2 pr-3">{t(language, 'Sold Qty', 'Jumla Iliyouzwa')}</th>
++            <th className="py-2 pr-3">{t(language, 'Total Sales', 'Jumla ya Mauzo')}</th>
++            <th className="py-2 pr-3">{t(language, 'Total Profit', 'Jumla ya Faida')}</th>
++            <th className="py-2 pr-3">{t(language, 'Margin %', 'Asilimia ya Faida')}</th>
++            <th className="py-2 pr-3">{t(language, 'Current Stock', 'Stock Iliyobaki')}</th>
++          </tr>
++        </thead>
++        <tbody>
++          {mostProfitableProductsRows.map((row) => (
++            <tr key={row.productId || row.name} className="border-b border-slate-100">
++              <td className="py-3 pr-3">{row.name}</td>
++              <td className="py-3 pr-3">{formatQty(row.soldQty)}</td>
++              <td className="py-3 pr-3">TZS {currency(row.totalSales)}</td>
++              <td className="py-3 pr-3">TZS {currency(row.totalProfit)}</td>
++              <td className="py-3 pr-3">{Number(row.marginPercent || 0).toFixed(1)}%</td>
++              <td className="py-3 pr-3">{formatQty(row.currentStock)}</td>
++            </tr>
++          ))}
++        </tbody>
++      </table>
++    )}
++  </div>
+ ) : reportType === 'salesReport' ? (
+               <div className="overflow-x-auto">
+                 <table className="w-full min-w-[800px] text-sm">
+@@ -4061,6 +4185,7 @@ onDeleteGas={deleteGas}
+                   </tbody>
+                 </table>
+               </div>
++
+ ) : reportType === 'expensesReport' ? (
+   <div className="overflow-x-auto">
+     {expensesReportRows.length === 0 ? (
+@@ -4571,7 +4696,8 @@ const [hasLoadedInitialData, setHasLoadedInitialData] = useState(false);
+         writeStorage(STORAGE_SESSION_KEY, null);
+       }
+ 
+-      const initial = await readData();
++      // ✅ 1. Load fast from cache
++      const initial = await readData({ preferFresh: false });
+ 
+       const nextData = {
+         ...initial,
+@@ -4580,6 +4706,22 @@ const [hasLoadedInitialData, setHasLoadedInitialData] = useState(false);
+ 
+       setData(nextData);
+ 
++      // ✅ 2. Refresh from Supabase in background
++      readData({ preferFresh: true })
++  .then((freshData) => {
++    const refreshedData = {
++      ...freshData,
++      houses: Array.isArray(initial?.houses) ? initial.houses : [],
++      meters: Array.isArray(initial?.meters) ? initial.meters : [],
++      serviceCharges: Array.isArray(initial?.serviceCharges) ? initial.serviceCharges : [],
++      currentUser: restoredCurrentUser,
++    };
++    setData(refreshedData);
++  })
++  .catch((error) => {
++    console.error('Background refresh failed:', error);
++  });
++
+       if (restoredCurrentUser?.role === 'shop') {
+         setActiveShopId(
+           restoredCurrentUser.shop_id ||
+@@ -4790,71 +4932,73 @@ useEffect(() => {
+   };
+ }, [activeShopId]);
+ 
+-  const saveData = (next) => {
++  
++  const saveData = async (next) => {
+   const normalized = normalizeData(next);
+ 
+   try {
+     // rotate old backups
+     for (let i = BACKUP_KEYS.length - 1; i > 0; i--) {
+-  const prev = readStorage(BACKUP_KEYS[i - 1], null);
+-  if (prev) {
+-    writeStorage(BACKUP_KEYS[i], prev);
+-  }
+-}
++      const prev = readStorage(BACKUP_KEYS[i - 1], null);
++      if (prev) {
++        writeStorage(BACKUP_KEYS[i], prev);
++      }
++    }
+ 
+-    // save current data as newest backup
+-    const current = readStorage(STORAGE_KEY, null);
+-if (current) {
+-  writeStorage(BACKUP_KEYS[0], current);
+-}
++    // save current metadata snapshot as newest backup
++    const currentMeta = readStorage(STORAGE_META_KEY, null);
++    if (currentMeta) {
++      writeStorage(BACKUP_KEYS[0], currentMeta);
++    }
+   } catch (err) {
+     console.warn('Backup rotation failed', err);
+   }
+ 
+   setData(normalized);
+-writeStorage(STORAGE_KEY, normalized);
+-writeStorage(STORAGE_PRODUCTS_KEY, normalized.products || []);
+-writeStorage(STORAGE_SALES_KEY, normalized.sales || []);
+-writeStorage(STORAGE_PURCHASES_KEY, normalized.purchases || []);
+-writeStorage(STORAGE_EXPENSES_KEY, normalized.expenses || []);
+-writeStorage(STORAGE_CREDIT_KEY, normalized.creditSales || []);
+-writeStorage(STORAGE_CHANGE_KEY, normalized.changeLedger || []);
+-writeStorage(STORAGE_MOBILE_MONEY_KEY, normalized.mobileMoneyEntries || []);
+-writeStorage(STORAGE_GAS_KEY, normalized.gasEntries || []);
+-writeStorage(STORAGE_META_KEY, { lastSavedAt: Date.now(), version: "v1" });
+-writeToDB(DB_DATA_KEY, normalized).catch((err) => {
+-  console.error('IndexedDB save failed:', err);
+-});
+-};
+-const exportBackup = () => {
+ 
+-  try {
+-    const raw = localStorage.getItem(STORAGE_KEY);
+-if (!raw) {
+-  alert('No backup data found.');
+-  return;
+-}
++  // keep only metadata in localStorage
++  writeStorage(STORAGE_META_KEY, {
++    lastSavedAt: Date.now(),
++    version: "v2",
++  });
+ 
+-const parsed = raw;
+-const backupPayload = {
+-  app: 'rafikiai-multi-shop-pos',
+-  version: APP_BACKUP_VERSION,
+-  createdAt: new Date().toISOString(),
+-  data: parsed,
++  // IMPORTANT: wait for IndexedDB write to finish
++  try {
++    await writeToDB(DB_DATA_KEY, normalized);
++  } catch (err) {
++    console.error('IndexedDB save failed:', err);
++  }
+ };
++const exportBackup = async () => {
++  try {
++    const dbData = await readFromDB(DB_DATA_KEY);
++
++    if (!dbData) {
++      alert('No backup data found.');
++      return;
++    }
++
++    const payload = {
++      version: APP_BACKUP_VERSION,
++      exportedAt: new Date().toISOString(),
++      data: normalizeData(dbData),
++    };
++
++    const blob = new Blob([JSON.stringify(payload, null, 2)], {
++      type: 'application/json',
++    });
+ 
+-const blob = new Blob([JSON.stringify(backupPayload, null, 2)], { type: 'application/json' });
+     const url = URL.createObjectURL(blob);
+     const a = document.createElement('a');
+     a.href = url;
+-    a.download = `POS_Backup_${todayISO()}.json`;
++    a.download = `rafikiai-backup-${todayISO()}.json`;
+     document.body.appendChild(a);
+     a.click();
+     document.body.removeChild(a);
+     URL.revokeObjectURL(url);
+-  } catch (err) {
+-    console.error(err);
+-    alert('Export backup failed.');
++  } catch (error) {
++    console.error('Export backup failed:', error);
++    alert('Backup export failed.');
+   }
+ };
+ const importBackup = () => {

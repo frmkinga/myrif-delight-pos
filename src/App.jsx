@@ -4696,8 +4696,8 @@ const [hasLoadedInitialData, setHasLoadedInitialData] = useState(false);
         writeStorage(STORAGE_SESSION_KEY, null);
       }
 
-      // ✅ 1. Load fast from cache
-      const initial = await readData({ preferFresh: false });
+      // Load fresh data from Supabase on startup
+      const initial = await readData();
 
       const nextData = {
         ...initial,
@@ -4705,22 +4705,6 @@ const [hasLoadedInitialData, setHasLoadedInitialData] = useState(false);
       };
 
       setData(nextData);
-
-      // ✅ 2. Refresh from Supabase in background
-      readData({ preferFresh: true })
-  .then((freshData) => {
-    const refreshedData = {
-      ...freshData,
-      houses: Array.isArray(initial?.houses) ? initial.houses : [],
-      meters: Array.isArray(initial?.meters) ? initial.meters : [],
-      serviceCharges: Array.isArray(initial?.serviceCharges) ? initial.serviceCharges : [],
-      currentUser: restoredCurrentUser,
-    };
-    setData(refreshedData);
-  })
-  .catch((error) => {
-    console.error('Background refresh failed:', error);
-  });
 
       if (restoredCurrentUser?.role === 'shop') {
         setActiveShopId(
