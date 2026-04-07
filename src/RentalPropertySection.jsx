@@ -545,20 +545,39 @@ const editHouse = (row) => {
           </div>
         )}
 
-        <ReportsSection
-  language={language}
-  houses={houses}
-  meters={meters}
-  serviceCharges={serviceCharges}
-  totalRent={totalRent}
-  totalPaid={totalPaid}
-  totalOutstanding={totalOutstanding}
-  totalUnitsUsed={totalUnitsUsed}
-  totalWaterAmount={totalWaterAmount}
-  totalDiscount={totalDiscount}
-  totalServiceCharge={totalServiceCharge}
-  onEditHouse={editHouse}
-/>
+        {activeTab === 'reports' && (
+  <ReportsSection
+    language={language}
+    houses={houses}
+    meters={meters}
+    serviceCharges={serviceCharges}
+    totalRent={totalRent}
+    totalPaid={totalPaid}
+    totalOutstanding={totalOutstanding}
+    totalUnitsUsed={totalUnitsUsed}
+    totalWaterAmount={totalWaterAmount}
+    totalDiscount={totalDiscount}
+    totalServiceCharge={totalServiceCharge}
+    onEditHouse={(row) => {
+      setHouseForm({
+        id: row.id || '',
+        houseNumber: row.houseNumber || '',
+        tenantName: row.tenantName || '',
+        rentPaidDate: row.rentPaidDate || todayISO(),
+        rentStartDate: row.rentStartDate || '',
+        rentEndDate: row.rentEndDate || '',
+        monthlyRentAmount: String(row.monthlyRentAmount || ''),
+        amountPaid: String(row.amountPaid || ''),
+        rentDurationMonths: String(row.rentDurationMonths || '1'),
+        paymentType: row.paymentType || 'Full',
+        houseStatus: row.houseStatus || 'Occupied',
+        itemsIssued: row.itemsIssued || '',
+      });
+      setActiveTab('houses');
+    }}
+  />
+)}
+
       </div>
     </div>
   );
