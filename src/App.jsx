@@ -987,8 +987,14 @@ setAppData(nextData);
   setNewPasswordInput('');
   setConfirmPasswordInput('');
 };
-  const salesPeriod = filterByPreset(data.sales, ownerPeriod, todayISO());
-  const expensesPeriod = filterByPreset(data.expenses, ownerPeriod, todayISO());
+  const salesPeriod =
+  ownerPeriod === 'today'
+    ? data.sales.filter((s) => String(s.date || s.created_at || '').slice(0, 10) === todayISO())
+    : filterByPreset(data.sales, ownerPeriod, todayISO());
+  const expensesPeriod =
+  ownerPeriod === 'today'
+    ? data.expenses.filter((e) => String(e.date || e.created_at || '').slice(0, 10) === todayISO())
+    : filterByPreset(data.expenses, ownerPeriod, todayISO());
   const totalSales = salesPeriod.reduce((a, s) => a + Number(s.total || 0), 0);
   const totalExpenses = expensesPeriod.reduce((a, e) => a + Number(e.amount || 0), 0);
   const totalRetailProfit = salesPeriod.reduce((sum, sale) => {
