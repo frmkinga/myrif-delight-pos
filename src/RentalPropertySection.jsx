@@ -135,64 +135,11 @@ function PreviewValue({ label, value }) {
 }
 
 export default function RentalPropertySectionPreview({ language = 'sw', data, saveData }) {
-    const [activeTab, setActiveTab] = useState('dashboard');
-  const houses = Array.isArray(data?.houses) ? data.houses : [];
-    
-  const [meters, setMeters] = useState([
-    {
-      id: 'meter-1',
-      houseNumber: 'G1',
-      meterType: 'Water',
-      meterNumber: 'G1',
-      readingDate: '2026-04-01',
-      previousUnits: 8,
-      currentUnits: 10,
-      unitsUsed: 2,
-      costPerUnit: 4000,
-      discount: 0,
-      totalAmount: 8000,
-      nextReadingDate: '2026-05-01',
-      notes: 'Meter okay',
-    },
-    {
-      id: 'meter-2',
-      houseNumber: 'G2',
-      meterType: 'Water',
-      meterNumber: 'G2',
-      readingDate: '2026-04-01',
-      previousUnits: 5,
-      currentUnits: 7,
-      unitsUsed: 2,
-      costPerUnit: 4000,
-      discount: 1000,
-      totalAmount: 7000,
-      nextReadingDate: '2026-05-01',
-      notes: 'Discount approved',
-    },
-  ]);
+  const [activeTab, setActiveTab] = useState('dashboard');
 
-  const [serviceCharges, setServiceCharges] = useState([
-    {
-      id: 'sc-1',
-      houseNumber: 'G1',
-      tenantName: 'Amina Juma',
-      serviceChargeAmount: 5000,
-      datePaid: '2026-04-01',
-      nextPaymentDate: '2026-05-01',
-      paymentStatus: 'Paid',
-      notes: 'Security and cleanliness',
-    },
-    {
-      id: 'sc-2',
-      houseNumber: 'G2',
-      tenantName: 'John Peter',
-      serviceChargeAmount: 5000,
-      datePaid: '',
-      nextPaymentDate: '2026-05-01',
-      paymentStatus: 'Unpaid',
-      notes: 'Pending collection',
-    },
-  ]);
+  const houses = Array.isArray(data?.houses) ? data.houses : [];
+  const meters = Array.isArray(data?.meters) ? data.meters : [];
+  const serviceCharges = Array.isArray(data?.serviceCharges) ? data.serviceCharges : [];
 
   const [houseForm, setHouseForm] = useState({ ...emptyHouseForm });
   const [meterForm, setMeterForm] = useState({ ...emptyMeterForm });
@@ -276,46 +223,75 @@ export default function RentalPropertySectionPreview({ language = 'sw', data, sa
   setHouseForm({ ...emptyHouseForm });
 };
   const saveMeter = () => {
-    if (!meterForm.houseNumber || !meterForm.meterNumber || meterForm.previousUnits === '' || meterForm.currentUnits === '') return;
+  if (!meterForm.houseNumber || !meterForm.meterNumber || meterForm.previousUnits === '' || meterForm.currentUnits === '') return;
 
-    const record = {
-      id: meterForm.id || `meter-${Date.now()}`,
-      houseNumber: meterForm.houseNumber,
-      meterType: meterForm.meterType,
-      meterNumber: meterForm.meterNumber,
-      readingDate: meterForm.readingDate,
-      previousUnits: Number(meterForm.previousUnits || 0),
-      currentUnits: Number(meterForm.currentUnits || 0),
-      unitsUsed: meterPreviewUnitsUsed,
-      costPerUnit: Number(meterForm.costPerUnit || 0),
-      discount: Number(meterForm.discount || 0),
-      totalAmount: meterPreviewTotal,
-      nextReadingDate: meterPreviewNextReading,
-      notes: meterForm.notes,
-    };
-
-    setMeters((prev) => [record, ...prev]);
-    setMeterForm({ ...emptyMeterForm });
+  const record = {
+    id: meterForm.id || `meter-${Date.now()}`,
+    houseNumber: meterForm.houseNumber,
+    meterType: meterForm.meterType,
+    meterNumber: meterForm.meterNumber,
+    readingDate: meterForm.readingDate,
+    previousUnits: Number(meterForm.previousUnits || 0),
+    currentUnits: Number(meterForm.currentUnits || 0),
+    unitsUsed: meterPreviewUnitsUsed,
+    costPerUnit: Number(meterForm.costPerUnit || 0),
+    discount: Number(meterForm.discount || 0),
+    totalAmount: meterPreviewTotal,
+    nextReadingDate: meterPreviewNextReading,
+    notes: meterForm.notes,
   };
+
+  const updatedMeters = (() => {
+    const idx = meters.findIndex((x) => x.id === record.id);
+    if (idx >= 0) {
+      const next = [...meters];
+      next[idx] = record;
+      return next;
+    }
+    return [record, ...meters];
+  })();
+
+  saveData({
+    ...data,
+    meters: updatedMeters,
+  });
+
+  setMeterForm({ ...emptyMeterForm });
+};
 
   const saveServiceCharge = () => {
-    if (!serviceChargeForm.houseNumber || !serviceChargeForm.serviceChargeAmount) return;
+  if (!serviceChargeForm.houseNumber || !serviceChargeForm.serviceChargeAmount) return;
 
-    const record = {
-      id: serviceChargeForm.id || `service-charge-${Date.now()}`,
-      houseNumber: serviceChargeForm.houseNumber,
-      tenantName: serviceChargeForm.tenantName,
-      serviceChargeAmount: Number(serviceChargeForm.serviceChargeAmount || 0),
-      datePaid: serviceChargeForm.datePaid,
-      nextPaymentDate: serviceChargeForm.nextPaymentDate || (serviceChargeForm.datePaid ? addMonthsISO(serviceChargeForm.datePaid, 1) : ''),
-      paymentStatus: serviceChargeForm.paymentStatus,
-      notes: serviceChargeForm.notes,
-    };
-
-    setServiceCharges((prev) => [record, ...prev]);
-    setServiceChargeForm({ ...emptyServiceChargeForm });
+  const record = {
+    id: serviceChargeForm.id || `service-charge-${Date.now()}`,
+    houseNumber: serviceChargeForm.houseNumber,
+    tenantName: serviceChargeForm.tenantName,
+    serviceChargeAmount: Number(serviceChargeForm.serviceChargeAmount || 0),
+    datePaid: serviceChargeForm.datePaid,
+    nextPaymentDate:
+      serviceChargeForm.nextPaymentDate ||
+      (serviceChargeForm.datePaid ? addMonthsISO(serviceChargeForm.datePaid, 1) : ''),
+    paymentStatus: serviceChargeForm.paymentStatus,
+    notes: serviceChargeForm.notes,
   };
 
+  const updatedServiceCharges = (() => {
+    const idx = serviceCharges.findIndex((x) => x.id === record.id);
+    if (idx >= 0) {
+      const next = [...serviceCharges];
+      next[idx] = record;
+      return next;
+    }
+    return [record, ...serviceCharges];
+  })();
+
+  saveData({
+    ...data,
+    serviceCharges: updatedServiceCharges,
+  });
+
+  setServiceChargeForm({ ...emptyServiceChargeForm });
+};
   const today = todayISO();
 
   const dueSoon = houses.filter((h) => h.nextPaymentDate && daysBetween(today, h.nextPaymentDate) !== null && daysBetween(today, h.nextPaymentDate) >= 0 && daysBetween(today, h.nextPaymentDate) <= 7);
@@ -620,6 +596,7 @@ function ReportsSection({
                     <th className="py-2 pr-3">Payment Status</th>
                     <th className="py-2 pr-3">House Status</th>
                     <th className="py-2 pr-3">Items Issued / Notes</th>
+<th className="py-2 pr-3">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -637,6 +614,26 @@ function ReportsSection({
                       <td className="py-2 pr-3">{row.paymentType}</td>
                       <td className="py-2 pr-3">{row.houseStatus}</td>
                       <td className="py-2 pr-3">{row.itemsIssued || '-'}</td>
+
+<td className="py-2 pr-3">
+  <div className="flex gap-2">
+    <button
+      type="button"
+      className="rounded-lg bg-amber-500 px-3 py-1 text-white"
+      onClick={() => alert('Edit coming next')}
+    >
+      Edit
+    </button>
+
+    <button
+      type="button"
+      className="rounded-lg bg-red-600 px-3 py-1 text-white"
+      onClick={() => alert('Delete coming next')}
+    >
+      Delete
+    </button>
+  </div>
+</td>
                     </tr>
                   ))}
                 </tbody>
