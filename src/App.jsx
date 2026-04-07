@@ -421,14 +421,17 @@ const seedData = {
   { id: 'u-4', username: 'shop4', email: 'shangwe@shop4.com', password: '1234', role: 'shop', shop_id: 'shop-4', shopId: 'shop-4', name: 'Shangwe User' },
   { id: 'u-5', username: 'shop5', email: 'mungumwema@shop5.com', password: '1234', role: 'shop', shop_id: 'shop-5', shopId: 'shop-5', name: 'Mungu Mwema User' },
 ],
-  products: [],
+    products: [],
   sales: [],
   creditSales: [],
   changeLedger: [],
   expenses: [],
-    purchases: [],
+  purchases: [],
   mobileMoneyEntries: [],
   gasEntries: [],
+  houses: [],
+  meters: [],
+  serviceCharges: [],
 };
 
 function getLegacyData() {
@@ -499,6 +502,9 @@ function normalizeData(parsed = {}) {
     purchases: Array.isArray(parsed.purchases) ? parsed.purchases : [],
     mobileMoneyEntries: Array.isArray(parsed.mobileMoneyEntries) ? parsed.mobileMoneyEntries : [],
     gasEntries: Array.isArray(parsed.gasEntries) ? parsed.gasEntries : [],
+    houses: Array.isArray(parsed.houses) ? parsed.houses : [],
+    meters: Array.isArray(parsed.meters) ? parsed.meters : [],
+    serviceCharges: Array.isArray(parsed.serviceCharges) ? parsed.serviceCharges : [],
   };
 }
 
@@ -574,12 +580,13 @@ if (session?.user?.id && !isOwnerUser) {
       gasQuery,
     ]);
     
-
-
     const normalized = normalizeData({
-      ...seedData,
-      currentUser: savedSessionUser,
-      products: (cloudProducts || []).map((p) => ({
+  ...seedData,
+  houses: Array.isArray(dbData?.houses) ? dbData.houses : [],
+  meters: Array.isArray(dbData?.meters) ? dbData.meters : [],
+  serviceCharges: Array.isArray(dbData?.serviceCharges) ? dbData.serviceCharges : [],
+  currentUser: savedSessionUser,
+  products: (cloudProducts || []).map((p) => ({
   id: p?.id || '',
   name: String(p?.name || '').trim(),
   buyPrice: Number(p?.buyingprice || p?.buyPrice || 0),
@@ -1077,7 +1084,13 @@ const totalBusinessProfit = totalProfit + totalGasProfit + totalWakalaCommission
   data.sales.filter((s) => String(s.shop_id) === String(shop.id)),
   ownerPeriod,
   todayISO()
-).reduce((a, s) => a + Number(s.total || 0), 0);
+).reduce((sum, sale) => {
+  return sum + (sale.items || []).reduce((itemSum, item) => {
+    const qty = Number(item.quantity || 0);
+    const sellPrice = Number(item.sellPrice ?? item.price ?? 0);
+    return itemSum + qty * sellPrice;
+  }, 0);
+}, 0);
 
 const shopExpenses = filterByPreset(
   data.expenses.filter((e) => String(e.shop_id) === String(shop.id)),
@@ -3772,7 +3785,11 @@ onDeleteGas={deleteGas}
 
 </TabsContent>
 <TabsContent value="rental" activeValue={activeTab}>
-  <RentalPropertySection />
+  <RentalPropertySection
+    language={language}
+    data={data}
+    saveData={saveData}
+  />
 </TabsContent>
       <TabsContent value="reports" activeValue={activeTab}>
         <Card>
@@ -4689,16 +4706,19 @@ const [hasLoadedInitialData, setHasLoadedInitialData] = useState(false);
 
       // ✅ 2. Refresh from Supabase in background
       readData({ preferFresh: true })
-        .then((freshData) => {
-          const refreshedData = {
-            ...freshData,
-            currentUser: restoredCurrentUser,
-          };
-          setData(refreshedData);
-        })
-        .catch((error) => {
-          console.error('Background refresh failed:', error);
-        });
+  .then((freshData) => {
+    const refreshedData = {
+      ...freshData,
+      houses: Array.isArray(initial?.houses) ? initial.houses : [],
+      meters: Array.isArray(initial?.meters) ? initial.meters : [],
+      serviceCharges: Array.isArray(initial?.serviceCharges) ? initial.serviceCharges : [],
+      currentUser: restoredCurrentUser,
+    };
+    setData(refreshedData);
+  })
+  .catch((error) => {
+    console.error('Background refresh failed:', error);
+  });
 
       if (restoredCurrentUser?.role === 'shop') {
         setActiveShopId(
@@ -4910,7 +4930,8 @@ useEffect(() => {
   };
 }, [activeShopId]);
 
-  const saveData = (next) => {
+  
+  const saveData = async (next) => {
   const normalized = normalizeData(next);
 
   try {
@@ -4939,10 +4960,12 @@ useEffect(() => {
     version: "v2",
   });
 
-  // store full business data only in IndexedDB
-  writeToDB(DB_DATA_KEY, normalized).catch((err) => {
+  // IMPORTANT: wait for IndexedDB write to finish
+  try {
+    await writeToDB(DB_DATA_KEY, normalized);
+  } catch (err) {
     console.error('IndexedDB save failed:', err);
-  });
+  }
 };
 const exportBackup = async () => {
   try {

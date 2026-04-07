@@ -134,10 +134,9 @@ function PreviewValue({ label, value }) {
   );
 }
 
-export default function RentalPropertySectionPreview() {
-  const [language, setLanguage] = useState('sw');
-  const [activeTab, setActiveTab] = useState('dashboard');
-  const [houses, setHouses] = useState([
+export default function RentalPropertySectionPreview({ language = 'sw', data, saveData }) {
+    const [activeTab, setActiveTab] = useState('dashboard');
+  const houses = Array.isArray(data?.houses) ? data.houses : [];
     {
       id: 'house-1',
       houseNumber: 'G1',
@@ -281,44 +280,50 @@ export default function RentalPropertySectionPreview() {
   }, [houseForm]);
 
   const saveHouse = () => {
-    if (!houseForm.houseNumber || !houseForm.monthlyRentAmount || !houseForm.rentStartDate) return;
+  if (!houseForm.houseNumber || !houseForm.monthlyRentAmount || !houseForm.rentStartDate) return;
 
-    const monthlyRent = Number(houseForm.monthlyRentAmount || 0);
-    const paid = Number(houseForm.amountPaid || 0);
-    const durationMonths = Number(houseForm.rentDurationMonths || 0);
-    const paymentType = houseForm.paymentType || 'Full';
-    const expectedAmount = monthlyRent * (durationMonths || 0);
+  const monthlyRent = Number(houseForm.monthlyRentAmount || 0);
+  const paid = Number(houseForm.amountPaid || 0);
+  const durationMonths = Number(houseForm.rentDurationMonths || 0);
+  const paymentType = houseForm.paymentType || 'Full';
+  const expectedAmount = monthlyRent * (durationMonths || 0);
 
-    const record = {
-      id: houseForm.id || `house-${Date.now()}`,
-      houseNumber: houseForm.houseNumber,
-      tenantName: houseForm.tenantName,
-      rentPaidDate: houseForm.rentPaidDate,
-      rentStartDate: houseForm.rentStartDate,
-      rentEndDate: housePreview.rentEndDate,
-      monthlyRentAmount: monthlyRent,
-      amountPaid: paid,
-      rentDurationMonths: durationMonths,
-      paymentType,
-      houseStatus: houseForm.houseStatus,
-      itemsIssued: houseForm.itemsIssued,
-      nextPaymentDate: housePreview.nextPaymentDate,
-      balance: Math.max(0, expectedAmount - paid),
-    };
-
-    setHouses((prev) => {
-      const idx = prev.findIndex((x) => x.id === record.id);
-      if (idx >= 0) {
-        const next = [...prev];
-        next[idx] = record;
-        return next;
-      }
-      return [record, ...prev];
-    });
-
-    setHouseForm({ ...emptyHouseForm });
+  const record = {
+    id: houseForm.id || `house-${Date.now()}`,
+    houseNumber: houseForm.houseNumber,
+    tenantName: houseForm.tenantName,
+    rentPaidDate: houseForm.rentPaidDate,
+    rentStartDate: houseForm.rentStartDate,
+    rentEndDate: housePreview.rentEndDate,
+    monthlyRentAmount: monthlyRent,
+    amountPaid: paid,
+    rentDurationMonths: durationMonths,
+    paymentType,
+    houseStatus: houseForm.houseStatus,
+    itemsIssued: houseForm.itemsIssued,
+    nextPaymentDate: housePreview.nextPaymentDate,
+    balance: Math.max(0, expectedAmount - paid),
   };
 
+  const currentHouses = Array.isArray(data?.houses) ? data.houses : [];
+
+  const updatedHouses = (() => {
+    const idx = currentHouses.findIndex((x) => x.id === record.id);
+    if (idx >= 0) {
+      const next = [...currentHouses];
+      next[idx] = record;
+      return next;
+    }
+    return [record, ...currentHouses];
+  })();
+
+  saveData({
+    ...data,
+    houses: updatedHouses,
+  });
+
+  setHouseForm({ ...emptyHouseForm });
+};
   const saveMeter = () => {
     if (!meterForm.houseNumber || !meterForm.meterNumber || meterForm.previousUnits === '' || meterForm.currentUnits === '') return;
 
