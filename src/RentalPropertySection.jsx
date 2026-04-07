@@ -137,56 +137,7 @@ function PreviewValue({ label, value }) {
 export default function RentalPropertySectionPreview({ language = 'sw', data, saveData }) {
     const [activeTab, setActiveTab] = useState('dashboard');
   const houses = Array.isArray(data?.houses) ? data.houses : [];
-    {
-      id: 'house-1',
-      houseNumber: 'G1',
-      tenantName: 'Amina Juma',
-      rentPaidDate: '2026-04-01',
-      rentStartDate: '2026-04-05',
-      rentEndDate: '2026-07-04',
-      monthlyRentAmount: 150000,
-      amountPaid: 450000,
-      rentDurationMonths: 3,
-      paymentType: 'Full',
-      houseStatus: 'Occupied',
-      itemsIssued: 'Front door keys: 2, inside room keys: 1, meter card issued',
-      nextPaymentDate: '2026-07-05',
-      balance: 0,
-    },
-    {
-      id: 'house-2',
-      houseNumber: 'G2',
-      tenantName: 'John Peter',
-      rentPaidDate: '2026-04-01',
-      rentStartDate: '2026-04-05',
-      rentEndDate: '2026-04-19',
-      monthlyRentAmount: 120000,
-      amountPaid: 60000,
-      rentDurationMonths: 1,
-      paymentType: 'Partial',
-      houseStatus: 'Occupied',
-      itemsIssued: 'Front door keys: 1',
-      nextPaymentDate: '2026-04-20',
-      balance: 60000,
-    },
-    {
-      id: 'house-3',
-      houseNumber: 'G3',
-      tenantName: '',
-      rentPaidDate: '',
-      rentStartDate: '',
-      rentEndDate: '',
-      monthlyRentAmount: 130000,
-      amountPaid: 0,
-      rentDurationMonths: 0,
-      paymentType: 'Full',
-      houseStatus: 'Vacant',
-      itemsIssued: '',
-      nextPaymentDate: '',
-      balance: 0,
-    },
-  ]);
-
+    
   const [meters, setMeters] = useState([
     {
       id: 'meter-1',
