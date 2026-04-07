@@ -1246,6 +1246,8 @@ const saveGas = async () => {
 });
 };
 const editGas = (entry) => {
+  console.log('EDIT CLICKED', entry);
+
   setGasForm({
     id: entry.id,
     date: entry.date,
@@ -1265,8 +1267,12 @@ const editGas = (entry) => {
     bigGasBuyPrice: String(entry.bigGasBuyPrice || ''),
     bigGasSellPrice: String(entry.bigGasSellPrice || ''),
   });
-};
 
+  // 👇 ADD THIS (very important for visibility)
+  setShowGasStatus(true);
+  setShowGasSales(true);
+  setShowGasPrices(true);
+};
 const deleteGas = async (id) => {
   const nextGasEntries = (data.gasEntries || []).filter((entry) => entry.id !== id);
 
