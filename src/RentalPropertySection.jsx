@@ -576,6 +576,7 @@ function ReportsSection({
   totalWaterAmount,
   totalDiscount,
   totalServiceCharge,
+  onEditHouse,
 }) {
   const [reportType, setReportType] = useState('rent');
 
@@ -634,26 +635,10 @@ function ReportsSection({
 
 <td className="py-2 pr-3">
   <div className="flex gap-2">
-    <button
+   <button
   type="button"
   className="rounded-lg bg-amber-500 px-3 py-1 text-white"
-  onClick={() => {
-    setHouseForm({
-      id: row.id || '',
-      houseNumber: row.houseNumber || '',
-      tenantName: row.tenantName || '',
-      rentPaidDate: row.rentPaidDate || todayISO(),
-      rentStartDate: row.rentStartDate || '',
-      rentEndDate: row.rentEndDate || '',
-      monthlyRentAmount: String(row.monthlyRentAmount || ''),
-      amountPaid: String(row.amountPaid || ''),
-      rentDurationMonths: String(row.rentDurationMonths || '1'),
-      paymentType: row.paymentType || 'Full',
-      houseStatus: row.houseStatus || 'Occupied',
-      itemsIssued: row.itemsIssued || '',
-    });
-    setActiveTab('houses');
-  }}
+  onClick={() => onEditHouse(row)}
 >
   Edit
 </button>
