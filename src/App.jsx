@@ -296,23 +296,38 @@ const getDaysUntilExpiry = (expiryDate) => {
   return Math.ceil(diffMs / (1000 * 60 * 60 * 24));
 };
 function filterByPreset(items, preset, customDate) {
+  const today = todayISO();
+  const yesterday = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  })();
+
   const now = startOfDay(new Date());
+
   return items.filter((item) => {
-    const d = startOfDay(new Date(item.date || item.createdAt || todayISO()));
-    if (preset === 'today') return d.getTime() === now.getTime();
-    if (preset === 'yesterday') return d.getTime() === addDays(now, -1).getTime();
+    const value = String(item.date || item.createdAt || todayISO()).slice(0, 10);
+    const d = startOfDay(value);
+
+    if (preset === 'today') return value === today;
+    if (preset === 'yesterday') return value === yesterday;
+
     if (preset === 'date') {
-  const value = item.date || item.createdAt || todayISO();
-  if (typeof customDate === 'object' && customDate?.start && customDate?.end) {
-    return value >= customDate.start && value <= customDate.end;
-  }
-  return value === customDate;
-}
+      if (typeof customDate === 'object' && customDate?.start && customDate?.end) {
+        return value >= customDate.start && value <= customDate.end;
+      }
+      return value === customDate;
+    }
+
     if (preset === 'week') return d >= addDays(now, -6) && d <= now;
     if (preset === 'month') return d >= startOfMonth(now) && d <= now;
     if (preset === '3months') return d >= addDays(now, -89) && d <= now;
     if (preset === '6months') return d >= addDays(now, -179) && d <= now;
     if (preset === 'year') return d >= addDays(now, -364) && d <= now;
+
     return true;
   });
 }
@@ -1894,7 +1909,7 @@ saleLock.current = false;
     items: cart,
     total,
     type: 'cash',
-    date: todayISO(),
+    date: new Date().toISOString().slice(0, 10),
     created_at: new Date().toISOString(),
   };
 
