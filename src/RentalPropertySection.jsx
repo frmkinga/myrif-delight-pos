@@ -547,35 +547,44 @@ const editHouse = (row) => {
 
         {activeTab === 'reports' && (
   <ReportsSection
-    language={language}
-    houses={houses}
-    meters={meters}
-    serviceCharges={serviceCharges}
-    totalRent={totalRent}
-    totalPaid={totalPaid}
-    totalOutstanding={totalOutstanding}
-    totalUnitsUsed={totalUnitsUsed}
-    totalWaterAmount={totalWaterAmount}
-    totalDiscount={totalDiscount}
-    totalServiceCharge={totalServiceCharge}
-    onEditHouse={(row) => {
-      setHouseForm({
-        id: row.id || '',
-        houseNumber: row.houseNumber || '',
-        tenantName: row.tenantName || '',
-        rentPaidDate: row.rentPaidDate || todayISO(),
-        rentStartDate: row.rentStartDate || '',
-        rentEndDate: row.rentEndDate || '',
-        monthlyRentAmount: String(row.monthlyRentAmount || ''),
-        amountPaid: String(row.amountPaid || ''),
-        rentDurationMonths: String(row.rentDurationMonths || '1'),
-        paymentType: row.paymentType || 'Full',
-        houseStatus: row.houseStatus || 'Occupied',
-        itemsIssued: row.itemsIssued || '',
-      });
-      setActiveTab('houses');
-    }}
-  />
+  language={language}
+  houses={houses}
+  meters={meters}
+  serviceCharges={serviceCharges}
+  totalRent={totalRent}
+  totalPaid={totalPaid}
+  totalOutstanding={totalOutstanding}
+  totalUnitsUsed={totalUnitsUsed}
+  totalWaterAmount={totalWaterAmount}
+  totalDiscount={totalDiscount}
+  totalServiceCharge={totalServiceCharge}
+  onEditHouse={(row) => {
+    setHouseForm({
+      id: row.id || '',
+      houseNumber: row.houseNumber || '',
+      tenantName: row.tenantName || '',
+      rentPaidDate: row.rentPaidDate || todayISO(),
+      rentStartDate: row.rentStartDate || '',
+      rentEndDate: row.rentEndDate || '',
+      monthlyRentAmount: String(row.monthlyRentAmount || ''),
+      amountPaid: String(row.amountPaid || ''),
+      rentDurationMonths: String(row.rentDurationMonths || '1'),
+      paymentType: row.paymentType || 'Full',
+      houseStatus: row.houseStatus || 'Occupied',
+      itemsIssued: row.itemsIssued || '',
+    });
+    setActiveTab('houses');
+  }}
+  onDeleteHouse={(row) => {
+    const confirmed = window.confirm('Delete this house record?');
+    if (!confirmed) return;
+
+    saveData({
+      ...data,
+      houses: houses.filter((item) => item.id !== row.id),
+    });
+  }}
+/>
 )}
 
       </div>
@@ -596,6 +605,7 @@ function ReportsSection({
   totalDiscount,
   totalServiceCharge,
   onEditHouse,
+  onDeleteHouse,
 }) {
   const [reportType, setReportType] = useState('rent');
 
@@ -663,14 +673,17 @@ function ReportsSection({
 </button>
 
     <button
-      type="button"
-      className="rounded-lg bg-red-600 px-3 py-1 text-white"
-      onClick={() => alert('Delete coming next')}
-    >
-      Delete
-    </button>
-  </div>
-</td>
+  type="button"
+  className="rounded-lg bg-red-600 px-3 py-1 text-white"
+  onClick={() => {
+    const confirmed = window.confirm('Delete this house record?');
+    if (!confirmed) return;
+
+    alert('delete clicked');
+  }}
+>
+  Delete
+</button>
                     </tr>
                   ))}
                 </tbody>
