@@ -1079,38 +1079,81 @@ const totalBusinessProfit = totalProfit + totalGasProfit + totalWakalaCommission
   </CardContent>
 </Card>
       <div className="mt-6 grid gap-4 lg:grid-cols-3 text-base">
-        {data.shops.map((shop) => {
-          const shopSales = filterByPreset(
-  data.sales.filter((s) => String(s.shop_id) === String(shop.id)),
-  ownerPeriod,
-  todayISO()
-).reduce((sum, sale) => {
-  return sum + (sale.items || []).reduce((itemSum, item) => {
-    const qty = Number(item.quantity || 0);
-    const sellPrice = Number(item.sellPrice ?? item.price ?? 0);
-    return itemSum + qty * sellPrice;
-  }, 0);
-}, 0);
+  {data.shops.map((shop) => {
+    const shopSalesReportRows = (() => {
+      const shopProducts = data.products
+        .filter((p) => String(p?.shop_id || '') === String(shop.id))
+        .map(normalizeProduct)
+        .filter((p) => p.id && String(p.name || '').trim());
 
-const shopExpenses = filterByPreset(
-  data.expenses.filter((e) => String(e.shop_id) === String(shop.id)),
-  ownerPeriod,
-  todayISO()
-).reduce((a, e) => a + Number(e.amount || 0), 0);
-const shopRetailProfit = filterByPreset(
-  data.sales.filter((s) => String(s.shop_id) === String(shop.id)),
-  ownerPeriod,
-  todayISO()
-).reduce((sum, sale) => {
-  return sum + (sale.items || []).reduce((itemSum, item) => {
-    const qty = Number(item.quantity || 0);
-    const sellPrice = Number(item.sellPrice ?? item.price ?? 0);
-    const buyPrice = Number(item.buyPrice ?? 0);
-    return itemSum + qty * (sellPrice - buyPrice);
-  }, 0);
-}, 0);
+      const filteredShopSales = filterByPreset(
+        data.sales.filter((s) => String(s.shop_id) === String(shop.id)),
+        ownerPeriod,
+        todayISO()
+      );
 
-const shopProfit = shopRetailProfit - shopExpenses;
+      const map = {};
+
+      filteredShopSales.forEach((sale) => {
+        (sale.items || []).forEach((item) => {
+          if (!map[item.productId]) {
+            const product = shopProducts.find((p) => p.id === item.productId);
+
+            map[item.productId] = {
+              productId: item.productId,
+              name: item.name || product?.name || 'Unknown Product',
+              unit: item.unit || product?.baseUnit || '-',
+              buyPrice: Number(item.buyPrice ?? product?.buyPrice ?? 0),
+              sellPrice: Number(item.sellPrice ?? item.price ?? product?.sellPrice ?? 0),
+              balance: Number(product?.stockBaseQty || 0),
+              soldQty: 0,
+              profit: 0,
+              date: sale.date,
+            };
+          }
+
+          map[item.productId].soldQty += Number(item.quantity || 0);
+          map[item.productId].profit +=
+            Number(item.quantity || 0) *
+            (map[item.productId].sellPrice - map[item.productId].buyPrice);
+        });
+      });
+
+      const rows = Object.values(map);
+
+      const totalSalesAmount = rows.reduce(
+        (a, r) => a + Number(r.soldQty || 0) * Number(r.sellPrice || 0),
+        0
+      );
+
+      return {
+        rows,
+        totalSalesAmount,
+      };
+    })();
+
+    const shopSales = shopSalesReportRows.totalSalesAmount;
+
+    const shopExpenses = filterByPreset(
+      data.expenses.filter((e) => String(e.shop_id) === String(shop.id)),
+      ownerPeriod,
+      todayISO()
+    ).reduce((a, e) => a + Number(e.amount || 0), 0);
+
+    const shopRetailProfit = filterByPreset(
+      data.sales.filter((s) => String(s.shop_id) === String(shop.id)),
+      ownerPeriod,
+      todayISO()
+    ).reduce((sum, sale) => {
+      return sum + (sale.items || []).reduce((itemSum, item) => {
+        const qty = Number(item.quantity || 0);
+        const sellPrice = Number(item.sellPrice ?? item.price ?? 0);
+        const buyPrice = Number(item.buyPrice ?? 0);
+        return itemSum + qty * (sellPrice - buyPrice);
+      }, 0);
+    }, 0);
+
+    const shopProfit = shopRetailProfit - shopExpenses;
           const latest = getLatestEntryForShop(data.mobileMoneyEntries, shop.id);
           const mobileCapital = latest ? getMobileCapital(latest) : 0;
           const bankCapital = latest ? getBankCapital(latest) : 0;
