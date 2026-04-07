@@ -21,10 +21,19 @@ const GAS_PRICE_BOOK = {
   },
 };
 function getGasProfitBreakdown(entry) {
-  const smallGasProfit =
-    (Number(entry.smallGasSellPrice || 0) - Number(entry.smallGasBuyPrice || 0)) * Number(entry.smallGasSoldToday || 0);
-  const bigGasProfit =
-    (Number(entry.bigGasSellPrice || 0) - Number(entry.bigGasBuyPrice || 0)) * Number(entry.bigGasSoldToday || 0);
+  const smallSellPrice = Number(entry.smallGasSellPrice || 0);
+  const smallBuyPrice = Number(entry.smallGasBuyPrice || 0);
+  const bigSellPrice = Number(entry.bigGasSellPrice || 0);
+  const bigBuyPrice = Number(entry.bigGasBuyPrice || 0);
+
+  const smallAmountSold = Number(entry.smallGasSoldToday || 0);
+  const bigAmountSold = Number(entry.bigGasSoldToday || 0);
+
+  const smallQtySold = smallSellPrice > 0 ? smallAmountSold / smallSellPrice : 0;
+  const bigQtySold = bigSellPrice > 0 ? bigAmountSold / bigSellPrice : 0;
+
+  const smallGasProfit = smallQtySold * (smallSellPrice - smallBuyPrice);
+  const bigGasProfit = bigQtySold * (bigSellPrice - bigBuyPrice);
 
   return {
     smallGasProfit,
