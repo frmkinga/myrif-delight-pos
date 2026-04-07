@@ -542,7 +542,11 @@ if (session?.user?.id && !isOwnerUser) {
 }
 
         let productsQuery = supabase.from('products').select('*');
-    let salesQuery = supabase.from('sales').select('*');
+    let salesQuery = supabase
+  .from('sales')
+  .select('*')
+  .order('created_at', { ascending: false })
+  .range(0, 4999);
     let purchasesQuery = supabase.from('purchases').select('*');
     let expensesQuery = supabase.from('expenses').select('*');
     let creditQuery = supabase.from('creditSales').select('*');
