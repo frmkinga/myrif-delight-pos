@@ -579,7 +579,13 @@ if (session?.user?.id && !isOwnerUser) {
       mobileMoneyQuery,
       gasQuery,
     ]);
-    
+    console.log('OWNER DEBUG', {
+  savedSessionUser,
+  isOwnerUser,
+  sessionShopId,
+  cloudSalesCount: Array.isArray(cloudSales) ? cloudSales.length : 0,
+  cloudExpensesCount: Array.isArray(cloudExpenses) ? cloudExpenses.length : 0,
+});
     const normalized = normalizeData({
   ...seedData,
   houses: Array.isArray(dbData?.houses) ? dbData.houses : [],
