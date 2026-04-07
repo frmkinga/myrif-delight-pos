@@ -1905,7 +1905,7 @@ saleLock.current = false;
     sales: [...data.sales, saleRecord],
   });
 
-    addToSyncQueue('sale_created', {
+  const salePayload = {
     ...saleRecord,
     products: nextProducts
       .filter((p) => String(p.shop_id) === String(shop.id))
@@ -1927,18 +1927,41 @@ saleLock.current = false;
               : new Date().toISOString()),
         };
       }),
-  });
+  };
 
- console.log('Sending sale to Supabase:', saleRecord);
+  addToSyncQueue('sale_created', salePayload);
 
-setCart([]);
-setSaleError('');
+  if (navigator.onLine) {
+    const { error: saleSyncError } = await supabase
+      .from('sales')
+      .upsert(
+        [
+          {
+            id: saleRecord.id,
+            shop_id: saleRecord.shop_id,
+            items: saleRecord.items,
+            total: saleRecord.total,
+            type: saleRecord.type,
+            date: saleRecord.date,
+            created_at: saleRecord.created_at,
+          },
+        ],
+        { onConflict: 'id' }
+      );
 
-if (navigator.onLine) {
-  processSyncQueue().catch((syncError) => {
-    console.error('Queued sales sync error:', syncError);
-  });
-}
+    if (saleSyncError) {
+      console.error('Immediate sale sync error:', saleSyncError);
+    }
+
+    processSyncQueue().catch((syncError) => {
+      console.error('Queued sales sync error:', syncError);
+    });
+  }
+
+  console.log('Sending sale to Supabase:', saleRecord);
+
+  setCart([]);
+  setSaleError('');
 } catch (err) {
   console.error('Unexpected commitSale error:', err);
   alert(`Unexpected sale error: ${err.message || err}`);
