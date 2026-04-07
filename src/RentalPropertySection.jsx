@@ -672,18 +672,21 @@ function ReportsSection({
   Edit
 </button>
 
-    <button
+   <button
   type="button"
   className="rounded-lg bg-red-600 px-3 py-1 text-white"
   onClick={() => {
-  const confirmed = window.confirm('Delete this house record?');
-  if (!confirmed) return;
+    const confirmed = window.confirm('Delete this house record?');
+    if (!confirmed) return;
 
-  onDeleteHouse(row);
-}}
+    onDeleteHouse(row);
+  }}
 >
   Delete
 </button>
+  </div>
+</td>
+                   
                     </tr>
                   ))}
                 </tbody>
