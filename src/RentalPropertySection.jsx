@@ -417,9 +417,9 @@ const editHouse = (row) => {
     </CardHeader>
     <CardContent>
       <div className="overflow-x-auto">
-        <table className="min-w-full text-sm">
+        <table className="min-w-full text-sm rounded-xl overflow-hidden">
                       <thead>
-                        <tr className="border-b text-left">
+                        <tr className="bg-slate-100 text-left">
                           <th className="py-2 pr-3">House</th>
                           <th className="py-2 pr-3">Tenant</th>
                           <th className="py-2 pr-3">Next Payment</th>
@@ -430,7 +430,7 @@ const editHouse = (row) => {
                         {dueSoon.length === 0 ? (
                           <tr><td className="py-3 text-slate-500" colSpan={4}>No upcoming rent reminder.</td></tr>
                         ) : dueSoon.map((row) => (
-                          <tr key={row.id} className="border-b">
+                          <tr key={row.id} className="border-b hover:bg-slate-50 transition">
                             <td className="py-2 pr-3">{row.houseNumber}</td>
                             <td className="py-2 pr-3">{row.tenantName || '-'}</td>
                             <td className="py-2 pr-3">{row.nextPaymentDate}</td>
@@ -449,9 +449,9 @@ const editHouse = (row) => {
   </CardHeader>
   <CardContent>
     <div className="overflow-x-auto">
-      <table className="min-w-full text-sm">
+      <table className="min-w-full text-sm rounded-xl overflow-hidden">
                       <thead>
-                        <tr className="border-b text-left">
+                        <tr className="bg-slate-100 text-left">
                           <th className="py-2 pr-3">House</th>
                           <th className="py-2 pr-3">Meter Number</th>
                           <th className="py-2 pr-3">Next Reading</th>
@@ -461,7 +461,7 @@ const editHouse = (row) => {
                         {readingSoon.length === 0 ? (
                           <tr><td className="py-3 text-slate-500" colSpan={3}>No upcoming meter reading.</td></tr>
                         ) : readingSoon.map((row) => (
-                          <tr key={row.id} className="border-b">
+                          <tr key={row.id} className="border-b hover:bg-slate-50 transition">
                             <td className="py-2 pr-3">{row.houseNumber}</td>
                             <td className="py-2 pr-3">{row.meterNumber}</td>
                             <td className="py-2 pr-3">{row.nextReadingDate}</td>
@@ -479,9 +479,9 @@ const editHouse = (row) => {
   </CardHeader>
   <CardContent>
     <div className="overflow-x-auto">
-      <table className="min-w-full text-sm">
+      <table className="min-w-full text-sm rounded-xl overflow-hidden">
                       <thead>
-                        <tr className="border-b text-left">
+                        <tr className="bg-slate-100 text-left">
                           <th className="py-2 pr-3">House</th>
                           <th className="py-2 pr-3">Tenant</th>
                           <th className="py-2 pr-3">Next Payment</th>
@@ -492,7 +492,7 @@ const editHouse = (row) => {
                         {serviceChargeSoon.length === 0 ? (
                           <tr><td className="py-3 text-slate-500" colSpan={4}>No upcoming service charge reminder.</td></tr>
                         ) : serviceChargeSoon.map((row) => (
-                          <tr key={row.id} className="border-b">
+                          <tr key={row.id} className="border-b hover:bg-slate-50 transition">
                             <td className="py-2 pr-3">{row.houseNumber}</td>
                             <td className="py-2 pr-3">{row.tenantName || '-'}</td>
                             <td className="py-2 pr-3">{row.nextPaymentDate}</td>
