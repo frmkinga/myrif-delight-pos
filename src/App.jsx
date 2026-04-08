@@ -1167,22 +1167,47 @@ const totalBusinessProfit = totalProfit + totalGasProfit + totalWakalaCommission
           const bankCapital = latest ? getBankCapital(latest) : 0;
 
           return (
-            <Card key={shop.id}>
-              <CardHeader>
-                <CardTitle>{shop.name}</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2 text-sm">
-                <div>{t(language, 'Sales', 'Mauzo')}: TZS {currency(shopSales)}</div>
-                <div>{t(language, 'Expenses', 'Matumizi')}: TZS {currency(shopExpenses)}</div>
-                <div>{t(language, 'Profit', 'Faida')}: TZS {currency(shopProfit)}</div>
-                <div>{t(language, 'Mobile Money Capital', 'Mtaji wa Simu')}: TZS {currency(mobileCapital)}</div>
-                <div>{t(language, 'Bank Capital', 'Mtaji wa Benki')}: TZS {currency(bankCapital)}</div>
-                <Button type="button" className="mt-2" onClick={() => openShop(shop.id)}>
-                  {t(language, 'Open Shop', 'Fungua Duka')}
-                </Button>
-              </CardContent>
-            </Card>
-          );
+  <div
+    key={shop.id}
+    className="rounded-3xl bg-gradient-to-br from-white/70 via-fuchsia-50/80 to-indigo-100/80 p-[1px] shadow-lg transition hover:-translate-y-1 hover:shadow-2xl"
+  >
+    <div className="rounded-3xl border border-white/40 bg-white/65 p-0 backdrop-blur-md">
+      <CardHeader>
+        <CardTitle className="text-slate-900">{shop.name}</CardTitle>
+      </CardHeader>
+
+      <CardContent className="space-y-3 text-sm">
+        <div className="rounded-2xl bg-white/70 px-3 py-2 shadow-sm">
+          {t(language, 'Sales', 'Mauzo')}: TZS {currency(shopSales)}
+        </div>
+
+        <div className="rounded-2xl bg-white/70 px-3 py-2 shadow-sm">
+          {t(language, 'Expenses', 'Matumizi')}: TZS {currency(shopExpenses)}
+        </div>
+
+        <div className="rounded-2xl bg-white/70 px-3 py-2 font-medium shadow-sm">
+          {t(language, 'Profit', 'Faida')}: TZS {currency(shopProfit)}
+        </div>
+
+        <div className="rounded-2xl bg-white/70 px-3 py-2 shadow-sm">
+          {t(language, 'Mobile Money Capital', 'Mtaji wa Simu')}: TZS {currency(mobileCapital)}
+        </div>
+
+        <div className="rounded-2xl bg-white/70 px-3 py-2 shadow-sm">
+          {t(language, 'Bank Capital', 'Mtaji wa Benki')}: TZS {currency(bankCapital)}
+        </div>
+
+        <Button
+          type="button"
+          className="mt-2 w-full bg-gradient-to-r from-indigo-600 to-fuchsia-600 text-white hover:from-indigo-700 hover:to-fuchsia-700"
+          onClick={() => openShop(shop.id)}
+        >
+          {t(language, 'Open Shop', 'Fungua Duka')}
+        </Button>
+      </CardContent>
+    </div>
+  </div>
+);
         })}
       </div>
       </div>
