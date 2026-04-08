@@ -1190,34 +1190,7 @@ const totalBusinessProfit = totalProfit + totalGasProfit + totalWakalaCommission
   </AppShell>
 );
 }
-    const shopProfit = shopRetailProfit - shopExpenses;
-          const latest = getLatestEntryForShop(data.mobileMoneyEntries, shop.id);
-          const mobileCapital = latest ? getMobileCapital(latest) : 0;
-          const bankCapital = latest ? getBankCapital(latest) : 0;
-
-          return (
-            <Card key={shop.id}>
-              <CardHeader>
-                <CardTitle>{shop.name}</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2 text-sm">
-                <div>{t(language, 'Sales', 'Mauzo')}: TZS {currency(shopSales)}</div>
-                <div>{t(language, 'Expenses', 'Matumizi')}: TZS {currency(shopExpenses)}</div>
-                <div>{t(language, 'Profit', 'Faida')}: TZS {currency(shopProfit)}</div>
-                <div>{t(language, 'Mobile Money Capital', 'Mtaji wa Simu')}: TZS {currency(mobileCapital)}</div>
-                <div>{t(language, 'Bank Capital', 'Mtaji wa Benki')}: TZS {currency(bankCapital)}</div>
-                <Button type="button" className="mt-2" onClick={() => openShop(shop.id)}>
-                  {t(language, 'Open Shop', 'Fungua Duka')}
-                </Button>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
-    </AppShell>
-  );
-}
-
+   
 function ShopDashboard({ shop, data, saveData, backToOwner, logout, canBack, language, setLanguage, exportBackup }) {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [quickSearch, setQuickSearch] = useState('');
