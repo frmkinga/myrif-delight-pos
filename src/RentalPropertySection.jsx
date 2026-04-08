@@ -334,7 +334,7 @@ const editHouse = (row) => {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 p-4">
       <div className="mx-auto max-w-7xl space-y-4">
         <div className="flex items-center justify-between gap-3 rounded-2xl bg-white p-2 shadow-sm">
   <div className="flex flex-wrap gap-2">
