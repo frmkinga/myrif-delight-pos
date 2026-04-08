@@ -584,6 +584,22 @@ const editHouse = (row) => {
       houses: houses.filter((item) => item.id !== row.id),
     });
   }}
+  onEditMeter={(row) => {
+    setMeterForm({
+      id: row.id || '',
+      houseNumber: row.houseNumber || '',
+      meterType: row.meterType || 'Water',
+      meterNumber: row.meterNumber || '',
+      readingDate: row.readingDate || todayISO(),
+      previousUnits: String(row.previousUnits ?? ''),
+      currentUnits: String(row.currentUnits ?? ''),
+      costPerUnit: String(row.costPerUnit ?? WATER_UNIT_PRICE),
+      discount: String(row.discount ?? ''),
+      nextReadingDate: row.nextReadingDate || '',
+      notes: row.notes || '',
+    });
+    setActiveTab('meters');
+  }}
 />
 )}
 
@@ -606,6 +622,7 @@ function ReportsSection({
   totalServiceCharge,
   onEditHouse,
   onDeleteHouse,
+  onEditMeter,
 }) {
   const [reportType, setReportType] = useState('rent');
 
@@ -727,12 +744,12 @@ function ReportsSection({
       <td className="py-2 pr-3">
         <div className="flex gap-2">
           <button
-            type="button"
-            className="rounded-lg bg-amber-500 px-3 py-1 text-white"
-            onClick={() => alert('meter edit next')}
-          >
-            Edit
-          </button>
+  type="button"
+  className="rounded-lg bg-amber-500 px-3 py-1 text-white"
+  onClick={() => onEditMeter(row)}
+>
+  Edit
+</button>
 
           <button
             type="button"
