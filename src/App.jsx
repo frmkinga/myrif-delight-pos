@@ -3000,109 +3000,106 @@ if (error) {
 </TabsList>
 
      <TabsContent value="dashboard" activeValue={activeTab}>
-  
- <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-  <StatCard
-    title={t(language, 'Today Sales', 'Mauzo ya Leo')}
-    value={`TZS ${currency(todaySales)}`}
-    icon={ShoppingCart}
-    color="from-fuchsia-500 to-purple-600"
-  />
+  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+    <StatCard
+      title={t(language, 'Today Sales', 'Mauzo ya Leo')}
+      value={`TZS ${currency(todaySales)}`}
+      icon={ShoppingCart}
+      color="from-fuchsia-500 to-purple-600"
+    />
 
-  <StatCard
-    title={t(language, 'Today Expenses', 'Matumizi ya Leo')}
-    value={`TZS ${currency(todayExpenses)}`}
-    icon={AlertTriangle}
-    color="from-orange-400 to-pink-500"
-  />
+    <StatCard
+      title={t(language, 'Today Expenses', 'Matumizi ya Leo')}
+      value={`TZS ${currency(todayExpenses)}`}
+      icon={AlertTriangle}
+      color="from-orange-400 to-pink-500"
+    />
 
-  <StatCard
-    title={t(language, 'Today Profit', 'Faida ya Leo')}
-    value={`TZS ${currency(todayProfit)}`}
-    icon={Wallet}
-    color="from-violet-500 to-indigo-700"
-  />
+    <StatCard
+      title={t(language, 'Today Profit', 'Faida ya Leo')}
+      value={`TZS ${currency(todayProfit)}`}
+      icon={Wallet}
+      color="from-violet-500 to-indigo-700"
+    />
 
-  <StatCard
-    title={t(language, 'Expiry Alerts', 'Tahadhari za Muda wa Matumizi')}
-    value={`${expiredCount} ${t(language, 'expired', 'zilizoisha')} / ${expiringSoonCount} ${t(language, 'soon', 'zinakaribia')}`}
-    subtitle={t(language, 'Expired / due within 7 days', 'Zilizoisha / ndani ya siku 7')}
-    icon={AlertTriangle}
-    color="from-rose-500 to-red-600"
-  />
+    <StatCard
+      title={t(language, 'Expiry Alerts', 'Tahadhari za Muda wa Matumizi')}
+      value={`${expiredCount} ${t(language, 'expired', 'zilizoisha')} / ${expiringSoonCount} ${t(language, 'soon', 'zinakaribia')}`}
+      subtitle={t(language, 'Expired / due within 7 days', 'Zilizoisha / ndani ya siku 7')}
+      icon={AlertTriangle}
+      color="from-rose-500 to-red-600"
+    />
 
-  <StatCard
-    title={t(language, 'Low Stock Alerts', 'Tahadhari za Stock Ndogo')}
-    value={`${lowStockCount} ${t(language, 'items', 'bidhaa')}`}
-    subtitle={t(language, 'At or below minimum stock', 'Ziko chini au sawa na kiwango cha chini')}
-    icon={AlertTriangle}
-    color="from-amber-500 to-orange-600"
-  />
+    <StatCard
+      title={t(language, 'Low Stock Alerts', 'Tahadhari za Stock Ndogo')}
+      value={`${lowStockCount} ${t(language, 'items', 'bidhaa')}`}
+      subtitle={t(language, 'At or below minimum stock', 'Ziko chini au sawa na kiwango cha chini')}
+      icon={AlertTriangle}
+      color="from-amber-500 to-orange-600"
+    />
 
-  <StatCard
-    title={t(language, 'Mobile Money Capital', 'Mtaji wa Simu')}
-    value={`TZS ${currency(mobileCapital)}`}
-    subtitle={
-      latestMobileEntry
-        ? getFloatStatus(
-            mobileCapital,
-            mobileFloat,
-            mobileCommission,
-            language
-          )
-        : ''
-    }
-    icon={HandCoins}
-    color="from-cyan-500 to-sky-600"
-  />
+    <StatCard
+      title={t(language, 'Mobile Money Capital', 'Mtaji wa Simu')}
+      value={`TZS ${currency(mobileCapital)}`}
+      subtitle={
+        latestMobileEntry
+          ? getFloatStatus(
+              mobileCapital,
+              mobileFloat,
+              mobileCommission,
+              language
+            )
+          : ''
+      }
+      icon={HandCoins}
+      color="from-cyan-500 to-sky-600"
+    />
 
-  <StatCard
-    title={t(language, 'Bank Capital', 'Mtaji wa Benki')}
-    value={`TZS ${currency(bankCapital)}`}
-    subtitle={
-      latestMobileEntry
-        ? getFloatStatus(
-            bankCapital,
-            bankFloat,
-            bankCommission,
-            language
-          )
-        : ''
-    }
-    icon={Building2}
-    color="from-indigo-500 to-blue-700"
-  />
-</div>
+    <StatCard
+      title={t(language, 'Bank Capital', 'Mtaji wa Benki')}
+      value={`TZS ${currency(bankCapital)}`}
+      subtitle={
+        latestMobileEntry
+          ? getFloatStatus(
+              bankCapital,
+              bankFloat,
+              bankCommission,
+              language
+            )
+          : ''
+      }
+      icon={Building2}
+      color="from-indigo-500 to-blue-700"
+    />
+  </div>
+
+  <Card className="mt-6">
+    <CardHeader>
+      <CardTitle>{t(language, 'Business Profit Breakdown', 'Muhtasari wa Faida za Biashara')}</CardTitle>
+    </CardHeader>
+
+    <CardContent>
+      <div className="grid gap-3 md:grid-cols-4 text-sm">
+        <div className="rounded-2xl bg-slate-50 p-3">
+          {t(language, 'Retail Profit', 'Faida ya Duka')}: TZS {currency(todayRetailProfit)}
         </div>
 
-<Card>
-  <CardHeader>
-    <CardTitle>{t(language, 'Business Profit Breakdown', 'Muhtasari wa Faida za Biashara')}</CardTitle>
-  </CardHeader>
+        <div className="rounded-2xl bg-slate-50 p-3">
+          {t(language, 'Gas Profit', 'Faida ya Gesi')}: TZS {currency(todayGasProfit)}
+        </div>
 
-  <CardContent>
-    <div className="grid gap-3 md:grid-cols-4 text-sm">
+        <div className="rounded-2xl bg-slate-50 p-3">
+          {t(language, 'Wakala Commission', 'Kamisheni ya Wakala')}: TZS {currency(todayWakalaCommission)}
+        </div>
 
-      <div className="rounded-2xl bg-slate-50 p-3">
-        {t(language, 'Retail Profit', 'Faida ya Duka')}: TZS {currency(todayRetailProfit)}
+        <div className="rounded-2xl bg-slate-100 p-3 font-semibold">
+          {t(language, 'Total Business Profit', 'Jumla ya Faida za Biashara')}: TZS {currency(totalBusinessProfit)}
+        </div>
       </div>
+    </CardContent>
+  </Card>
+</TabsContent>
 
-      <div className="rounded-2xl bg-slate-50 p-3">
-        {t(language, 'Gas Profit', 'Faida ya Gesi')}: TZS {currency(todayGasProfit)}
-      </div>
-
-      <div className="rounded-2xl bg-slate-50 p-3">
-        {t(language, 'Wakala Commission', 'Kamisheni ya Wakala')}: TZS {currency(todayWakalaCommission)}
-      </div>
-
-      <div className="rounded-2xl bg-slate-100 p-3 font-semibold">
-        {t(language, 'Total Business Profit', 'Jumla ya Faida za Biashara')}: TZS {currency(totalBusinessProfit)}
-      </div>
-
-    </div>
-  </CardContent>
-</Card>
-      </TabsContent>
 
       <TabsContent value="products" activeValue={activeTab}>
         <div className="grid gap-4 xl:grid-cols-2">
