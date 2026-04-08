@@ -843,7 +843,7 @@ const [password, setPassword] = useState('');
 
   return (
   <AppShell>
-    <div className="min-h-screen flex items-center justify-center bg-[url('/circuit-pattern.png')] bg-cover bg-center bg-slate-900/40 bg-blend-overlay">
+    <div className="min-h-screen flex items-center justify-center bg-[url('/login-bg.png')] bg-cover bg-center bg-black/50 bg-blend-overlay bg-cover bg-center bg-slate-900/40 bg-blend-overlay">
       <div className="mx-auto max-w-md w-full">
         <Card>
           <CardHeader>
