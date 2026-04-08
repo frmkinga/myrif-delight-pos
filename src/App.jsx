@@ -1209,14 +1209,11 @@ const totalBusinessProfit = totalProfit + totalGasProfit + totalWakalaCommission
               </CardContent>
             </Card>
           );
-        })}
+                })}
       </div>
-      </div>
-    </div>
     </AppShell>
   );
 }
-
     const shopProfit = shopRetailProfit - shopExpenses;
           const latest = getLatestEntryForShop(data.mobileMoneyEntries, shop.id);
           const mobileCapital = latest ? getMobileCapital(latest) : 0;
