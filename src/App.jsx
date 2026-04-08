@@ -1032,9 +1032,11 @@ const totalBusinessProfit = totalProfit + totalGasProfit + totalWakalaCommission
   const totalMobileCapital = latestPerShop.reduce((a, entry) => a + getMobileCapital(entry), 0);
   const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(entry), 0);
 
-  return (
-    <AppShell>
-      <div className="mb-6 flex items-center justify-between gap-4">
+ return (
+  <AppShell>
+    <div className="rounded-[32px] bg-[linear-gradient(135deg,rgba(236,72,153,0.18),rgba(99,102,241,0.18),rgba(59,130,246,0.18))] p-4 shadow-xl">
+      <div className="rounded-[28px] border border-white/40 bg-white/55 p-4 backdrop-blur-md">
+        <div className="mb-6 flex items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-semibold">{t(language, 'Owner Dashboard', 'Dashibodi ya Mmiliki')}</h1>
           <p className="mt-2 text-sm text-slate-500">
@@ -1131,7 +1133,7 @@ const totalBusinessProfit = totalProfit + totalGasProfit + totalWakalaCommission
     </div>
   </CardContent>
 </Card>
-      <div className="mt-6 grid gap-4 lg:grid-cols-3 text-base">
+            <div className="mt-6 grid gap-4 lg:grid-cols-3 text-base">
   {data.shops.map((shop) => {
     const shopSales = filterByPreset(
   data.sales.filter((s) => String(s.shop_id) === String(shop.id)),
@@ -1149,6 +1151,44 @@ const totalBusinessProfit = totalProfit + totalGasProfit + totalWakalaCommission
       data.sales.filter((s) => String(s.shop_id) === String(shop.id)),
       ownerPeriod,
       todayISO()
+    ).reduce((sum, sale) => {
+      return sum + (sale.items || []).reduce((itemSum, item) => {
+        const qty = Number(item.quantity || 0);
+        const sellPrice = Number(item.sellPrice ?? item.price ?? 0);
+        const buyPrice = Number(item.buyPrice ?? 0);
+        return itemSum + qty * (sellPrice - buyPrice);
+      }, 0);
+    }, 0);
+
+    const shopProfit = shopRetailProfit - shopExpenses;
+          const latest = getLatestEntryForShop(data.mobileMoneyEntries, shop.id);
+          const mobileCapital = latest ? getMobileCapital(latest) : 0;
+          const bankCapital = latest ? getBankCapital(latest) : 0;
+
+          return (
+            <Card key={shop.id}>
+              <CardHeader>
+                <CardTitle>{shop.name}</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                <div>{t(language, 'Sales', 'Mauzo')}: TZS {currency(shopSales)}</div>
+                <div>{t(language, 'Expenses', 'Matumizi')}: TZS {currency(shopExpenses)}</div>
+                <div>{t(language, 'Profit', 'Faida')}: TZS {currency(shopProfit)}</div>
+                <div>{t(language, 'Mobile Money Capital', 'Mtaji wa Simu')}: TZS {currency(mobileCapital)}</div>
+                <div>{t(language, 'Bank Capital', 'Mtaji wa Benki')}: TZS {currency(bankCapital)}</div>
+                <Button type="button" className="mt-2" onClick={() => openShop(shop.id)}>
+                  {t(language, 'Open Shop', 'Fungua Duka')}
+                </Button>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+      </div>
+    </div>
+    </AppShell>
+  );
+}
     ).reduce((sum, sale) => {
       return sum + (sale.items || []).reduce((itemSum, item) => {
         const qty = Number(item.quantity || 0);
