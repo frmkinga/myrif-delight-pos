@@ -1189,14 +1189,6 @@ const totalBusinessProfit = totalProfit + totalGasProfit + totalWakalaCommission
     </AppShell>
   );
 }
-    ).reduce((sum, sale) => {
-      return sum + (sale.items || []).reduce((itemSum, item) => {
-        const qty = Number(item.quantity || 0);
-        const sellPrice = Number(item.sellPrice ?? item.price ?? 0);
-        const buyPrice = Number(item.buyPrice ?? 0);
-        return itemSum + qty * (sellPrice - buyPrice);
-      }, 0);
-    }, 0);
 
     const shopProfit = shopRetailProfit - shopExpenses;
           const latest = getLatestEntryForShop(data.mobileMoneyEntries, shop.id);
