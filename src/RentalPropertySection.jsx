@@ -334,8 +334,8 @@ const editHouse = (row) => {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 p-4">
-      <div className="mx-auto max-w-7xl space-y-4">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.9),transparent_35%),radial-gradient(circle_at_bottom_right,rgba(99,102,241,0.12),transparent_30%),linear-gradient(to_bottom_right,#f8fafc,#eff6ff,#e0e7ff)] p-4">
+      <div className="mx-auto max-w-7xl space-y-4 rounded-3xl border border-white/40 bg-white/30 p-3 shadow-xl backdrop-blur-sm">
         <div className="flex items-center justify-between gap-3 rounded-2xl bg-white p-2 shadow-sm">
   <div className="flex flex-wrap gap-2">
     {tabs.map(([value, label]) => (
