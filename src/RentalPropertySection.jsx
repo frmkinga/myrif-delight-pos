@@ -702,29 +702,50 @@ function ReportsSection({
       )}
 
       {reportType === 'utilities' && (
-        <Card>
-          <CardHeader><CardTitle>{t(language, 'Utilities Report', 'Ripoti ya Utilities')}</CardTitle></CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left">
-                    <th className="py-2 pr-3">House</th>
-                    <th className="py-2 pr-3">Meter</th>
-                    <th className="py-2 pr-3">Units Used</th>
-                    <th className="py-2 pr-3">Total Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {meters.map((row) => (
-                    <tr key={row.id} className="border-b">
-                      <td className="py-2 pr-3">{row.houseNumber}</td>
-                      <td className="py-2 pr-3">{row.meterNumber}</td>
-                      <td className="py-2 pr-3">{row.unitsUsed}</td>
-                      <td className="py-2 pr-3">TZS {currency(row.totalAmount)}</td>
-                    </tr>
-                  ))}
-                </tbody>
+  <Card>
+    <CardHeader><CardTitle>{t(language, 'Utilities Report', 'Ripoti ya Utilities')}</CardTitle></CardHeader>
+    <CardContent>
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-sm">
+          <thead>
+            <tr className="border-b text-left">
+              <th className="py-2 pr-3">House</th>
+              <th className="py-2 pr-3">Meter</th>
+              <th className="py-2 pr-3">Units Used</th>
+              <th className="py-2 pr-3">Total Amount</th>
+              <th className="py-2 pr-3">Actions</th>
+            </tr>
+          </thead>
+               <tbody>
+  {meters.map((row) => (
+    <tr key={row.id} className="border-b">
+      <td className="py-2 pr-3">{row.houseNumber}</td>
+      <td className="py-2 pr-3">{row.meterNumber}</td>
+      <td className="py-2 pr-3">{row.unitsUsed}</td>
+      <td className="py-2 pr-3">TZS {currency(row.totalAmount)}</td>
+
+      <td className="py-2 pr-3">
+        <div className="flex gap-2">
+          <button
+            type="button"
+            className="rounded-lg bg-amber-500 px-3 py-1 text-white"
+            onClick={() => alert('meter edit next')}
+          >
+            Edit
+          </button>
+
+          <button
+            type="button"
+            className="rounded-lg bg-red-600 px-3 py-1 text-white"
+            onClick={() => alert('meter delete next')}
+          >
+            Delete
+          </button>
+        </div>
+      </td>
+    </tr>
+  ))}
+</tbody>
               </table>
             </div>
           </CardContent>
