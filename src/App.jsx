@@ -797,20 +797,22 @@ function TabsTrigger({ value, activeValue, onClick, children }) {
 function TabsContent({ value, activeValue, children }) {
   return value === activeValue ? <div>{children}</div> : null;
 }
-function StatCard({ title, value, subtitle = '', icon: Icon }) {
+function StatCard({ title, value, subtitle = '', icon: Icon, color = 'from-blue-500 to-indigo-600' }) {
   return (
-    <Card>
-      <CardContent className="flex items-start justify-between gap-4">
-        <div>
-          <div className="text-sm text-slate-500">{title}</div>
-          <div className="mt-2 text-2xl font-semibold">{value}</div>
-{subtitle && <div className="mt-1 text-xs text-slate-500">{subtitle}</div>}
+    <div className={`rounded-3xl bg-gradient-to-r ${color} p-[1px] shadow-lg`}>
+      <div className="rounded-3xl bg-white/10 backdrop-blur-md">
+        <div className="flex items-start justify-between gap-4 p-6 text-white">
+          <div>
+            <div className="text-sm text-white/80">{title}</div>
+            <div className="mt-2 text-2xl font-semibold">{value}</div>
+            {subtitle && <div className="mt-1 text-xs text-white/80">{subtitle}</div>}
+          </div>
+          <div className="rounded-2xl bg-white/15 p-3">
+            <Icon className="h-5 w-5" />
+          </div>
         </div>
-        <div className="rounded-2xl bg-slate-50 p-3">
-          <Icon className="h-5 w-5" />
-        </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
 
@@ -1069,13 +1071,41 @@ const totalBusinessProfit = totalProfit + totalGasProfit + totalWakalaCommission
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <StatCard title={t(language, 'Total Sales Today', 'Jumla ya Mauzo Leo')} value={`TZS ${currency(totalSales)}`} icon={ShoppingCart} />     
-<StatCard title={t(language, 'Total Expenses Today', 'Jumla ya Matumizi Leo')} value={`TZS ${currency(totalExpenses)}`} icon={AlertTriangle} />
-        <StatCard title={t(language, 'Profit Today', 'Faida ya Leo')} value={`TZS ${currency(totalProfit)}`} icon={Wallet} />
-  
-<StatCard title={t(language, 'Total Capital for Mobile Money', 'Jumla ya Mtaji wa Simu')} value={`TZS ${currency(totalMobileCapital)}`} icon={HandCoins} />
-        <StatCard title={t(language, 'Total Capital for Banks', 'Jumla ya Mtaji wa Benki')} value={`TZS ${currency(totalBankCapital)}`} icon={Building2} />
-      </div>
+  <StatCard
+    title={t(language, 'Total Sales Today', 'Jumla ya Mauzo Leo')}
+    value={`TZS ${currency(totalSales)}`}
+    icon={ShoppingCart}
+    color="from-fuchsia-500 to-purple-600"
+  />
+
+  <StatCard
+    title={t(language, 'Total Expenses Today', 'Jumla ya Matumizi Leo')}
+    value={`TZS ${currency(totalExpenses)}`}
+    icon={AlertTriangle}
+    color="from-orange-400 to-pink-500"
+  />
+
+  <StatCard
+    title={t(language, 'Profit Today', 'Faida ya Leo')}
+    value={`TZS ${currency(totalProfit)}`}
+    icon={Wallet}
+    color="from-violet-500 to-indigo-700"
+  />
+
+  <StatCard
+    title={t(language, 'Total Capital for Mobile Money', 'Jumla ya Mtaji wa Simu')}
+    value={`TZS ${currency(totalMobileCapital)}`}
+    icon={HandCoins}
+    color="from-blue-500 to-cyan-600"
+  />
+
+  <StatCard
+    title={t(language, 'Total Capital for Banks', 'Jumla ya Mtaji wa Benki')}
+    value={`TZS ${currency(totalBankCapital)}`}
+    icon={Building2}
+    color="from-indigo-500 to-blue-700"
+  />
+</div>
 <Card className="mt-6">
   <CardHeader>
     <CardTitle>{t(language, 'Business Profit Breakdown', 'Muhtasari wa Faida za Biashara')}</CardTitle>
