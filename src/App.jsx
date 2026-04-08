@@ -735,7 +735,7 @@ return fallbackData;
 
 function AppShell({ children }) {
   return (
-    <div className="min-h-screen bg-[url('/circuit-pattern.png')] bg-cover bg-center p-4 md:p-6">
+    <div className="min-h-screen bg-[url('/circuit-pattern.png')] bg-cover bg-center bg-slate-900/35 bg-blend-overlay p-4 md:p-6">
       {children}
     </div>
   );
