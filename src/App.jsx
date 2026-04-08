@@ -734,11 +734,7 @@ return fallbackData;
 }
 
 function AppShell({ children }) {
-  return (
-    <div className="min-h-screen bg-[url('/circuit-pattern.png')] bg-cover bg-center bg-slate-900/35 bg-blend-overlay p-4 md:p-6">
-      {children}
-    </div>
-  );
+  return <div className="min-h-screen bg-slate-50 p-4 md:p-6">{children}</div>;
 }
 function Card({ className = '', children }) {
   return <div className={cn('rounded-3xl border border-slate-200 bg-white shadow-sm', className)}>{children}</div>;
