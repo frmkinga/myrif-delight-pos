@@ -366,14 +366,49 @@ const editHouse = (row) => {
 
 {activeTab === 'dashboard' && (
           <div className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-6">
-              <Card><CardContent>{t(language, 'Occupied Houses', 'Nyumba Zenye Wapangaji')}: {houses.filter((h) => h.houseStatus === 'Occupied').length}</CardContent></Card>
-              <Card><CardContent>{t(language, 'Vacant Houses', 'Nyumba Tupu')}: {houses.filter((h) => h.houseStatus === 'Vacant').length}</CardContent></Card>
-              <Card><CardContent>{t(language, 'Rent Due Soon', 'Kodi Inakaribia')}: {dueSoon.length}</CardContent></Card>
-              <Card><CardContent>{t(language, 'Overdue Rent', 'Kodi Iliyochelewa')}: {overdue.length}</CardContent></Card>
-              <Card><CardContent>{t(language, 'Meter Reading Due Soon', 'Usomaji wa Mita Unakaribia')}: {readingSoon.length}</CardContent></Card>
-              <Card><CardContent>{t(language, 'Service Charge Due Soon', 'Service Charge Inakaribia')}: {serviceChargeSoon.length}</CardContent></Card>
-            </div>
+           <div className="grid gap-4 md:grid-cols-6">
+  <Card className="bg-gradient-to-br from-blue-500 to-blue-600 text-white border-0">
+    <CardContent>
+      <div className="text-sm opacity-90">{t(language, 'Occupied Houses', 'Nyumba Zenye Wapangaji')}</div>
+      <div className="mt-2 text-3xl font-bold">{houses.filter((h) => h.houseStatus === 'Occupied').length}</div>
+    </CardContent>
+  </Card>
+
+  <Card className="bg-gradient-to-br from-emerald-500 to-emerald-600 text-white border-0">
+    <CardContent>
+      <div className="text-sm opacity-90">{t(language, 'Vacant Houses', 'Nyumba Tupu')}</div>
+      <div className="mt-2 text-3xl font-bold">{houses.filter((h) => h.houseStatus === 'Vacant').length}</div>
+    </CardContent>
+  </Card>
+
+  <Card className="bg-gradient-to-br from-amber-500 to-orange-500 text-white border-0">
+    <CardContent>
+      <div className="text-sm opacity-90">{t(language, 'Rent Due Soon', 'Kodi Inakaribia')}</div>
+      <div className="mt-2 text-3xl font-bold">{dueSoon.length}</div>
+    </CardContent>
+  </Card>
+
+  <Card className="bg-gradient-to-br from-rose-500 to-red-600 text-white border-0">
+    <CardContent>
+      <div className="text-sm opacity-90">{t(language, 'Overdue Rent', 'Kodi Iliyochelewa')}</div>
+      <div className="mt-2 text-3xl font-bold">{overdue.length}</div>
+    </CardContent>
+  </Card>
+
+  <Card className="bg-gradient-to-br from-cyan-500 to-sky-600 text-white border-0">
+    <CardContent>
+      <div className="text-sm opacity-90">{t(language, 'Meter Reading Due Soon', 'Usomaji wa Mita Unakaribia')}</div>
+      <div className="mt-2 text-3xl font-bold">{readingSoon.length}</div>
+    </CardContent>
+  </Card>
+
+  <Card className="bg-gradient-to-br from-fuchsia-500 to-purple-600 text-white border-0">
+    <CardContent>
+      <div className="text-sm opacity-90">{t(language, 'Service Charge Due Soon', 'Service Charge Inakaribia')}</div>
+      <div className="mt-2 text-3xl font-bold">{serviceChargeSoon.length}</div>
+    </CardContent>
+  </Card>
+</div>
 
             <div className="grid gap-4 lg:grid-cols-3">
               <Card>
