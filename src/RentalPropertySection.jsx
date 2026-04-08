@@ -411,11 +411,13 @@ const editHouse = (row) => {
 </div>
 
             <div className="grid gap-4 lg:grid-cols-3">
-              <Card>
-                <CardHeader><CardTitle>Upcoming Rent Reminder</CardTitle></CardHeader>
-                <CardContent>
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full text-sm">
+  <Card className="border-blue-200 bg-blue-50">
+    <CardHeader>
+      <CardTitle className="text-blue-700">Upcoming Rent Reminder</CardTitle>
+    </CardHeader>
+    <CardContent>
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-sm">
                       <thead>
                         <tr className="border-b text-left">
                           <th className="py-2 pr-3">House</th>
@@ -441,11 +443,13 @@ const editHouse = (row) => {
                 </CardContent>
               </Card>
 
-              <Card>
-                <CardHeader><CardTitle>Upcoming Meter Reminder</CardTitle></CardHeader>
-                <CardContent>
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full text-sm">
+              <Card className="border-cyan-200 bg-cyan-50">
+  <CardHeader>
+    <CardTitle className="text-cyan-700">Upcoming Meter Reminder</CardTitle>
+  </CardHeader>
+  <CardContent>
+    <div className="overflow-x-auto">
+      <table className="min-w-full text-sm">
                       <thead>
                         <tr className="border-b text-left">
                           <th className="py-2 pr-3">House</th>
@@ -469,11 +473,13 @@ const editHouse = (row) => {
                 </CardContent>
               </Card>
 
-              <Card>
-                <CardHeader><CardTitle>Upcoming Service Charge Reminder</CardTitle></CardHeader>
-                <CardContent>
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full text-sm">
+              <Card className="border-fuchsia-200 bg-fuchsia-50">
+  <CardHeader>
+    <CardTitle className="text-fuchsia-700">Upcoming Service Charge Reminder</CardTitle>
+  </CardHeader>
+  <CardContent>
+    <div className="overflow-x-auto">
+      <table className="min-w-full text-sm">
                       <thead>
                         <tr className="border-b text-left">
                           <th className="py-2 pr-3">House</th>
