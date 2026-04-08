@@ -106,7 +106,7 @@ function Textarea({ label, className = '', ...props }) {
 }
 
 function Card({ children, className = '' }) {
-  return <div className={`rounded-2xl border bg-white shadow-sm ${className}`}>{children}</div>;
+  return <div className={`rounded-2xl border bg-white shadow-md hover:shadow-lg transition ${className}`}>{children}</div>;
 }
 
 function CardHeader({ children }) {
@@ -334,7 +334,7 @@ const editHouse = (row) => {
   ];
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4">
       <div className="mx-auto max-w-7xl space-y-4">
         <div className="flex items-center justify-between gap-3 rounded-2xl bg-white p-2 shadow-sm">
   <div className="flex flex-wrap gap-2">
@@ -343,7 +343,11 @@ const editHouse = (row) => {
         key={value}
         type="button"
         onClick={() => setActiveTab(value)}
-        className={`rounded-xl px-4 py-2 text-sm ${activeTab === value ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'}`}
+        className={`rounded-xl px-4 py-2 text-sm transition-all ${
+  activeTab === value
+    ? 'bg-blue-600 text-white shadow-md'
+    : 'bg-white text-slate-700 border hover:bg-blue-50'
+}`}
       >
         {label}
       </button>
