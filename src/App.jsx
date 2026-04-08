@@ -1160,7 +1160,34 @@ const totalBusinessProfit = totalProfit + totalGasProfit + totalWakalaCommission
       }, 0);
     }, 0);
 
-    const shopProfit = shopRetailProfit - shopExpenses;
+          <div className="mt-6 grid gap-4 lg:grid-cols-3 text-base">
+        {data.shops.map((shop) => {
+          const shopSales = filterByPreset(
+            data.sales.filter((s) => String(s.shop_id) === String(shop.id)),
+            ownerPeriod,
+            todayISO()
+          ).reduce((a, s) => a + Number(s.total || 0), 0);
+
+          const shopExpenses = filterByPreset(
+            data.expenses.filter((e) => String(e.shop_id) === String(shop.id)),
+            ownerPeriod,
+            todayISO()
+          ).reduce((a, e) => a + Number(e.amount || 0), 0);
+
+          const shopRetailProfit = filterByPreset(
+            data.sales.filter((s) => String(s.shop_id) === String(shop.id)),
+            ownerPeriod,
+            todayISO()
+          ).reduce((sum, sale) => {
+            return sum + (sale.items || []).reduce((itemSum, item) => {
+              const qty = Number(item.quantity || 0);
+              const sellPrice = Number(item.sellPrice ?? item.price ?? 0);
+              const buyPrice = Number(item.buyPrice ?? 0);
+              return itemSum + qty * (sellPrice - buyPrice);
+            }, 0);
+          }, 0);
+
+          const shopProfit = shopRetailProfit - shopExpenses;
           const latest = getLatestEntryForShop(data.mobileMoneyEntries, shop.id);
           const mobileCapital = latest ? getMobileCapital(latest) : 0;
           const bankCapital = latest ? getBankCapital(latest) : 0;
