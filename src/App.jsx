@@ -3000,53 +3000,79 @@ if (error) {
 </TabsList>
 
      <TabsContent value="dashboard" activeValue={activeTab}>
-  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-    <StatCard title={t(language, 'Today Sales', 'Mauzo ya Leo')} value={`TZS ${currency(todaySales)}`} icon={ShoppingCart} />
-    <StatCard title={t(language, 'Today Expenses', 'Matumizi ya Leo')} value={`TZS ${currency(todayExpenses)}`} icon={AlertTriangle} />
-    <StatCard title={t(language, 'Today Profit', 'Faida ya Leo')} value={`TZS ${currency(todayProfit)}`} icon={Wallet} />
+  
+ <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+  <StatCard
+    title={t(language, 'Today Sales', 'Mauzo ya Leo')}
+    value={`TZS ${currency(todaySales)}`}
+    icon={ShoppingCart}
+    color="from-fuchsia-500 to-purple-600"
+  />
 
-    <StatCard
-      title={t(language, 'Expiry Alerts', 'Tahadhari za Muda wa Matumizi')}
-      value={`${expiredCount} ${t(language, 'expired', 'zilizoisha')} / ${expiringSoonCount} ${t(language, 'soon', 'zinakaribia')}`}
-      subtitle={t(language, 'Expired / due within 7 days', 'Zilizoisha / ndani ya siku 7')}
-      icon={AlertTriangle}
-    />
-<StatCard
-  title={t(language, 'Low Stock Alerts', 'Tahadhari za Stock Ndogo')}
-  value={`${lowStockCount} ${t(language, 'items', 'bidhaa')}`}
-  subtitle={t(language, 'At or below minimum stock', 'Ziko chini au sawa na kiwango cha chini')}
-  icon={AlertTriangle}
-/>
-    <StatCard
-      title={t(language, 'Mobile Money Capital', 'Mtaji wa Simu')}
-      value={`TZS ${currency(mobileCapital)}`}
-      subtitle={
-        latestMobileEntry
-          ? getFloatStatus(
-              mobileCapital,
-              mobileFloat,
-              mobileCommission,
-              language
-            )
-          : ''
-      }
-      icon={HandCoins}
-    />
- <StatCard
-  title={t(language, 'Bank Capital', 'Mtaji wa Benki')}
-  value={`TZS ${currency(bankCapital)}`}
-  subtitle={
-    latestMobileEntry
-      ? getFloatStatus(
-          bankCapital,
-          bankFloat,
-          bankCommission,
-          language
-        )
-      : ''
-  }
-  icon={Building2}
-/>
+  <StatCard
+    title={t(language, 'Today Expenses', 'Matumizi ya Leo')}
+    value={`TZS ${currency(todayExpenses)}`}
+    icon={AlertTriangle}
+    color="from-orange-400 to-pink-500"
+  />
+
+  <StatCard
+    title={t(language, 'Today Profit', 'Faida ya Leo')}
+    value={`TZS ${currency(todayProfit)}`}
+    icon={Wallet}
+    color="from-violet-500 to-indigo-700"
+  />
+
+  <StatCard
+    title={t(language, 'Expiry Alerts', 'Tahadhari za Muda wa Matumizi')}
+    value={`${expiredCount} ${t(language, 'expired', 'zilizoisha')} / ${expiringSoonCount} ${t(language, 'soon', 'zinakaribia')}`}
+    subtitle={t(language, 'Expired / due within 7 days', 'Zilizoisha / ndani ya siku 7')}
+    icon={AlertTriangle}
+    color="from-rose-500 to-red-600"
+  />
+
+  <StatCard
+    title={t(language, 'Low Stock Alerts', 'Tahadhari za Stock Ndogo')}
+    value={`${lowStockCount} ${t(language, 'items', 'bidhaa')}`}
+    subtitle={t(language, 'At or below minimum stock', 'Ziko chini au sawa na kiwango cha chini')}
+    icon={AlertTriangle}
+    color="from-amber-500 to-orange-600"
+  />
+
+  <StatCard
+    title={t(language, 'Mobile Money Capital', 'Mtaji wa Simu')}
+    value={`TZS ${currency(mobileCapital)}`}
+    subtitle={
+      latestMobileEntry
+        ? getFloatStatus(
+            mobileCapital,
+            mobileFloat,
+            mobileCommission,
+            language
+          )
+        : ''
+    }
+    icon={HandCoins}
+    color="from-cyan-500 to-sky-600"
+  />
+
+  <StatCard
+    title={t(language, 'Bank Capital', 'Mtaji wa Benki')}
+    value={`TZS ${currency(bankCapital)}`}
+    subtitle={
+      latestMobileEntry
+        ? getFloatStatus(
+            bankCapital,
+            bankFloat,
+            bankCommission,
+            language
+          )
+        : ''
+    }
+    icon={Building2}
+    color="from-indigo-500 to-blue-700"
+  />
+</div>
         </div>
 
 <Card>
