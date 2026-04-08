@@ -584,7 +584,7 @@ const editHouse = (row) => {
       houses: houses.filter((item) => item.id !== row.id),
     });
   }}
-  onEditMeter={(row) => {
+    onEditMeter={(row) => {
     setMeterForm({
       id: row.id || '',
       houseNumber: row.houseNumber || '',
@@ -599,6 +599,15 @@ const editHouse = (row) => {
       notes: row.notes || '',
     });
     setActiveTab('meters');
+  }}
+  onDeleteMeter={(row) => {
+    const confirmed = window.confirm('Delete this meter record?');
+    if (!confirmed) return;
+
+    saveData({
+      ...data,
+      meters: meters.filter((item) => item.id !== row.id),
+    });
   }}
 />
 )}
@@ -623,6 +632,7 @@ function ReportsSection({
   onEditHouse,
   onDeleteHouse,
   onEditMeter,
+  onDeleteMeter,
 }) {
   const [reportType, setReportType] = useState('rent');
 
@@ -752,12 +762,12 @@ function ReportsSection({
 </button>
 
           <button
-            type="button"
-            className="rounded-lg bg-red-600 px-3 py-1 text-white"
-            onClick={() => alert('meter delete next')}
-          >
-            Delete
-          </button>
+  type="button"
+  className="rounded-lg bg-red-600 px-3 py-1 text-white"
+  onClick={() => onDeleteMeter(row)}
+>
+  Delete
+</button>
         </div>
       </td>
     </tr>
