@@ -842,8 +842,9 @@ const [password, setPassword] = useState('');
   };
 
   return (
-    <AppShell>
-      <div className="mx-auto max-w-md pt-12">
+  <AppShell>
+    <div className="min-h-screen flex items-center justify-center bg-[url('/circuit-pattern.png')] bg-cover bg-center bg-slate-900/40 bg-blend-overlay">
+      <div className="mx-auto max-w-md w-full">
         <Card>
           <CardHeader>
             <div className="mb-4 flex items-center justify-between">
@@ -879,6 +880,7 @@ const [password, setPassword] = useState('');
           </CardContent>
         </Card>
       </div>
+ </div>
     </AppShell>
   );
 }
