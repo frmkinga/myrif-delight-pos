@@ -1209,7 +1209,8 @@ const totalBusinessProfit = totalProfit + totalGasProfit + totalWakalaCommission
               </CardContent>
             </Card>
           );
-                })}
+                       })}
+      </div>
       </div>
     </AppShell>
   );
