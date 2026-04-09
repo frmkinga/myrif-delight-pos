@@ -1108,26 +1108,26 @@ const totalBusinessProfit = totalProfit + totalGasProfit + totalWakalaCommission
     color="from-indigo-500 to-blue-700"
   />
 </div>
-<Card className="mt-6">
+<Card className="mt-6 border-white/40 bg-white/70 shadow-lg backdrop-blur-md">
   <CardHeader>
     <CardTitle>{t(language, 'Business Profit Breakdown', 'Muhtasari wa Faida za Biashara')}</CardTitle>
   </CardHeader>
 
   <CardContent>
     <div className="grid gap-3 md:grid-cols-4 text-sm">
-      <div className="rounded-2xl bg-slate-50 p-3">
-        {t(language, 'Retail Profit', 'Faida ya Duka')}: TZS {currency(totalProfit)}
+      <div className="rounded-2xl bg-gradient-to-r from-fuchsia-500/15 to-purple-600/15 p-3 font-medium">
+        {t(language, 'Retail Profit', 'Faida ya Duka')}: TZS {currency(todayRetailProfit)}
       </div>
 
-      <div className="rounded-2xl bg-slate-50 p-3">
-        {t(language, 'Gas Profit', 'Faida ya Gesi')}: TZS {currency(totalGasProfit)}
+      <div className="rounded-2xl bg-gradient-to-r from-orange-400/15 to-pink-500/15 p-3 font-medium">
+        {t(language, 'Gas Profit', 'Faida ya Gesi')}: TZS {currency(todayGasProfit)}
       </div>
 
-      <div className="rounded-2xl bg-slate-50 p-3">
-        {t(language, 'Wakala Commission', 'Kamisheni ya Wakala')}: TZS {currency(totalWakalaCommission)}
+      <div className="rounded-2xl bg-gradient-to-r from-cyan-500/15 to-sky-600/15 p-3 font-medium">
+        {t(language, 'Wakala Commission', 'Kamisheni ya Wakala')}: TZS {currency(todayWakalaCommission)}
       </div>
 
-      <div className="rounded-2xl bg-slate-100 p-3 font-semibold">
+      <div className="rounded-2xl bg-gradient-to-r from-violet-500/20 to-indigo-700/20 p-3 font-semibold">
         {t(language, 'Total Business Profit', 'Jumla ya Faida za Biashara')}: TZS {currency(totalBusinessProfit)}
       </div>
     </div>
