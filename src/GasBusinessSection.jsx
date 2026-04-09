@@ -26,11 +26,8 @@ function getGasProfitBreakdown(entry) {
   const bigSellPrice = Number(entry.bigGasSellPrice || 0);
   const bigBuyPrice = Number(entry.bigGasBuyPrice || 0);
 
-  const smallAmountSold = Number(entry.smallGasSoldToday || 0);
-  const bigAmountSold = Number(entry.bigGasSoldToday || 0);
-
-  const smallQtySold = smallSellPrice > 0 ? smallAmountSold / smallSellPrice : 0;
-  const bigQtySold = bigSellPrice > 0 ? bigAmountSold / bigSellPrice : 0;
+  const smallQtySold = Number(entry.smallGasSoldToday || 0);
+  const bigQtySold = Number(entry.bigGasSoldToday || 0);
 
   const smallGasProfit = smallQtySold * (smallSellPrice - smallBuyPrice);
   const bigGasProfit = bigQtySold * (bigSellPrice - bigBuyPrice);
