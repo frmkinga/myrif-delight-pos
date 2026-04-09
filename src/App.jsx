@@ -1116,8 +1116,8 @@ const totalBusinessProfit = totalProfit + totalGasProfit + totalWakalaCommission
   <CardContent>
     <div className="grid gap-3 md:grid-cols-4 text-sm">
       <div className="rounded-2xl bg-gradient-to-r from-fuchsia-500/15 to-purple-600/15 p-3 font-medium">
-        {t(language, 'Retail Profit', 'Faida ya Duka')}: TZS {currency(todayRetailProfit)}
-      </div>
+  {t(language, 'Retail Profit', 'Faida ya Duka')}: TZS {currency(totalProfit)}
+</div>
 
       <div className="rounded-2xl bg-gradient-to-r from-orange-400/15 to-pink-500/15 p-3 font-medium">
         {t(language, 'Gas Profit', 'Faida ya Gesi')}: TZS {currency(todayGasProfit)}
