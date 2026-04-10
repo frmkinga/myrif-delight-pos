@@ -1497,8 +1497,13 @@ notes: latest.notes || '',
     })
     .filter(Boolean);
 }, [data.mobileMoneyEntries, data.shops, reportPreset, reportDateValue]);
-const todaySales = filterByPreset(sales, 'today', todayISO()).reduce((a, s) => a + Number(s.total || 0), 0);
-const todayExpenses = filterByPreset(expenses, 'today', todayISO()).reduce((a, e) => a + Number(e.amount || 0), 0);
+const dashboardDateValue =
+  reportPreset === 'date'
+    ? { start: reportStartDate, end: reportEndDate }
+    : reportDate;
+
+const todaySales = filterByPreset(sales, reportPreset, dashboardDateValue).reduce((a, s) => a + Number(s.total || 0), 0);
+const todayExpenses = filterByPreset(expenses, reportPreset, dashboardDateValue).reduce((a, e) => a + Number(e.amount || 0), 0);
 const todayGasProfit = (data.gasEntries || [])
   .filter((x) => x.date === todayISO())
   .reduce((a, x) => {
@@ -2960,18 +2965,38 @@ if (error) {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <select className="rounded-xl border border-slate-200 px-3 py-2 text-sm" value={language} onChange={(e) => setLanguage(e.target.value)}>
-            <option value="sw">Kiswahili</option>
-            <option value="en">English</option>
-          </select>
-<Button variant="outline" onClick={() => exportBackup()}>
-  {t(language, 'Export Backup', 'Pakua Backup')}
-</Button>
-          <Button variant="outline" onClick={logout}>
-            <LogOut className="mr-2 h-4 w-4" />
-            {t(language, 'Logout', 'Toka')}
-          </Button>
-        </div>
+  <select
+    className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+    value={language}
+    onChange={(e) => setLanguage(e.target.value)}
+  >
+    <option value="sw">Kiswahili</option>
+    <option value="en">English</option>
+  </select>
+
+  <select
+    className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+    value={reportPreset}
+    onChange={(e) => setReportPreset(e.target.value)}
+  >
+    <option value="today">{t(language, 'Today', 'Leo')}</option>
+    <option value="yesterday">{t(language, 'Yesterday', 'Jana')}</option>
+    <option value="week">{t(language, 'Week', 'Wiki')}</option>
+    <option value="month">{t(language, 'Month', 'Mwezi')}</option>
+    <option value="3months">{t(language, '3 Months', 'Miezi 3')}</option>
+    <option value="6months">{t(language, '6 Months', 'Miezi 6')}</option>
+    <option value="year">{t(language, 'Year', 'Mwaka')}</option>
+  </select>
+
+  <Button variant="outline" onClick={() => exportBackup()}>
+    {t(language, 'Export Backup', 'Pakua Backup')}
+  </Button>
+
+  <Button variant="outline" onClick={logout}>
+    <LogOut className="mr-2 h-4 w-4" />
+    {t(language, 'Logout', 'Toka')}
+  </Button>
+</div>
       </div>
 
       <TabsList>
