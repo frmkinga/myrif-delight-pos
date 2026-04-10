@@ -260,8 +260,8 @@ const formatQty = (value) => {
   const num = Number(value || 0);
   return Number.isInteger(num) ? String(num) : new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(num);
 };
-const todayISO = () => {
-  const d = new Date();
+const todayISO = (input = new Date()) => {
+  const d = new Date(input);
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
@@ -297,12 +297,21 @@ const getDaysUntilExpiry = (expiryDate) => {
 };
 function filterByPreset(items, preset, customDate) {
   const now = startOfDay(new Date());
+
+  const getItemDateValue = (item) => {
+    if (item?.date) return String(item.date).slice(0, 10);
+    if (item?.createdAt) return String(item.createdAt).slice(0, 10);
+    if (item?.created_at) return String(item.created_at).slice(0, 10);
+    return todayISO();
+  };
+
   return items.filter((item) => {
-    const d = startOfDay(new Date(item.date || item.createdAt || todayISO()));
-    if (preset === 'today') return d.getTime() === now.getTime();
-    if (preset === 'yesterday') return d.getTime() === addDays(now, -1).getTime();
+    const value = getItemDateValue(item);
+    const d = startOfDay(value);
+
+    if (preset === 'today') return value === todayISO();
+    if (preset === 'yesterday') return value === todayISO(addDays(now, -1));
     if (preset === 'date') {
-      const value = item.date || item.createdAt || todayISO();
       if (typeof customDate === 'object' && customDate?.start && customDate?.end) {
         return value >= customDate.start && value <= customDate.end;
       }
@@ -1576,17 +1585,18 @@ const bankCommission = latestMobileEntry ? getBankCommissionTotal(latestMobileEn
         const product = products.find((p) => p.id === item.productId);
 
         if (!product) console.warn('Missing product for sale item:', item);
-        map[item.productId] = {
-          productId: item.productId,
-          name: item.name || product?.name || 'Unknown Product',
-          unit: item.unit || product?.baseUnit || '-',
-          buyPrice: Number(item.buyPrice ?? product?.buyPrice ?? 0),
-          sellPrice: Number(item.sellPrice ?? item.price ?? product?.sellPrice ?? 0),
-          balance: Number(product?.stockBaseQty || 0),
-          soldQty: 0,
-          profit: 0,
-          date: sale.date,
-        };
+       map[item.productId] = {
+  productId: item.productId,
+  name: item.name || product?.name || 'Unknown Product',
+  unit: item.unit || product?.baseUnit || '-',
+  buyPrice: Number(item.buyPrice ?? product?.buyPrice ?? 0),
+  sellPrice: Number(item.sellPrice ?? item.price ?? product?.sellPrice ?? 0),
+  balance: Number(product?.stockBaseQty || 0),
+  soldQty: 0,
+  profit: 0,
+  date: sale.date,
+  created_at: sale.created_at || '',
+};
       }
 
       map[item.productId].soldQty += Number(item.quantity || 0);
@@ -4313,7 +4323,11 @@ onDeleteGas={deleteGas}
                     {salesReportRows.rows.map((row) => (
                       <tr key={row.productId} className="border-b border-slate-100">
                         <td className="py-3 pr-3">{row.name}</td>
-                        <td className="py-3 pr-3">{row.date || '-'}</td>
+                        <td className="py-3 pr-3">
+  {row.created_at
+    ? new Date(row.created_at).toLocaleString()
+    : row.date || '-'}
+</td>
                         <td className="py-3 pr-3">{row.unit}</td>
                         <td className="py-3 pr-3">{formatQty(row.soldQty)}</td>
                         <td className="py-3 pr-3">{formatQty(row.balance)}</td>
