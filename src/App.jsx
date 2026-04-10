@@ -5002,24 +5002,23 @@ useEffect(() => {
           .eq('shop_id', activeShopId);
 
         setData((prev) => {
-  setData((prev) => {
-  const nextSales = (sales || []).map((s) => ({
-    ...s,
-    shop_id: s.shop_id || s.shopid || '',
-    date: s.date || (s.created_at ? String(s.created_at).slice(0, 10) : todayISO()),
-  }));
+          const nextSales = (sales || []).map((s) => ({
+            ...s,
+            shop_id: s.shop_id || s.shopid || '',
+            date: s.date || (s.created_at ? String(s.created_at).slice(0, 10) : todayISO()),
+          }));
 
-  const keepOtherShops = (items = []) =>
-    items.filter(
-      (item) =>
-        String(item?.shop_id || item?.shopId || item?.shopid || '') !== String(activeShopId)
-    );
+          const keepOtherShops = (items = []) =>
+            items.filter(
+              (item) =>
+                String(item?.shop_id || item?.shopId || item?.shopid || '') !== String(activeShopId)
+            );
 
-  return {
-    ...prev,
-    sales: [...keepOtherShops(prev.sales), ...nextSales],
-  };
-});
+          return {
+            ...prev,
+            sales: [...keepOtherShops(prev.sales), ...nextSales],
+          };
+        });
       }
     )
     .subscribe();
