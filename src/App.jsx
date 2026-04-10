@@ -4901,9 +4901,8 @@ useEffect(() => {
       .select('*')
       .eq('shop_id', activeShopId);
 
-    setData((prev) => ({
-      ...prev,
-      products: (products || []).map((p) => ({
+    setData((prev) => {
+      const nextProducts = (products || []).map((p) => ({
         id: p.id,
         name: p.name,
         buyPrice: Number(p.buyingprice || 0),
@@ -4916,11 +4915,22 @@ useEffect(() => {
         expiryDate: '',
         qrCode: '',
         subUnitsRaw: '',
-archived: Boolean(p.archived),
+        archived: Boolean(p.archived),
         createdAt: p.createdAt || (p.created_at ? String(p.created_at).slice(0, 10) : ''),
         confirmed: true,
-      })),
-    }));
+      }));
+
+      const keepOtherShops = (items = []) =>
+        items.filter(
+          (item) =>
+            String(item?.shop_id || item?.shopId || item?.shopid || '') !== String(activeShopId)
+        );
+
+      return {
+        ...prev,
+        products: [...keepOtherShops(prev.products), ...nextProducts],
+      };
+    });
   };
 
   loadProductsForShop();
@@ -4944,8 +4954,10 @@ archived: Boolean(p.archived),
   return () => {
     supabase.removeChannel(productsChannel);
   };
-}, [activeShopId]);
- useEffect(() => {
+}, [activeShopId]);;
+ 
+
+useEffect(() => {
   if (!activeShopId) return;
 
   const salesChannel = supabase
@@ -5250,47 +5262,69 @@ const openShopDashboard = async (shopId) => {
     supabase.from('purchases').select('*').eq('shop_id', shopId),
   ]);
 
-  setData((prev) => ({
-    ...prev,
-    products: (products || []).map((p) => ({
-      id: p.id,
-      name: p.name,
-      buyPrice: Number(p.buyingprice || 0),
-      sellPrice: Number(p.sellingprice || 0),
-      stockBaseQty: Number(p.stock || 0),
-      stockQty: Number(p.stock || 0),
-      shop_id: String(p.shop_id || p.shopid || '').trim(),
-      baseUnit: p.baseunit || 'pc',
-      minStockLevel: Number(p.minStockLevel || 5),
-      expiryDate: p.expiryDate || '',
-      qrCode: p.qrCode || '',
-      subUnitsRaw: p.subUnitsRaw || '',
-      archived: Boolean(p.archived),
-      createdAt: p.createdAt || (p.created_at ? String(p.created_at).slice(0, 10) : ''),
-      confirmed: true,
-    })),
-    sales: (sales || []).map((s) => ({
-      ...s,
-      shop_id: String(s.shop_id || '').trim(),
-      date: s.date || (s.created_at ? String(s.created_at).slice(0, 10) : todayISO()),
-    })),
-    expenses: (expenses || []).map((e) => ({
-      id: e.id || '',
-      shop_id: String(e.shop_id || '').trim(),
-      title: e.title || e.description || '',
-      description: e.description || e.title || '',
-      amount: Number(e.amount || 0),
-      category: e.category || '',
-      date: e.date || (e.created_at ? String(e.created_at).slice(0, 10) : todayISO()),
-      notes: e.notes || '',
-      created_at: e.created_at || '',
-    })),
-    purchases: (purchases || []).map((p) => ({
-      ...p,
-      shop_id: String(p.shop_id || '').trim(),
-      date: p.date || (p.created_at ? String(p.created_at).slice(0, 10) : todayISO()),
-    })),
+  setData((prev) => {
+  const nextProducts = (products || []).map((p) => ({
+    id: p.id,
+    name: p.name,
+    buyPrice: Number(p.buyingprice || 0),
+    sellPrice: Number(p.sellingprice || 0),
+    stockBaseQty: Number(p.stock || 0),
+    stockQty: Number(p.stock || 0),
+    shop_id: String(p.shop_id || p.shopid || '').trim(),
+    baseUnit: p.baseunit || 'pc',
+    minStockLevel: Number(p.minStockLevel || 5),
+    expiryDate: p.expiryDate || '',
+    qrCode: p.qrCode || '',
+    subUnitsRaw: p.subUnitsRaw || '',
+    archived: Boolean(p.archived),
+    createdAt: p.createdAt || (p.created_at ? String(p.created_at).slice(0, 10) : ''),
+    confirmed: true,
   }));
+
+  const nextSales = (sales || []).map((s) => ({
+    ...s,
+    shop_id: String(s.shop_id || '').trim(),
+    date: s.date || (s.created_at ? String(s.created_at).slice(0, 10) : todayISO()),
+  }));
+
+  const nextExpenses = (expenses || []).map((e) => ({
+    id: e.id || '',
+    shop_id: String(e.shop_id || '').trim(),
+    title: e.title || e.description || '',
+    description: e.description || e.title || '',
+    amount: Number(e.amount || 0),
+    category: e.category || '',
+    date: e.date || (e.created_at ? String(e.created_at).slice(0, 10) : todayISO()),
+    notes: e.notes || '',
+    created_at: e.created_at || '',
+  }));
+
+  const nextPurchases = (purchases || []).map((p) => ({
+    ...p,
+    shop_id: String(p.shop_id || '').trim(),
+    date: p.date || (p.created_at ? String(p.created_at).slice(0, 10) : todayISO()),
+  }));
+
+  console.log('TEST openShopDashboard overwrite check', {
+    shopId,
+    prevProducts: Array.isArray(prev.products) ? prev.products.length : 0,
+    nextProducts: nextProducts.length,
+    prevSales: Array.isArray(prev.sales) ? prev.sales.length : 0,
+    nextSales: nextSales.length,
+    prevExpenses: Array.isArray(prev.expenses) ? prev.expenses.length : 0,
+    nextExpenses: nextExpenses.length,
+    prevPurchases: Array.isArray(prev.purchases) ? prev.purchases.length : 0,
+    nextPurchases: nextPurchases.length,
+  });
+
+  return {
+    ...prev,
+    products: nextProducts,
+    sales: nextSales,
+    expenses: nextExpenses,
+    purchases: nextPurchases,
+  };
+});
 };
 const logout = async () => {
   await supabase.auth.signOut();
