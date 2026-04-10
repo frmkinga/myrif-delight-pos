@@ -5001,14 +5001,25 @@ useEffect(() => {
           .select('*')
           .eq('shop_id', activeShopId);
 
-        setData((prev) => ({
-          ...prev,
-          sales: (sales || []).map((s) => ({
-            ...s,
-            shop_id: s.shop_id || s.shopid || '',
-            date: s.date || (s.created_at ? String(s.created_at).slice(0, 10) : todayISO()),
-          })),
-        }));
+        setData((prev) => {
+  setData((prev) => {
+  const nextSales = (sales || []).map((s) => ({
+    ...s,
+    shop_id: s.shop_id || s.shopid || '',
+    date: s.date || (s.created_at ? String(s.created_at).slice(0, 10) : todayISO()),
+  }));
+
+  const keepOtherShops = (items = []) =>
+    items.filter(
+      (item) =>
+        String(item?.shop_id || item?.shopId || item?.shopid || '') !== String(activeShopId)
+    );
+
+  return {
+    ...prev,
+    sales: [...keepOtherShops(prev.sales), ...nextSales],
+  };
+});
       }
     )
     .subscribe();
@@ -5330,25 +5341,19 @@ const openShopDashboard = async (shopId) => {
     date: p.date || (p.created_at ? String(p.created_at).slice(0, 10) : todayISO()),
   }));
 
-  console.log('TEST openShopDashboard overwrite check', {
-    shopId,
-    prevProducts: Array.isArray(prev.products) ? prev.products.length : 0,
-    nextProducts: nextProducts.length,
-    prevSales: Array.isArray(prev.sales) ? prev.sales.length : 0,
-    nextSales: nextSales.length,
-    prevExpenses: Array.isArray(prev.expenses) ? prev.expenses.length : 0,
-    nextExpenses: nextExpenses.length,
-    prevPurchases: Array.isArray(prev.purchases) ? prev.purchases.length : 0,
-    nextPurchases: nextPurchases.length,
-  });
+  const keepOtherShops = (items = []) =>
+  items.filter(
+    (item) =>
+      String(item?.shop_id || item?.shopId || item?.shopid || '') !== String(shopId)
+  );
 
-  return {
-    ...prev,
-    products: nextProducts,
-    sales: nextSales,
-    expenses: nextExpenses,
-    purchases: nextPurchases,
-  };
+return {
+  ...prev,
+  products: [...keepOtherShops(prev.products), ...nextProducts],
+  sales: [...keepOtherShops(prev.sales), ...nextSales],
+  expenses: [...keepOtherShops(prev.expenses), ...nextExpenses],
+  purchases: [...keepOtherShops(prev.purchases), ...nextPurchases],
+};
 });
 };
 const logout = async () => {
