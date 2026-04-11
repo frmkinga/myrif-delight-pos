@@ -2345,18 +2345,35 @@ const saveProductRows = async () => {
     setPurchaseRows((prev) => prev.map((row, i) => (i === index ? { ...row, [field]: value } : row)));
   const removePurchaseRow = (index) => setPurchaseRows((prev) => (prev.length === 1 ? prev : prev.filter((_, i) => i !== index)));
 
+ const savePurchaseRows = () => {
+  // VALIDATION BEFORE ANYTHING
+for (const row of purchaseRows) {
+  if (!row.productId) {
+    alert(t(language, 'Please select a product', 'Tafadhali chagua bidhaa'));
+    return;
+  }
 
+  if (!row.quantity) {
+    alert(t(language, 'Please enter quantity', 'Tafadhali weka idadi'));
+    return;
+  }
 
-const savePurchaseRows = () => {
-  const rows = purchaseRows.filter((r) => r.productId && r.quantity && r.unitCost);
-  if (!rows.length) return;
+  if (!row.unitCost) {
+    alert(t(language, 'Please enter unit cost', 'Tafadhali weka bei ya kununua'));
+    return;
+  }
+}
+
+const rows = purchaseRows;
+
+  const roundUpToNearest50 = (value) => Math.ceil(Number(value || 0) / 50) * 50;
 
   const nextPurchases = [...data.purchases];
   const nextProducts = [...data.products];
   const newlyPreparedPurchases = [];
 
-  rows.forEach((row, idx) => {
-    if (!row.productId || !row.quantity || !row.unitCost) return;
+  for (const [idx, row] of rows.entries()) {
+    if (!row.productId || !row.quantity || !row.unitCost) continue;
 
     const quantity = Number(row.quantity || 0);
     const unitCost = Number(row.unitCost || 0);
@@ -2387,46 +2404,100 @@ const savePurchaseRows = () => {
     const productIndex = nextProducts.findIndex((p) => p.id === preparedPurchase.productId);
 
     if (productIndex >= 0) {
+      const currentProduct = nextProducts[productIndex];
+      const oldBuyPrice = Number(currentProduct.buyPrice || 0);
+      const oldSellPrice = Number(currentProduct.sellPrice || 0);
+      const newBuyPrice = Number(preparedPurchase.unitCost || oldBuyPrice || 0);
+
+      let nextSellPrice = oldSellPrice;
+
+      if (newBuyPrice !== oldBuyPrice) {
+        const oldProfitAmount = oldSellPrice - oldBuyPrice;
+        const suggestedBase =
+          oldProfitAmount > 0 ? newBuyPrice + oldProfitAmount : newBuyPrice + 50;
+        const suggestedSellPrice = roundUpToNearest50(suggestedBase);
+
+        const enteredPrice = window.prompt(
+  t(
+    language,
+    `Buy price changed from TZS ${oldBuyPrice} to TZS ${newBuyPrice}.
+Suggested new sell price is TZS ${suggestedSellPrice}.
+Enter new sell price or leave the suggested amount.`,
+    `Bei ya kununua imebadilika kutoka TZS ${oldBuyPrice} hadi TZS ${newBuyPrice}.
+Bei mpya ya kuuza inayopendekezwa ni TZS ${suggestedSellPrice}.
+Weka bei mpya ya kuuza au acha iliyopendekezwa.`
+  ),
+  String(suggestedSellPrice)
+);
+
+        if (enteredPrice === null) {
+          alert('Purchase save cancelled. No changes were saved.');
+          return;
+        }
+
+        const parsedSellPrice = Number(enteredPrice);
+
+        if (!Number.isFinite(parsedSellPrice) || parsedSellPrice <= newBuyPrice) {
+          alert('Selling price must be greater than the new buying price.');
+          return;
+        }
+
+        if (parsedSellPrice % 50 !== 0) {
+          alert('Selling price must follow TZS 50 steps, for example 50, 100, 150, 200.');
+          return;
+        }
+
+        nextSellPrice = parsedSellPrice;
+
+        alert(
+  t(
+    language,
+    `Selling price for ${currentProduct.name} has been updated from TZS ${oldSellPrice} to TZS ${nextSellPrice}.`,
+    `Bei ya kuuza ya ${currentProduct.name} imebadilishwa kutoka TZS ${oldSellPrice} hadi TZS ${nextSellPrice}.`
+  )
+);
+      }
+
       nextProducts[productIndex] = {
         ...nextProducts[productIndex],
         stockBaseQty:
           Number(nextProducts[productIndex].stockBaseQty || 0) +
           Number(preparedPurchase.quantity || 0),
-        buyPrice:
-          Number(preparedPurchase.unitCost || nextProducts[productIndex].buyPrice || 0),
+        buyPrice: newBuyPrice,
+        sellPrice: nextSellPrice,
       };
     }
-  });
+  }
 
- saveData({ ...data, purchases: nextPurchases, products: nextProducts });
+  saveData({ ...data, purchases: nextPurchases, products: nextProducts });
 
-const productRowsForSync = nextProducts
-  .filter((p) => String(p.shop_id) === String(shop.id))
-  .map((p) => ({
-    id: p.id,
-    name: p.name,
-    buyingprice: Number(p.buyPrice || 0),
-    sellingprice: Number(p.sellPrice || 0),
-    stock: Number(p.stockBaseQty || 0),
-    shop_id: p.shop_id,
-    baseunit: p.baseUnit || 'pc',
-    created_at: p.created_at || (p.createdAt ? new Date(p.createdAt).toISOString() : new Date().toISOString()),
-  }));
+  const productRowsForSync = nextProducts
+    .filter((p) => String(p.shop_id) === String(shop.id))
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      buyingprice: Number(p.buyPrice || 0),
+      sellingprice: Number(p.sellPrice || 0),
+      stock: Number(p.stockBaseQty || 0),
+      shop_id: p.shop_id,
+      baseunit: p.baseUnit || 'pc',
+      created_at: p.created_at || (p.createdAt ? new Date(p.createdAt).toISOString() : new Date().toISOString()),
+    }));
 
-newlyPreparedPurchases.forEach((purchase) =>
-  addToSyncQueue('purchase_created', {
-    ...purchase,
-    products: productRowsForSync,
-  })
-);
+  newlyPreparedPurchases.forEach((purchase) =>
+    addToSyncQueue('purchase_created', {
+      ...purchase,
+      products: productRowsForSync,
+    })
+  );
 
-setPurchaseRows([{ ...emptyPurchaseRow, productSearch: '' }]);
+  setPurchaseRows([{ ...emptyPurchaseRow, productSearch: '' }]);
 
-if (navigator.onLine) {
-  processSyncQueue().catch((syncError) => {
-    console.error('Queued purchases sync error:', syncError);
-  });
-}
+  if (navigator.onLine) {
+    processSyncQueue().catch((syncError) => {
+      console.error('Queued purchases sync error:', syncError);
+    });
+  }
 };
 
 const addExpenseRow = () => setExpenseRows((prev) => [...prev, { ...emptyExpenseRow }]);
