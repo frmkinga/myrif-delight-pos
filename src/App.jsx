@@ -2644,7 +2644,7 @@ if (!rows.length) return;
   const target = data.changeLedger.find((c) => c.id === changeId);
   if (!target) return;
 
-  const nextAmountOwed = Math.max(0, Number(target.amountOwed || 0) - amount);
+ const nextAmountOwed = Math.max(0, Number(target.amountOwed || 0) - amount);
 
 console.log('CHANGE LEDGER REDUCE TEST - BEFORE CLOUD', {
   changeId,
@@ -2666,30 +2666,31 @@ console.log('CHANGE LEDGER REDUCE TEST - BEFORE CLOUD', {
   });
 
   try {
-            if (nextAmountOwed > 0) {
-      const { data: updatedRows, error } = await supabase
-        .from('changeLedger')
-        .update({ amountOwed: nextAmountOwed })
-        .eq('id', changeId)
-        .select();
+           if (nextAmountOwed > 0) {
+  const { data: updatedRows, error } = await supabase
+    .from('changeLedger')
+    .update({ amountOwed: nextAmountOwed })
+    .eq('id', target.id)
+    .select();
 
-      console.log('CHANGE LEDGER REDUCE TEST - AFTER UPDATE', {
-        changeId,
-        nextAmountOwed,
-        updatedRows,
-        updatedCount: Array.isArray(updatedRows) ? updatedRows.length : null,
-        error: error ? error.message : null,
-      });
+  console.log('CHANGE LEDGER REDUCE TEST - AFTER UPDATE', {
+    changeId,
+    targetId: target.id,
+    nextAmountOwed,
+    updatedRows,
+    updatedCount: Array.isArray(updatedRows) ? updatedRows.length : null,
+    error: error ? error.message : null,
+  });
 
-      if (error) {
-        alert(`Change ledger update failed: ${error.message}`);
-      }
-    } else {
+  if (error) {
+    alert(`Change ledger update failed: ${error.message}`);
+  }
+} else {
       const { data: deletedRows, error } = await supabase
-        .from('changeLedger')
-        .delete()
-        .eq('id', changeId)
-        .select();
+  .from('changeLedger')
+  .delete()
+  .eq('id', target.id)
+  .select();
 
       console.log('CHANGE LEDGER REDUCE TEST - AFTER DELETE', {
         changeId,
@@ -3006,7 +3007,7 @@ if (error) {
               </button>
             ) : null}
           </div>
-          <h1 className="mt-3 text-3xl font-semibold">{shop.name}</h1>
+          <h1 className="mt-3 text-3xl font-semibold">{shop.name} - LOCAL TEST</h1>
           <p className="mt-2 text-sm text-slate-500">
             {t(language, 'Independent shop view with sales, stock, credit and reports.', 'Mwonekano wa duka huru wenye mauzo, stock, madeni na ripoti.')}
           </p>
@@ -3890,7 +3891,12 @@ if (error) {
               {changeRows.map((row, index) => (
                 <div key={index} className="grid gap-3 rounded-2xl border border-slate-200 p-3 md:grid-cols-2">
                   <Input placeholder={t(language, 'Customer name', 'Jina la mteja')} value={row.customerName} onChange={(e) => updateChangeRow(index, 'customerName', e.target.value)} />
-                  <Input type="number" placeholder={t(language, 'Amount owed', 'Kiasi cha chenji')} value={row.amountOwed} onChange={(e) => updateChangeRow(index, 'amountOwed', e.target.value)} />
+                  <Input
+  placeholder={t(language, 'Phone number', 'Namba ya simu')}
+  value={row.phone || ''}
+  onChange={(e) => updateChangeRow(index, 'phone', e.target.value)}
+/>
+<Input type="number" placeholder={t(language, 'Amount owed', 'Kiasi cha chenji')} value={row.amountOwed} onChange={(e) => updateChangeRow(index, 'amountOwed', e.target.value)} />
                   <div className="md:col-span-2">
                     <Input placeholder={t(language, 'Notes', 'Maelezo')} value={row.notes} onChange={(e) => updateChangeRow(index, 'notes', e.target.value)} />
                   </div>
