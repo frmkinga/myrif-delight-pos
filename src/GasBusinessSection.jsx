@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Pencil, Trash2 } from 'lucide-react';
+import { Pencil, Trash2, PlusCircle } from 'lucide-react';
 const GAS_PRICE_BOOK = {
   'Taifa Gas': {
     smallBuy: 20000,
@@ -183,6 +183,10 @@ setShowGasPrices,
   onSaveGas,
   onEditGas,
   onDeleteGas,
+  gasSalesRows,
+  addGasSalesRow,
+  updateGasSalesRow,
+  removeGasSalesRow,
 }) {
   const liveGasProfit = useMemo(() => getGasProfitBreakdown(gasForm), [gasForm]);
   const liveGasAlignment = useMemo(
@@ -210,26 +214,25 @@ setShowGasPrices,
     
 
     <div>
-      <div className="mb-1 text-sm text-slate-600">{t(language, 'Total Cylinders', 'Jumla ya Mitungi')}</div>
-      <Input
-        type="number"
-        value={gasForm.totalCylinders}
-        onChange={(e) => setGasForm((prev) => ({ ...prev, totalCylinders: e.target.value }))}
-      />
-    </div>
+  <div className="mb-1 text-sm text-slate-600">{t(language, 'Total Cylinders', 'Jumla ya Mitungi')}</div>
+  <Input
+    type="number"
+    value={gasForm.totalCylinders}
+    onChange={(e) => setGasForm((prev) => ({ ...prev, totalCylinders: e.target.value }))}
+  />
+</div>
+
 <div className="md:col-span-2">
   <button
     type="button"
     className="flex w-full items-center justify-between rounded-2xl bg-slate-100 px-4 py-3 text-sm font-medium text-slate-700"
-    onClick={() => {
-      console.log('clicked status');
-      setShowGasStatus((prev) => !prev);
-    }}
+    onClick={() => setShowGasStatus((prev) => !prev)}
   >
     <span>{t(language, 'Cylinder Status', 'Hali ya Mitungi')}</span>
     <span>{showGasStatus ? '▲' : '▼'}</span>
   </button>
 </div>
+
 {showGasStatus && (
   <div className="md:col-span-2 grid gap-3 md:grid-cols-2">
     <input
@@ -281,117 +284,109 @@ setShowGasPrices,
     />
   </div>
 )}
+
+
 <div className="md:col-span-2">
   <button
     type="button"
     className="flex w-full items-center justify-between rounded-2xl bg-slate-100 px-4 py-3 text-sm font-medium text-slate-700"
     onClick={() => setShowGasSales((prev) => !prev)}
   >
-    <span>{t(language, 'Gas Sales Today', 'Mauzo ya Gesi Leo')}</span>
+    <span>{t(language, 'Gas Sales', 'Mauzo ya Gesi')}</span>
     <span>{showGasSales ? '▲' : '▼'}</span>
   </button>
 </div>
 
 {showGasSales && (
-  <div className="md:col-span-2 grid gap-3 md:grid-cols-2">
-    <Input
-      type="number"
-      placeholder={t(language, 'Small Gas Sold Today', 'Gesi Ndogo Iliyuzwa Leo')}
-      value={gasForm.smallGasSoldToday}
-      onChange={(e) => setGasForm((prev) => ({ ...prev, smallGasSoldToday: e.target.value }))}
-    />
+  <div className="md:col-span-2 space-y-3">
+    {gasSalesRows.map((row, index) => (
+      <div key={row.id || index} className="rounded-2xl border border-slate-200 p-3">
+        <div className="mb-3 flex items-center justify-between">
+          <div className="text-sm font-medium">
+            {t(language, 'Gas Sale Row', 'Mstari wa Mauzo ya Gesi')} {index + 1}
+          </div>
 
-    <Input
-      type="number"
-      placeholder={t(language, 'Big Gas Sold Today', 'Gesi Kubwa Iliyuzwa Leo')}
-      value={gasForm.bigGasSoldToday}
-      onChange={(e) => setGasForm((prev) => ({ ...prev, bigGasSoldToday: e.target.value }))}
-    />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => removeGasSalesRow(row.id)}
+          >
+            <Trash2 className="mr-1 h-4 w-4" />
+            {t(language, 'Delete', 'Futa')}
+          </Button>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2">
+          <div>
+            <div className="mb-1 text-sm text-slate-600">{t(language, 'Gas Type', 'Aina ya Gesi')}</div>
+            <select
+              className="h-10 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm"
+              value={row.gasType || 'Taifa Gas'}
+              onChange={(e) => updateGasSalesRow(row.id, 'gasType', e.target.value)}
+            >
+              {gasTypes.map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div />
+
+          <Input
+            type="number"
+            placeholder={t(language, 'Small Gas Sold Today', 'Gesi Ndogo Iliyuzwa Leo')}
+            value={row.smallGasSoldToday}
+            onChange={(e) => updateGasSalesRow(row.id, 'smallGasSoldToday', e.target.value)}
+          />
+
+          <Input
+            type="number"
+            placeholder={t(language, 'Big Gas Sold Today', 'Gesi Kubwa Iliyuzwa Leo')}
+            value={row.bigGasSoldToday}
+            onChange={(e) => updateGasSalesRow(row.id, 'bigGasSoldToday', e.target.value)}
+          />
+
+          <Input
+            type="number"
+            placeholder={t(language, 'Small Gas Buy Price', 'Bei ya Kununua Gesi Ndogo')}
+            value={row.smallGasBuyPrice}
+            onChange={(e) => updateGasSalesRow(row.id, 'smallGasBuyPrice', e.target.value)}
+          />
+
+          <Input
+            type="number"
+            placeholder={t(language, 'Small Gas Sell Price', 'Bei ya Kuuza Gesi Ndogo')}
+            value={row.smallGasSellPrice}
+            onChange={(e) => updateGasSalesRow(row.id, 'smallGasSellPrice', e.target.value)}
+          />
+
+          <Input
+            type="number"
+            placeholder={t(language, 'Big Gas Buy Price', 'Bei ya Kununua Gesi Kubwa')}
+            value={row.bigGasBuyPrice}
+            onChange={(e) => updateGasSalesRow(row.id, 'bigGasBuyPrice', e.target.value)}
+          />
+
+          <Input
+            type="number"
+            placeholder={t(language, 'Big Gas Sell Price', 'Bei ya Kuuza Gesi Kubwa')}
+            value={row.bigGasSellPrice}
+            onChange={(e) => updateGasSalesRow(row.id, 'bigGasSellPrice', e.target.value)}
+          />
+        </div>
+      </div>
+    ))}
+
+    <Button type="button" variant="outline" onClick={addGasSalesRow}>
+      <PlusCircle className="mr-2 h-4 w-4" />
+      {t(language, 'Add Gas Sale Row', 'Ongeza Mstari wa Mauzo ya Gesi')}
+    </Button>
   </div>
 )}
-<div className="md:col-span-2">
-  <button
-    type="button"
-    className="flex w-full items-center justify-between rounded-2xl bg-slate-100 px-4 py-3 text-sm font-medium text-slate-700"
-    onClick={() => setShowGasPrices((prev) => !prev)}
-  >
-    <span>{t(language, 'Gas Prices', 'Bei za Gesi')}</span>
-    <span>{showGasPrices ? '▲' : '▼'}</span>
-  </button>
-</div>
 
-{showGasPrices && (
-  <div className="md:col-span-2 grid gap-3 md:grid-cols-2">
-<div>
-  <div className="mb-1 text-sm text-slate-600">{t(language, 'Gas Type', 'Aina ya Gesi')}</div>
-  <select
-    className="h-10 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm"
-    value={gasForm.gasType || 'Taifa Gas'}
-    onChange={(e) => {
-      const nextType = e.target.value;
-      const priceSet = GAS_PRICE_BOOK[nextType] || GAS_PRICE_BOOK['Taifa Gas'];
-
-      setGasForm((prev) => ({
-        ...prev,
-        gasType: nextType,
-        smallGasBuyPrice: String(priceSet.smallBuy),
-        smallGasSellPrice: String(priceSet.smallSell),
-        bigGasBuyPrice: String(priceSet.bigBuy),
-        bigGasSellPrice: String(priceSet.bigSell),
-      }));
-    }}
-  >
-    {gasTypes.map((type) => (
-      <option key={type} value={type}>
-        {type}
-      </option>
-    ))}
-  </select>
-</div>
-
-<div>
-  <div className="mb-1 text-sm text-slate-600">{t(language, 'Cylinder Size', 'Ukubwa wa Mtungi')}</div>
-  <select
-    className="h-10 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm"
-    value={gasForm.cylinderSize || 'Small Cylinder'}
-    onChange={(e) => setGasForm((prev) => ({ ...prev, cylinderSize: e.target.value }))}
-  >
-    {gasCylinderSizes.map((size) => (
-      <option key={size} value={size}>
-        {size}
-      </option>
-    ))}
-  </select>
-</div>
-    <Input
-      type="number"
-      placeholder={t(language, 'Small Gas Buy Price', 'Bei ya Kununua Gesi Ndogo')}
-      value={gasForm.smallGasBuyPrice}
-      onChange={(e) => setGasForm((prev) => ({ ...prev, smallGasBuyPrice: e.target.value }))}
-    />
-
-    <Input
-      type="number"
-      placeholder={t(language, 'Small Gas Sell Price', 'Bei ya Kuuza Gesi Ndogo')}
-      value={gasForm.smallGasSellPrice}
-      onChange={(e) => setGasForm((prev) => ({ ...prev, smallGasSellPrice: e.target.value }))}
-    />
-
-    <Input
-      type="number"
-      placeholder={t(language, 'Big Gas Buy Price', 'Bei ya Kununua Gesi Kubwa')}
-      value={gasForm.bigGasBuyPrice}
-      onChange={(e) => setGasForm((prev) => ({ ...prev, bigGasBuyPrice: e.target.value }))}
-    />
-
-   <Input
-  type="number"
-  placeholder={t(language, 'Big Gas Sell Price', 'Bei ya Kuuza Gesi Kubwa')}
-  value={gasForm.bigGasSellPrice}
-  onChange={(e) => setGasForm((prev) => ({ ...prev, bigGasSellPrice: e.target.value }))}
-/>
-</div>
-)}
 
 <div className="grid gap-3 md:grid-cols-3 text-sm">
     <div className="rounded-2xl bg-slate-50 p-3">
@@ -443,10 +438,10 @@ setShowGasPrices,
             bigEmptyCylinders: '',
             smallGasSoldToday: '',
             bigGasSoldToday: '',
-            smallGasBuyPrice: String(GAS_PRICE_BOOK['Taifa Gas'].smallBuy),
-smallGasSellPrice: String(GAS_PRICE_BOOK['Taifa Gas'].smallSell),
-bigGasBuyPrice: String(GAS_PRICE_BOOK['Taifa Gas'].bigBuy),
-bigGasSellPrice: String(GAS_PRICE_BOOK['Taifa Gas'].bigSell),
+           smallGasBuyPrice: '',
+smallGasSellPrice: '',
+bigGasBuyPrice: '',
+bigGasSellPrice: '',
           })
         }
       >
@@ -481,17 +476,15 @@ bigGasSellPrice: String(GAS_PRICE_BOOK['Taifa Gas'].bigSell),
                     </div>
 
                     <div className="flex items-center gap-2">
-                      {isOwnerUser ? (
-                        <>
-                          <Button type="button" variant="outline" size="sm" onClick={() => onEditGas(entry)}>
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button type="button" variant="outline" size="sm" onClick={() => onDeleteGas(entry.id)}>
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </>
-                      ) : null}
-                    </div>
+  <>
+    <Button type="button" variant="outline" size="sm" onClick={() => onEditGas(entry)}>
+      <Pencil className="h-4 w-4" />
+    </Button>
+    <Button type="button" variant="outline" size="sm" onClick={() => onDeleteGas(entry.id)}>
+      <Trash2 className="h-4 w-4" />
+    </Button>
+  </>
+</div>
                   </div>
 
                   <div className="mt-3 grid gap-3 md:grid-cols-2 text-sm">

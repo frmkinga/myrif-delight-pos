@@ -414,6 +414,16 @@ const emptyGasForm = {
   bigGasBuyPrice: '',
   bigGasSellPrice: '',
 };
+const emptyGasSaleRow = {
+  id: '',
+  gasType: 'Taifa Gas',
+  smallGasSoldToday: '',
+  bigGasSoldToday: '',
+  smallGasBuyPrice: '',
+  smallGasSellPrice: '',
+  bigGasBuyPrice: '',
+  bigGasSellPrice: '',
+};
 const seedData = {
   currentUser: null,
   shops: [
@@ -1258,11 +1268,18 @@ const [gasForm, setGasForm] = useState({
   ...emptyGasForm,
   gasType: 'Taifa Gas',
   cylinderSize: 'Small Cylinder',
-  smallGasBuyPrice: String(GAS_PRICE_BOOK['Taifa Gas'].smallBuy),
-  smallGasSellPrice: String(GAS_PRICE_BOOK['Taifa Gas'].smallSell),
-  bigGasBuyPrice: String(GAS_PRICE_BOOK['Taifa Gas'].bigBuy),
-  bigGasSellPrice: String(GAS_PRICE_BOOK['Taifa Gas'].bigSell),
+  smallGasBuyPrice: '',
+  smallGasSellPrice: '',
+  bigGasBuyPrice: '',
+  bigGasSellPrice: '',
 });
+
+const [gasSalesRows, setGasSalesRows] = useState([
+  {
+    ...emptyGasSaleRow,
+    id: `gas-sale-${Date.now()}`,
+  },
+]);
 const [showGasStatus, setShowGasStatus] = useState(false);
 const [showGasSales, setShowGasSales] = useState(false);
 const [showGasPrices, setShowGasPrices] = useState(false);
@@ -1346,16 +1363,47 @@ const deleteGas = async (id) => {
     gasEntries: nextGasEntries,
   });
 
-  const { error } = await supabase.from('gasEntries').delete().eq('id', id);
+     const { error } = await supabase
+    .from('gasEntries')
+    .delete()
+    .eq('id', id);
 
   if (error) {
     console.error('Gas delete error:', error);
+    alert(`Gas delete failed: ${error.message}`);
   }
 };
 
 const isSmallCylinder = gasForm.cylinderSize === 'Small Cylinder';
 const isBigCylinder = gasForm.cylinderSize === 'Big Cylinder';
+const addGasSalesRow = () => {
+  setGasSalesRows((prev) => [
+    ...prev,
+    {
+      ...emptyGasSaleRow,
+      id: `gas-sale-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    },
+  ]);
+};
 
+const updateGasSalesRow = (rowId, field, value) => {
+  setGasSalesRows((prev) =>
+    prev.map((row) =>
+      row.id === rowId
+        ? {
+            ...row,
+            [field]: value,
+          }
+        : row
+    )
+  );
+};
+
+const removeGasSalesRow = (rowId) => {
+  setGasSalesRows((prev) =>
+    prev.length === 1 ? prev : prev.filter((row) => row.id !== rowId)
+  );
+};
 const [mobileMoneyForm, setMobileMoneyForm] = useState({
   id: '',
   date: todayISO(),
@@ -4063,6 +4111,10 @@ setShowGasSales={setShowGasSales}
 showGasPrices={showGasPrices}
 setShowGasPrices={setShowGasPrices}
     gasEntries={gasEntries}
+gasSalesRows={gasSalesRows}
+addGasSalesRow={addGasSalesRow}
+updateGasSalesRow={updateGasSalesRow}
+removeGasSalesRow={removeGasSalesRow}
     todayGasEntries={gasEntries.filter((g) => g.date === todayISO())}
     isOwnerUser={data.currentUser?.role === 'owner'}
     onSaveGas={saveGas}
