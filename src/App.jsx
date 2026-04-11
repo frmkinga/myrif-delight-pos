@@ -3078,7 +3078,7 @@ if (error) {
               </button>
             ) : null}
           </div>
-          <h1 className="mt-3 text-3xl font-semibold">{shop.name} - LOCAL TEST</h1>
+          <h1 className="mt-3 text-3xl font-semibold">{shop.name}</h1>
           <p className="mt-2 text-sm text-slate-500">
             {t(language, 'Independent shop view with sales, stock, credit and reports.', 'Mwonekano wa duka huru wenye mauzo, stock, madeni na ripoti.')}
           </p>
