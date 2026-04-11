@@ -1512,7 +1512,15 @@ const dashboardDateValue =
     ? { start: reportStartDate, end: reportEndDate }
     : reportDate;
 
-const todaySales = filterByPreset(sales, reportPreset, dashboardDateValue).reduce((a, s) => a + Number(s.total || 0), 0);
+const dashboardSales = sales.map((s) => ({
+  ...s,
+  date: s.created_at ? todayISO(new Date(s.created_at)) : s.date,
+}));
+
+const todaySales = filterByPreset(dashboardSales, reportPreset, dashboardDateValue).reduce(
+  (a, s) => a + Number(s.total || 0),
+  0
+);
 const todayExpenses = filterByPreset(expenses, reportPreset, dashboardDateValue).reduce((a, e) => a + Number(e.amount || 0), 0);
 const todayGasProfit = (data.gasEntries || [])
   .filter((x) => x.date === todayISO())
