@@ -593,13 +593,7 @@ if (session?.user?.id && !isOwnerUser) {
       mobileMoneyQuery,
       gasQuery,
     ]);
-    console.log('OWNER DEBUG', {
-  savedSessionUser,
-  isOwnerUser,
-  sessionShopId,
-  cloudSalesCount: Array.isArray(cloudSales) ? cloudSales.length : 0,
-  cloudExpensesCount: Array.isArray(cloudExpenses) ? cloudExpenses.length : 0,
-});
+    
     const normalized = normalizeData({
   ...seedData,
   houses: Array.isArray(dbData?.houses) ? dbData.houses : [],
@@ -1428,7 +1422,14 @@ const reportDateValue =
     ? { start: reportStartDate, end: reportEndDate }
     : reportDate;
 
-const filteredSales = filterByPreset(sales, reportPreset, reportDateValue);
+const filteredSales = filterByPreset(
+  sales.map((s) => ({
+    ...s,
+    date: s.created_at ? todayISO(new Date(s.created_at)) : s.date,
+  })),
+  reportPreset,
+  reportDateValue
+);
 const filteredPurchases = filterByPreset(purchases, reportPreset, reportDateValue);
 const filteredExpenses = filterByPreset(expenses, reportPreset, reportDateValue);
 const filteredMobileMoney = filterByPreset(mobileMoneyEntries, reportPreset, reportDateValue);
@@ -1621,12 +1622,12 @@ const bankCommission = latestMobileEntry ? getBankCommissionTotal(latestMobileEn
   0
 );
 
-  return {
-    rows,
-    totalSold,
-    totalProfit,
-    totalSalesAmount,
-  };
+return {
+  rows,
+  totalSold,
+  totalProfit,
+  totalSalesAmount,
+};
 }, [filteredSales, products, stockSearch]);
 const todayProfit = salesReportRows.totalProfit - todayExpenses; 
 const todayRetailProfit = salesReportRows.totalProfit - todayExpenses;
@@ -1986,15 +1987,26 @@ saleLock.current = false;
 
   const total = cart.reduce((a, c) => a + c.total, 0);
 
-  const saleRecord = {
-    id: `sale-${Date.now()}`,
-    shop_id: shop.id,
-    items: cart,
-    total,
-    type: 'cash',
-    date: new Date().toISOString().slice(0, 10),
-    created_at: new Date().toISOString(),
-  };
+ const saleRecord = {
+  id: `sale-${Date.now()}`,
+  shop_id: shop.id,
+  items: cart,
+  total,
+  type: 'cash',
+  date: (() => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+})(),
+  created_at: new Date().toISOString(),
+};
+
+console.log('SALE DATE TEST', {
+  date: saleRecord.date,
+  created_at: saleRecord.created_at,
+  isoDateFromCreatedAt: String(saleRecord.created_at).slice(0, 10),
+  localReadable: new Date(saleRecord.created_at).toLocaleString(),
+  localDateFromCreatedAt: todayISO(new Date(saleRecord.created_at)),
+});
 
   saveData({
     ...data,
@@ -2634,6 +2646,14 @@ if (!rows.length) return;
 
   const nextAmountOwed = Math.max(0, Number(target.amountOwed || 0) - amount);
 
+console.log('CHANGE LEDGER REDUCE TEST - BEFORE CLOUD', {
+  changeId,
+  originalAmountOwed: Number(target.amountOwed || 0),
+  reduceBy: amount,
+  nextAmountOwed,
+  target,
+});
+
   saveData({
     ...data,
     changeLedger: data.changeLedger
@@ -2646,20 +2666,37 @@ if (!rows.length) return;
   });
 
   try {
-    if (nextAmountOwed > 0) {
-      const { error } = await supabase
+            if (nextAmountOwed > 0) {
+      const { data: updatedRows, error } = await supabase
         .from('changeLedger')
         .update({ amountOwed: nextAmountOwed })
-        .eq('id', changeId);
+        .eq('id', changeId)
+        .select();
+
+      console.log('CHANGE LEDGER REDUCE TEST - AFTER UPDATE', {
+        changeId,
+        nextAmountOwed,
+        updatedRows,
+        updatedCount: Array.isArray(updatedRows) ? updatedRows.length : null,
+        error: error ? error.message : null,
+      });
 
       if (error) {
         alert(`Change ledger update failed: ${error.message}`);
       }
     } else {
-      const { error } = await supabase
+      const { data: deletedRows, error } = await supabase
         .from('changeLedger')
         .delete()
-        .eq('id', changeId);
+        .eq('id', changeId)
+        .select();
+
+      console.log('CHANGE LEDGER REDUCE TEST - AFTER DELETE', {
+        changeId,
+        deletedRows,
+        deletedCount: Array.isArray(deletedRows) ? deletedRows.length : null,
+        error: error ? error.message : null,
+      });
 
       if (error) {
         alert(`Change ledger delete failed: ${error.message}`);
@@ -5019,7 +5056,7 @@ useEffect(() => {
           const nextSales = (sales || []).map((s) => ({
             ...s,
             shop_id: s.shop_id || s.shopid || '',
-            date: s.date || (s.created_at ? String(s.created_at).slice(0, 10) : todayISO()),
+            date: s.created_at ? todayISO(new Date(s.created_at)) : (s.date || todayISO()),
           }));
 
           const keepOtherShops = (items = []) =>
@@ -5333,7 +5370,7 @@ const openShopDashboard = async (shopId) => {
   const nextSales = (sales || []).map((s) => ({
     ...s,
     shop_id: String(s.shop_id || '').trim(),
-    date: s.date || (s.created_at ? String(s.created_at).slice(0, 10) : todayISO()),
+    date: s.created_at ? todayISO(new Date(s.created_at)) : (s.date || todayISO()),
   }));
 
   const nextExpenses = (expenses || []).map((e) => ({
