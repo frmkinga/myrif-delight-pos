@@ -712,19 +712,18 @@ function ReportsSection({
               <table className="min-w-full text-sm">
                 <thead>
                   <tr className="border-b text-left">
-                    <th className="py-2 pr-3">House Name</th>
-                    <th className="py-2 pr-3">Tenant Name</th>
-                    <th className="py-2 pr-3">Date Paid</th>
-                    <th className="py-2 pr-3">Rent Start Date</th>
-                    <th className="py-2 pr-3">Rent End Date</th>
-                    <th className="py-2 pr-3">Next Date of Payment</th>
-                    <th className="py-2 pr-3">Rent Amount</th>
-                    <th className="py-2 pr-3">Amount Paid</th>
-                    <th className="py-2 pr-3">Balance</th>
-                    <th className="py-2 pr-3">Payment Status</th>
-                    <th className="py-2 pr-3">House Status</th>
-                    <th className="py-2 pr-3">Items Issued / Notes</th>
-<th className="py-2 pr-3">Actions</th>
+                    <th className="py-2 pr-3">{t(language, 'House Name', 'Jina la Nyumba')}</th>
+<th className="py-2 pr-3">{t(language, 'Tenant Name', 'Jina la Mpangaji')}</th>
+<th className="py-2 pr-3">{t(language, 'Date Paid', 'Tarehe Ilipolipwa')}</th>
+<th className="py-2 pr-3">{t(language, 'Rent Start Date', 'Tarehe Kodi Kuanza')}</th>
+<th className="py-2 pr-3">{t(language, 'Rent End Date', 'Tarehe Kodi Kuisha')}</th>
+<th className="py-2 pr-3">{t(language, 'Next Date of Payment', 'Tarehe ya Malipo Yanayofuata')}</th>
+<th className="py-2 pr-3">{t(language, 'Rent Amount', 'Kiasi cha Kodi')}</th>
+<th className="py-2 pr-3">{t(language, 'Amount Paid', 'Kiasi Kilicholipwa')}</th>
+<th className="py-2 pr-3">{t(language, 'Balance', 'Salio')}</th>
+<th className="py-2 pr-3">{t(language, 'Status', 'Hali')}</th>
+<th className="py-2 pr-3">{t(language, 'Items Issued', 'Vitu Vilivyotolewa')}</th>
+<th className="py-2 pr-3">{t(language, 'Actions', 'Vitendo')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -790,49 +789,62 @@ function ReportsSection({
         <table className="min-w-full text-sm">
           <thead>
             <tr className="border-b text-left">
-              <th className="py-2 pr-3">House</th>
-              <th className="py-2 pr-3">Meter</th>
-              <th className="py-2 pr-3">Units Used</th>
-              <th className="py-2 pr-3">Total Amount</th>
-              <th className="py-2 pr-3">Actions</th>
+              <th className="py-2 pr-3">{t(language, 'House', 'Nyumba')}</th>
+<th className="py-2 pr-3">{t(language, 'Meter Type', 'Aina ya Mita')}</th>
+<th className="py-2 pr-3">{t(language, 'Meter Number', 'Namba ya Mita')}</th>
+<th className="py-2 pr-3">{t(language, 'Reading Date', 'Tarehe ya Usomaji')}</th>
+<th className="py-2 pr-3">{t(language, 'First Reading', 'Usomaji wa Kwanza')}</th>
+<th className="py-2 pr-3">{t(language, 'Current Reading', 'Usomaji wa Sasa')}</th>
+<th className="py-2 pr-3">{t(language, 'Units Used', 'Units Zilizotumika')}</th>
+<th className="py-2 pr-3">{t(language, 'Cost Per Unit', 'Bei kwa Unit')}</th>
+<th className="py-2 pr-3">{t(language, 'Total Amount', 'Jumla ya Kiasi')}</th>
+<th className="py-2 pr-3">{t(language, 'Next Reading', 'Usomaji Ujao')}</th>
+<th className="py-2 pr-3">{t(language, 'Notes', 'Maelezo')}</th>
+<th className="py-2 pr-3">{t(language, 'Actions', 'Vitendo')}</th>
             </tr>
           </thead>
-               <tbody>
-  {meters.map((row) => (
-    <tr key={row.id} className="border-b">
-      <td className="py-2 pr-3">{row.houseNumber}</td>
-      <td className="py-2 pr-3">{row.meterNumber}</td>
-      <td className="py-2 pr-3">{row.unitsUsed}</td>
-      <td className="py-2 pr-3">TZS {currency(row.totalAmount)}</td>
+          <tbody>
+            {meters.map((row) => (
+              <tr key={row.id} className="border-b align-top">
+                <td className="py-2 pr-3">{row.houseNumber}</td>
+                <td className="py-2 pr-3">{row.meterType || '-'}</td>
+                <td className="py-2 pr-3">{row.meterNumber}</td>
+                <td className="py-2 pr-3">{row.readingDate || '-'}</td>
+                <td className="py-2 pr-3">{row.previousUnits}</td>
+                <td className="py-2 pr-3">{row.currentUnits}</td>
+                <td className="py-2 pr-3">{row.unitsUsed}</td>
+                <td className="py-2 pr-3">TZS {currency(row.costPerUnit)}</td>
+                <td className="py-2 pr-3">TZS {currency(row.totalAmount)}</td>
+                <td className="py-2 pr-3">{row.nextReadingDate || '-'}</td>
+                <td className="py-2 pr-3">{row.notes || '-'}</td>
 
-      <td className="py-2 pr-3">
-        <div className="flex gap-2">
-          <button
-  type="button"
-  className="rounded-lg bg-amber-500 px-3 py-1 text-white"
-  onClick={() => onEditMeter(row)}
->
-  Edit
-</button>
+                <td className="py-2 pr-3">
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      className="rounded-lg bg-amber-500 px-3 py-1 text-white"
+                      onClick={() => onEditMeter(row)}
+                    >
+                      Edit
+                    </button>
 
-          <button
-  type="button"
-  className="rounded-lg bg-red-600 px-3 py-1 text-white"
-  onClick={() => onDeleteMeter(row)}
->
-  Delete
-</button>
-        </div>
-      </td>
-    </tr>
-  ))}
-</tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
+                    <button
+                      type="button"
+                      className="rounded-lg bg-red-600 px-3 py-1 text-white"
+                      onClick={() => onDeleteMeter(row)}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </CardContent>
+  </Card>
+)}
       {reportType === 'service' && (
         <Card>
           <CardHeader><CardTitle>{t(language, 'Service Charge Report', 'Ripoti ya Service Charge')}</CardTitle></CardHeader>
