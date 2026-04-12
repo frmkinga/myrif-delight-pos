@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { supabase } from './supabaseClient';
 
 const currency = (value) =>
   new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(Number(value || 0));
@@ -177,7 +178,7 @@ export default function RentalPropertySectionPreview({ language = 'sw', setLangu
     return { rentEndDate, nextPaymentDate, balance };
   }, [houseForm]);
 
-  const saveHouse = () => {
+ const saveHouse = async () => {
   if (!houseForm.houseNumber || !houseForm.monthlyRentAmount || !houseForm.rentStartDate) return;
 
   const monthlyRent = Number(houseForm.monthlyRentAmount || 0);
@@ -220,9 +221,40 @@ export default function RentalPropertySectionPreview({ language = 'sw', setLangu
     houses: updatedHouses,
   });
 
+  const { error } = await supabase
+    .from('houses')
+    .upsert(
+      [
+        {
+          id: record.id,
+          shop_id: data?.currentUser?.shop_id || data?.currentUser?.shopId || '',
+          houseNumber: record.houseNumber,
+          tenantName: record.tenantName || '',
+          rentPaidDate: record.rentPaidDate || null,
+          rentStartDate: record.rentStartDate || null,
+          rentEndDate: record.rentEndDate || null,
+          monthlyRentAmount: Number(record.monthlyRentAmount || 0),
+          amountPaid: Number(record.amountPaid || 0),
+          rentDurationMonths: Number(record.rentDurationMonths || 1),
+          paymentType: record.paymentType || 'Full',
+          houseStatus: record.houseStatus || 'Occupied',
+          itemsIssued: record.itemsIssued || '',
+          nextPaymentDate: record.nextPaymentDate || null,
+          balance: Number(record.balance || 0),
+        },
+      ],
+      { onConflict: 'id' }
+    );
+
+  if (error) {
+    alert(`House sync failed: ${error.message}`);
+    return;
+  }
+
   setHouseForm({ ...emptyHouseForm });
 };
-  const saveMeter = () => {
+
+  const saveMeter = async () => {
   if (!meterForm.houseNumber || !meterForm.meterNumber || meterForm.previousUnits === '' || meterForm.currentUnits === '') return;
 
   const record = {
@@ -256,10 +288,40 @@ export default function RentalPropertySectionPreview({ language = 'sw', setLangu
     meters: updatedMeters,
   });
 
+  const { error } = await supabase
+    .from('meters')
+    .upsert(
+      [
+        {
+          id: record.id,
+          shop_id: data?.currentUser?.shop_id || data?.currentUser?.shopId || 'shop-1',
+          houseNumber: record.houseNumber,
+          meterType: record.meterType || 'Water',
+          meterNumber: record.meterNumber,
+          readingDate: record.readingDate || null,
+          previousUnits: Number(record.previousUnits || 0),
+          currentUnits: Number(record.currentUnits || 0),
+          unitsUsed: Number(record.unitsUsed || 0),
+          costPerUnit: Number(record.costPerUnit || 0),
+          discount: Number(record.discount || 0),
+          totalAmount: Number(record.totalAmount || 0),
+          nextReadingDate: record.nextReadingDate || null,
+          notes: record.notes || '',
+        },
+      ],
+      { onConflict: 'id' }
+    );
+
+  if (error) {
+    alert(`Meter sync failed: ${error.message}`);
+    return;
+  }
+
   setMeterForm({ ...emptyMeterForm });
 };
+ 
 
-  const saveServiceCharge = () => {
+  const saveServiceCharge = async () => {
   if (!serviceChargeForm.houseNumber || !serviceChargeForm.serviceChargeAmount) return;
 
   const record = {
@@ -289,6 +351,30 @@ export default function RentalPropertySectionPreview({ language = 'sw', setLangu
     ...data,
     serviceCharges: updatedServiceCharges,
   });
+
+  const { error } = await supabase
+    .from('servicecharges')
+    .upsert(
+      [
+        {
+          id: record.id,
+          shop_id: data?.currentUser?.shop_id || data?.currentUser?.shopId || 'shop-1',
+          houseNumber: record.houseNumber,
+          tenantName: record.tenantName || '',
+          serviceChargeAmount: Number(record.serviceChargeAmount || 0),
+          datePaid: record.datePaid || null,
+          nextPaymentDate: record.nextPaymentDate || null,
+          paymentStatus: record.paymentStatus || 'Paid',
+          notes: record.notes || '',
+        },
+      ],
+      { onConflict: 'id' }
+    );
+
+  if (error) {
+    alert(`Service charge sync failed: ${error.message}`);
+    return;
+  }
 
   setServiceChargeForm({ ...emptyServiceChargeForm });
 };
@@ -654,7 +740,7 @@ const editHouse = (row) => {
     });
     setActiveTab('meters');
   }}
-  onDeleteMeter={(row) => {
+    onDeleteMeter={(row) => {
     const confirmed = window.confirm('Delete this meter record?');
     if (!confirmed) return;
 
@@ -662,6 +748,37 @@ const editHouse = (row) => {
       ...data,
       meters: meters.filter((item) => item.id !== row.id),
     });
+  }}
+  onEditServiceCharge={(row) => {
+    setServiceChargeForm({
+      id: row.id || '',
+      houseNumber: row.houseNumber || '',
+      tenantName: row.tenantName || '',
+      serviceChargeAmount: String(row.serviceChargeAmount || DEFAULT_SERVICE_CHARGE),
+      datePaid: row.datePaid || todayISO(),
+      nextPaymentDate: row.nextPaymentDate || '',
+      paymentStatus: row.paymentStatus || 'Paid',
+      notes: row.notes || '',
+    });
+    setActiveTab('servicecharge');
+  }}
+    onDeleteServiceCharge={async (row) => {
+    const confirmed = window.confirm('Delete this service charge record?');
+    if (!confirmed) return;
+
+    saveData({
+      ...data,
+      serviceCharges: serviceCharges.filter((item) => item.id !== row.id),
+    });
+
+    const { error } = await supabase
+      .from('servicecharges')
+      .delete()
+      .eq('id', row.id);
+
+    if (error) {
+      alert(`Service charge delete failed: ${error.message}`);
+    }
   }}
 />
 )}
@@ -687,6 +804,8 @@ function ReportsSection({
   onDeleteHouse,
   onEditMeter,
   onDeleteMeter,
+  onEditServiceCharge,
+  onDeleteServiceCharge,
 }) {
   const [reportType, setReportType] = useState('rent');
 
@@ -845,7 +964,7 @@ function ReportsSection({
     </CardContent>
   </Card>
 )}
-      {reportType === 'service' && (
+            {reportType === 'service' && (
         <Card>
           <CardHeader><CardTitle>{t(language, 'Service Charge Report', 'Ripoti ya Service Charge')}</CardTitle></CardHeader>
           <CardContent>
@@ -853,10 +972,14 @@ function ReportsSection({
               <table className="min-w-full text-sm">
                 <thead>
                   <tr className="border-b text-left">
-                    <th className="py-2 pr-3">House</th>
-                    <th className="py-2 pr-3">Tenant</th>
-                    <th className="py-2 pr-3">Amount</th>
-                    <th className="py-2 pr-3">Status</th>
+                    <th className="py-2 pr-3">{t(language, 'House', 'Nyumba')}</th>
+                    <th className="py-2 pr-3">{t(language, 'Tenant', 'Mpangaji')}</th>
+                    <th className="py-2 pr-3">{t(language, 'Amount', 'Kiasi')}</th>
+                    <th className="py-2 pr-3">{t(language, 'Date Paid', 'Tarehe Ilipolipwa')}</th>
+                    <th className="py-2 pr-3">{t(language, 'Next Payment', 'Malipo Yanayofuata')}</th>
+                    <th className="py-2 pr-3">{t(language, 'Status', 'Hali')}</th>
+                    <th className="py-2 pr-3">{t(language, 'Notes', 'Maelezo')}</th>
+                    <th className="py-2 pr-3">{t(language, 'Actions', 'Vitendo')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -865,7 +988,34 @@ function ReportsSection({
                       <td className="py-2 pr-3">{row.houseNumber}</td>
                       <td className="py-2 pr-3">{row.tenantName || '-'}</td>
                       <td className="py-2 pr-3">TZS {currency(row.serviceChargeAmount)}</td>
+                      <td className="py-2 pr-3">{row.datePaid || '-'}</td>
+                      <td className="py-2 pr-3">{row.nextPaymentDate || '-'}</td>
                       <td className="py-2 pr-3">{row.paymentStatus}</td>
+                      <td className="py-2 pr-3">{row.notes || '-'}</td>
+                      <td className="py-2 pr-3">
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            className="rounded-lg bg-amber-500 px-3 py-1 text-white"
+                            onClick={() => onEditServiceCharge(row)}
+                          >
+                            {t(language, 'Edit', 'Hariri')}
+                          </button>
+
+                          <button
+                            type="button"
+                            className="rounded-lg bg-red-600 px-3 py-1 text-white"
+                            onClick={() => {
+                              const confirmed = window.confirm('Delete this service charge record?');
+                              if (!confirmed) return;
+
+                              onDeleteServiceCharge(row);
+                            }}
+                          >
+                            {t(language, 'Delete', 'Futa')}
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

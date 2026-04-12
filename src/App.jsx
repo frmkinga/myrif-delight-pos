@@ -561,55 +561,112 @@ if (session?.user?.id && !isOwnerUser) {
 }
 
         let productsQuery = supabase.from('products').select('*');
-    let salesQuery = supabase
+let salesQuery = supabase
   .from('sales')
   .select('*')
   .order('created_at', { ascending: false })
   .range(0, 4999);
-    let purchasesQuery = supabase.from('purchases').select('*');
-    let expensesQuery = supabase.from('expenses').select('*');
-    let creditQuery = supabase.from('creditSales').select('*');
-    let changeQuery = supabase.from('changeLedger').select('*');
-    let mobileMoneyQuery = supabase.from('mobileMoneyEntries').select('*');
-    let gasQuery = supabase.from('gasEntries').select('*');
+let purchasesQuery = supabase.from('purchases').select('*');
+let expensesQuery = supabase.from('expenses').select('*');
+let creditQuery = supabase.from('creditSales').select('*');
+let changeQuery = supabase.from('changeLedger').select('*');
+let mobileMoneyQuery = supabase.from('mobileMoneyEntries').select('*');
+let gasQuery = supabase.from('gasEntries').select('*');
+let housesQuery = supabase.from('houses').select('*');
+let metersQuery = supabase.from('meters').select('*');
+let serviceChargesQuery = supabase.from('servicecharges').select('*');
 
         if (sessionShopId) {
-      productsQuery = productsQuery.eq('shop_id', sessionShopId);
-      salesQuery = salesQuery.eq('shop_id', sessionShopId);
-      purchasesQuery = purchasesQuery.eq('shop_id', sessionShopId);
-      expensesQuery = expensesQuery.eq('shop_id', sessionShopId);
-      creditQuery = creditQuery.eq('shop_id', sessionShopId);
-      changeQuery = changeQuery.eq('shop_id', sessionShopId);
-      mobileMoneyQuery = mobileMoneyQuery.eq('shop_id', sessionShopId);
-      gasQuery = gasQuery.eq('shop_id', sessionShopId);
-    }
+  productsQuery = productsQuery.eq('shop_id', sessionShopId);
+  salesQuery = salesQuery.eq('shop_id', sessionShopId);
+  purchasesQuery = purchasesQuery.eq('shop_id', sessionShopId);
+  expensesQuery = expensesQuery.eq('shop_id', sessionShopId);
+  creditQuery = creditQuery.eq('shop_id', sessionShopId);
+  changeQuery = changeQuery.eq('shop_id', sessionShopId);
+  mobileMoneyQuery = mobileMoneyQuery.eq('shop_id', sessionShopId);
+  gasQuery = gasQuery.eq('shop_id', sessionShopId);
+  housesQuery = housesQuery.eq('shop_id', sessionShopId);
+  metersQuery = metersQuery.eq('shop_id', sessionShopId);
+  serviceChargesQuery = serviceChargesQuery.eq('shop_id', sessionShopId);
+}
 
         const [
-      { data: cloudProducts },
-      { data: cloudSales },
-      { data: cloudPurchases },
-      { data: cloudExpenses },
-      { data: cloudCreditSales },
-      { data: cloudChangeLedger },
-      { data: cloudMobileMoneyEntries },
-      { data: cloudGasEntries },
-    ] = await Promise.all([
-      productsQuery,
-      salesQuery,
-      purchasesQuery,
-      expensesQuery,
-      creditQuery,
-      changeQuery,
-      mobileMoneyQuery,
-      gasQuery,
-    ]);
-    
-    const normalized = normalizeData({
+  { data: cloudProducts },
+  { data: cloudSales },
+  { data: cloudPurchases },
+  { data: cloudExpenses },
+  { data: cloudCreditSales },
+  { data: cloudChangeLedger },
+  { data: cloudMobileMoneyEntries },
+  { data: cloudGasEntries },
+  { data: cloudHouses },
+  { data: cloudMeters },
+  { data: cloudServiceCharges },
+] = await Promise.all([
+  productsQuery,
+  salesQuery,
+  purchasesQuery,
+  expensesQuery,
+  creditQuery,
+  changeQuery,
+  mobileMoneyQuery,
+  gasQuery,
+  housesQuery,
+  metersQuery,
+  serviceChargesQuery,
+]);
+
+const normalized = normalizeData({
   ...seedData,
-  houses: Array.isArray(dbData?.houses) ? dbData.houses : [],
-  meters: Array.isArray(dbData?.meters) ? dbData.meters : [],
-  serviceCharges: Array.isArray(dbData?.serviceCharges) ? dbData.serviceCharges : [],
+  houses: (cloudHouses || []).map((h) => ({
+    id: h?.id || '',
+    shop_id: String(h?.shop_id || '').trim(),
+    houseNumber: h?.houseNumber || '',
+    tenantName: h?.tenantName || '',
+    rentPaidDate: h?.rentPaidDate || '',
+    rentStartDate: h?.rentStartDate || '',
+    rentEndDate: h?.rentEndDate || '',
+    monthlyRentAmount: Number(h?.monthlyRentAmount || 0),
+    amountPaid: Number(h?.amountPaid || 0),
+    rentDurationMonths: Number(h?.rentDurationMonths || 1),
+    paymentType: h?.paymentType || 'Full',
+    houseStatus: h?.houseStatus || 'Occupied',
+    itemsIssued: h?.itemsIssued || '',
+    nextPaymentDate: h?.nextPaymentDate || '',
+    balance: Number(h?.balance || 0),
+    created_at: h?.created_at || '',
+  })),
+  meters: (cloudMeters || []).map((m) => ({
+    id: m?.id || '',
+    shop_id: String(m?.shop_id || '').trim(),
+    houseNumber: m?.houseNumber || '',
+    meterType: m?.meterType || 'Water',
+    meterNumber: m?.meterNumber || '',
+    readingDate: m?.readingDate || '',
+    previousUnits: Number(m?.previousUnits || 0),
+    currentUnits: Number(m?.currentUnits || 0),
+    unitsUsed: Number(m?.unitsUsed || 0),
+    costPerUnit: Number(m?.costPerUnit || 0),
+    discount: Number(m?.discount || 0),
+    totalAmount: Number(m?.totalAmount || 0),
+    nextReadingDate: m?.nextReadingDate || '',
+    notes: m?.notes || '',
+    created_at: m?.created_at || '',
+  })),
+  serviceCharges: (cloudServiceCharges || []).map((s) => ({
+    id: s?.id || '',
+    shop_id: String(s?.shop_id || '').trim(),
+    houseNumber: s?.houseNumber || '',
+    tenantName: s?.tenantName || '',
+    serviceChargeAmount: Number(s?.serviceChargeAmount || 0),
+    datePaid: s?.datePaid || '',
+    nextPaymentDate: s?.nextPaymentDate || '',
+    paymentStatus: s?.paymentStatus || 'Paid',
+    notes: s?.notes || '',
+    created_at: s?.created_at || '',
+  })),
   currentUser: savedSessionUser,
+
   products: (cloudProducts || []).map((p) => ({
   id: p?.id || '',
   name: String(p?.name || '').trim(),
