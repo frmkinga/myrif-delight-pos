@@ -853,7 +853,7 @@ function Label({ className = '', children }) {
   return <label className={cn('mb-1 block text-sm font-medium text-slate-700', className)}>{children}</label>;
 }
 function TabsList({ children }) {
-  return <div className="mb-6 flex flex-wrap gap-2 rounded-3xl bg-white p-2 shadow-sm">{children}</div>;
+  return <div className="mb-6 flex flex-wrap gap-2 rounded-3xl bg-white p-2 shadow-sm sticky top-0 z-[999] border-b">{children}</div>;
 }
 function TabsTrigger({ value, activeValue, onClick, children }) {
   const active = value === activeValue;
