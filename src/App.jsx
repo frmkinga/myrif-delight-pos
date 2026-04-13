@@ -286,6 +286,12 @@ const startOfMonth = (date) => {
   const d = new Date(date);
   return new Date(d.getFullYear(), d.getMonth(), 1);
 };
+
+const daysAgoISO = (days) => {
+  const d = new Date();
+  d.setDate(d.getDate() - Number(days || 0));
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 const getDaysUntilExpiry = (expiryDate) => {
   if (!expiryDate) return null;
 
@@ -564,8 +570,8 @@ if (session?.user?.id && !isOwnerUser) {
 let salesQuery = supabase
   .from('sales')
   .select('*')
-  .order('created_at', { ascending: false })
-  .range(0, 4999);
+  .gte('date', daysAgoISO(30))
+  .order('created_at', { ascending: false });
 let purchasesQuery = supabase.from('purchases').select('*');
 let expensesQuery = supabase.from('expenses').select('*');
 let creditQuery = supabase.from('creditSales').select('*');
@@ -1010,6 +1016,8 @@ const [currentPasswordInput, setCurrentPasswordInput] = useState('');
 const [newPasswordInput, setNewPasswordInput] = useState('');
 const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
 const [passwordMessage, setPasswordMessage] = useState('');
+const [ownerSalesSource, setOwnerSalesSource] = useState([]);
+const [ownerSalesLoading, setOwnerSalesLoading] = useState(false);
 const changeAdminPassword = () => {
   const ownerUser = data.users.find((u) => u.role === 'owner');
 
@@ -1051,12 +1059,58 @@ setAppData(nextData);
   setNewPasswordInput('');
   setConfirmPasswordInput('');
 };
-  const salesPeriod = filterByPreset(data.sales, ownerPeriod, todayISO());
+    const shouldLoadOldOwnerSalesFromSupabase =
+    ownerPeriod === '3months' ||
+    ownerPeriod === '6months' ||
+    ownerPeriod === 'year';
+
+  useEffect(() => {
+    if (!shouldLoadOldOwnerSalesFromSupabase) {
+      setOwnerSalesSource([]);
+      setOwnerSalesLoading(false);
+      return;
+    }
+
+    const loadOldOwnerSales = async () => {
+      try {
+        setOwnerSalesLoading(true);
+
+        let startDate = daysAgoISO(89);
+
+        if (ownerPeriod === '6months') {
+          startDate = daysAgoISO(179);
+        } else if (ownerPeriod === 'year') {
+          startDate = daysAgoISO(364);
+        }
+
+        const { data: oldSales, error } = await supabase
+          .from('sales')
+          .select('*')
+          .gte('date', startDate)
+          .order('created_at', { ascending: false });
+
+        if (error) throw error;
+
+        setOwnerSalesSource(oldSales || []);
+      } catch (error) {
+        console.error('Failed to load old owner sales:', error);
+        setOwnerSalesSource([]);
+      } finally {
+        setOwnerSalesLoading(false);
+      }
+    };
+
+    loadOldOwnerSales();
+  }, [ownerPeriod, shouldLoadOldOwnerSalesFromSupabase]);
+
+  const ownerSalesBase = shouldLoadOldOwnerSalesFromSupabase ? ownerSalesSource : data.sales;
+
+  const salesPeriod = filterByPreset(ownerSalesBase, ownerPeriod, todayISO());
 console.log('OWNER STATE CHECK', {
   ownerPeriod,
-  totalSalesInState: Array.isArray(data.sales) ? data.sales.length : 0,
+  totalSalesInState: Array.isArray(ownerSalesBase) ? ownerSalesBase.length : 0,
   filteredSalesCount: Array.isArray(salesPeriod) ? salesPeriod.length : 0,
-  firstThreeSales: Array.isArray(data.sales) ? data.sales.slice(0, 3) : [],
+  firstThreeSales: Array.isArray(ownerSalesBase) ? ownerSalesBase.slice(0, 3) : [],
 });
  const expensesPeriod = filterByPreset(data.expenses, ownerPeriod, todayISO());
   const totalSales = salesPeriod.reduce((a, s) => a + Number(s.total || 0), 0);
@@ -1141,6 +1195,12 @@ const totalBusinessProfit = totalProfit + totalGasProfit + totalWakalaCommission
 </Button>
         </div>
       </div>
+
+      {ownerSalesLoading ? (
+        <div className="mb-4 rounded-2xl bg-slate-100 px-4 py-3 text-sm text-slate-600">
+          {t(language, 'Loading older owner sales from Supabase...', 'Inapakia mauzo ya zamani ya mmiliki kutoka Supabase...')}
+        </div>
+      ) : null}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
   <StatCard
@@ -1315,6 +1375,8 @@ const [reportDate, setReportDate] = useState(todayISO());
 const [reportStartDate, setReportStartDate] = useState(todayISO());
 const [reportEndDate, setReportEndDate] = useState(todayISO());
 const [reportType, setReportType] = useState('stockValue');
+const [reportSalesSource, setReportSalesSource] = useState([]);
+const [reportSalesLoading, setReportSalesLoading] = useState(false);
   const [productFormError, setProductFormError] = useState('');
   const [saleError, setSaleError] = useState('');
 const [saleSaving, setSaleSaving] = useState(false);
@@ -1527,8 +1589,66 @@ const reportDateValue =
     ? { start: reportStartDate, end: reportEndDate }
     : reportDate;
 
+const shouldLoadOldSalesFromSupabase =
+  reportType === 'salesReport' &&
+  (
+    reportPreset === '3months' ||
+    reportPreset === '6months' ||
+    reportPreset === 'year' ||
+    (reportPreset === 'date' && reportStartDate < daysAgoISO(30))
+  );
+
+useEffect(() => {
+  if (!shouldLoadOldSalesFromSupabase) {
+    setReportSalesSource([]);
+    setReportSalesLoading(false);
+    return;
+  }
+
+  const loadOldSalesForReport = async () => {
+    try {
+      setReportSalesLoading(true);
+
+      let startDate = daysAgoISO(30);
+      let endDate = todayISO();
+
+      if (reportPreset === '3months') {
+        startDate = daysAgoISO(89);
+      } else if (reportPreset === '6months') {
+        startDate = daysAgoISO(179);
+      } else if (reportPreset === 'year') {
+        startDate = daysAgoISO(364);
+      } else if (reportPreset === 'date') {
+        startDate = reportStartDate;
+        endDate = reportEndDate;
+      }
+
+      const { data: oldSales, error } = await supabase
+        .from('sales')
+        .select('*')
+        .eq('shop_id', shop.id)
+        .gte('date', startDate)
+        .lte('date', endDate)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      setReportSalesSource(oldSales || []);
+    } catch (error) {
+      console.error('Failed to load old sales for sales report:', error);
+      setReportSalesSource([]);
+    } finally {
+      setReportSalesLoading(false);
+    }
+  };
+
+  loadOldSalesForReport();
+}, [shop.id, reportPreset, reportStartDate, reportEndDate, shouldLoadOldSalesFromSupabase]);
+
+const salesSourceForFiltering = shouldLoadOldSalesFromSupabase ? reportSalesSource : sales;
+
 const filteredSales = filterByPreset(
-  sales.map((s) => ({
+  salesSourceForFiltering.map((s) => ({
     ...s,
     date: s.created_at ? todayISO(new Date(s.created_at)) : s.date,
   })),
@@ -4535,6 +4655,11 @@ onDeleteGas={deleteGas}
   </div>
 ) : reportType === 'salesReport' ? (
               <div className="overflow-x-auto">
+                {reportSalesLoading ? (
+                  <div className="mb-3 text-sm text-slate-500">
+                    {t(language, 'Loading older sales from Supabase...', 'Inapakia mauzo ya zamani kutoka Supabase...')}
+                  </div>
+                ) : null}
                 <table className="w-full min-w-[800px] text-sm">
                   <thead>
                     <tr className="border-b text-left text-slate-500">
@@ -5122,10 +5247,9 @@ const [hasLoadedInitialData, setHasLoadedInitialData] = useState(false);
   })();
 }, []);
 useEffect(() => {
-processSyncQueue();
   const goOnline = async () => {
     setIsOnline(true);
-    setSyncMessage('Back online - syncing...');
+    setSyncMessage('Back online - syncing.');
 
     await processSyncQueue();
 
@@ -5146,6 +5270,7 @@ processSyncQueue();
     window.removeEventListener('offline', goOffline);
   };
 }, []);
+
 useEffect(() => {
   const initOnlineStatus = async () => {
     const online = navigator.onLine;
@@ -5164,6 +5289,13 @@ useEffect(() => {
 
 useEffect(() => {
   if (!activeShopId) return;
+
+  const alreadyHasShopProducts =
+    Array.isArray(data?.products) &&
+    data.products.some(
+      (item) =>
+        String(item?.shop_id || item?.shopId || item?.shopid || '') === String(activeShopId)
+    );
 
   const loadProductsForShop = async () => {
     const { data: products } = await supabase
@@ -5203,7 +5335,9 @@ useEffect(() => {
     });
   };
 
-  loadProductsForShop();
+  if (!alreadyHasShopProducts) {
+    loadProductsForShop();
+  }
 
   const productsChannel = supabase
     .channel('products-changes')
@@ -5224,8 +5358,7 @@ useEffect(() => {
   return () => {
     supabase.removeChannel(productsChannel);
   };
-}, [activeShopId]);;
- 
+}, [activeShopId, data?.products]);
 
 useEffect(() => {
   if (!activeShopId) return;
