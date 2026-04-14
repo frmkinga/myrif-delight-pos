@@ -81,6 +81,14 @@ function readSyncQueue() {
   return readStorage(STORAGE_SYNC_QUEUE_KEY, []);
 }
 
+function debugSyncQueue() {
+  const queue = readSyncQueue();
+  console.log('SYNC QUEUE SNAPSHOT', {
+    count: Array.isArray(queue) ? queue.length : 0,
+    items: queue,
+  });
+}
+
 function writeSyncQueue(queue) {
   writeStorage(STORAGE_SYNC_QUEUE_KEY, queue);
 }
@@ -118,9 +126,10 @@ function clearSyncedQueueItems() {
 async function processSyncQueue() {
   const queue = readSyncQueue();
 
-  if (!queue.length) return;
+  if (!queue.length) return false;
 
   const updatedQueue = [...queue];
+let syncedSomething = false;
 
   for (let i = 0; i < updatedQueue.length; i += 1) {
     const item = updatedQueue[i];
@@ -193,18 +202,19 @@ if (Array.isArray(item.payload.products)) {
         await supabase.from('gasEntries').upsert([item.payload], { onConflict: 'id' });
       }
 
-      updatedQueue[i] = {
+            updatedQueue[i] = {
         ...item,
         synced: true,
         syncedAt: Date.now(),
       };
+      syncedSomething = true;
     } catch (error) {
       console.error('Sync failed for queue item:', item, error);
     }
   }
-
   writeSyncQueue(updatedQueue);
   clearSyncedQueueItems();
+  return syncedSomething;
 }
 function writeStorage(key, value) {
 if (value === null || value === undefined) {
@@ -691,10 +701,11 @@ const normalized = normalizeData({
   confirmed: true,
 })),
       sales: (cloudSales || []).map((s) => ({
-        ...s,
-        shop_id: String(s?.shop_id || '').trim(),
-        date: s?.date || (s?.created_at ? String(s.created_at).slice(0, 10) : todayISO()),
-      })),
+  ...s,
+  shop_id: String(s?.shop_id || '').trim(),
+  date: s?.date || (s?.created_at ? String(s.created_at).slice(0, 10) : todayISO()),
+  confirmed: true,
+})),
       purchases: (cloudPurchases || []).map((p) => ({
         ...p,
         shop_id: String(p?.shop_id || '').trim(),
@@ -1544,6 +1555,15 @@ const sales = data.sales.filter(
   (s) => String(s.shop_id) === String(shop.id)
 );
 
+const confirmedSales = sales.filter((s) => s.confirmed !== false);
+
+console.log('SHOP SALES SNAPSHOT', {
+  shopId: shop.id,
+  totalSalesRowsInData: Array.isArray(data.sales) ? data.sales.length : 0,
+  shopSalesRows: Array.isArray(sales) ? sales.length : 0,
+  latestFiveShopSales: Array.isArray(sales) ? sales.slice(-5) : [],
+});
+
 const creditSales = data.creditSales.filter(
   (s) => String(s.shop_id) === String(shop.id)
 );
@@ -1645,7 +1665,7 @@ useEffect(() => {
   loadOldSalesForReport();
 }, [shop.id, reportPreset, reportStartDate, reportEndDate, shouldLoadOldSalesFromSupabase]);
 
-const salesSourceForFiltering = shouldLoadOldSalesFromSupabase ? reportSalesSource : sales;
+const salesSourceForFiltering = shouldLoadOldSalesFromSupabase ? reportSalesSource : confirmedSales;
 
 const filteredSales = filterByPreset(
   salesSourceForFiltering.map((s) => ({
@@ -1737,12 +1757,39 @@ const dashboardDateValue =
     ? { start: reportStartDate, end: reportEndDate }
     : reportDate;
 
-const dashboardSales = sales.map((s) => ({
-  ...s,
-  date: s.created_at ? todayISO(new Date(s.created_at)) : s.date,
-}));
+const dashboardSales = confirmedSales.map((s) => {
+  const computedDate = s.created_at ? todayISO(new Date(s.created_at)) : s.date;
 
-const todaySales = filterByPreset(dashboardSales, reportPreset, dashboardDateValue).reduce(
+  return {
+    ...s,
+    date: computedDate,
+  };
+});
+
+const dashboardFilteredSales = filterByPreset(dashboardSales, reportPreset, dashboardDateValue);
+
+if (String(shop.id) === 'shop-2' && reportPreset === 'today') {
+  console.log('LIVE SHOP2 TODAY CHECK', {
+    shopId: shop.id,
+    reportPreset,
+    reportDateValue: dashboardDateValue,
+    dashboardSalesCount: dashboardSales.length,
+    filteredSalesCount: dashboardFilteredSales.length,
+    filteredSalesTotal: dashboardFilteredSales.reduce(
+      (a, s) => a + Number(s.total || 0),
+      0
+    ),
+    filteredSalesRows: dashboardFilteredSales.map((s) => ({
+      id: s.id,
+      total: Number(s.total || 0),
+      saved_date: s.date,
+      created_at: s.created_at,
+      items_count: Array.isArray(s.items) ? s.items.length : 0,
+    })),
+  });
+}
+
+const todaySales = dashboardFilteredSales.reduce(
   (a, s) => a + Number(s.total || 0),
   0
 );
@@ -2227,10 +2274,11 @@ saleLock.current = false;
   total,
   type: 'cash',
   date: (() => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-})(),
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  })(),
   created_at: new Date().toISOString(),
+  confirmed: false,
 };
 
 console.log('SALE DATE TEST', {
@@ -2274,31 +2322,31 @@ console.log('SALE DATE TEST', {
   addToSyncQueue('sale_created', salePayload);
 
   if (navigator.onLine) {
-    const { error: saleSyncError } = await supabase
-      .from('sales')
-      .upsert(
-        [
-          {
-            id: saleRecord.id,
-            shop_id: saleRecord.shop_id,
-            items: saleRecord.items,
-            total: saleRecord.total,
-            type: saleRecord.type,
-            date: saleRecord.date,
-            created_at: saleRecord.created_at,
-          },
-        ],
-        { onConflict: 'id' }
-      );
+  const { error: saleSyncError } = await supabase
+    .from('sales')
+    .upsert(
+      [
+        {
+          id: saleRecord.id,
+          shop_id: saleRecord.shop_id,
+          items: saleRecord.items,
+          total: saleRecord.total,
+          type: saleRecord.type,
+          date: saleRecord.date,
+          created_at: saleRecord.created_at,
+        },
+      ],
+      { onConflict: 'id' }
+    );
 
-    if (saleSyncError) {
-      console.error('Immediate sale sync error:', saleSyncError);
-    }
-
-    processSyncQueue().catch((syncError) => {
-      console.error('Queued sales sync error:', syncError);
-    });
+  if (saleSyncError) {
+    console.error('Immediate sale sync error:', saleSyncError);
   }
+
+  processSyncQueue().catch((syncError) => {
+    console.error('Queued sales sync error:', syncError);
+  });
+}
 
   console.log('Sending sale to Supabase:', saleRecord);
 
@@ -5247,11 +5295,19 @@ const [hasLoadedInitialData, setHasLoadedInitialData] = useState(false);
   })();
 }, []);
 useEffect(() => {
+
+  debugSyncQueue();
+
   const goOnline = async () => {
     setIsOnline(true);
     setSyncMessage('Back online - syncing.');
 
-    await processSyncQueue();
+    const syncedSomething = await processSyncQueue();
+
+    if (syncedSomething) {
+      const freshData = await readData({ preferFresh: true });
+      setAppData(freshData);
+    }
 
     writeStorage(STORAGE_LAST_SYNC_KEY, Date.now());
     setSyncMessage('Sync complete');
@@ -5270,6 +5326,7 @@ useEffect(() => {
     window.removeEventListener('offline', goOffline);
   };
 }, []);
+  
 
 useEffect(() => {
   const initOnlineStatus = async () => {
@@ -5278,7 +5335,13 @@ useEffect(() => {
 
     if (online) {
       setSyncMessage('Checking sync...');
-      await processSyncQueue();
+      const syncedSomething = await processSyncQueue();
+
+      if (syncedSomething) {
+        const freshData = await readData({ preferFresh: true });
+        setAppData(freshData);
+      }
+
       writeStorage(STORAGE_LAST_SYNC_KEY, Date.now());
       setSyncMessage('Sync complete');
     }
