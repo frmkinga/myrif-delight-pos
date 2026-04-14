@@ -2322,7 +2322,7 @@ console.log('SALE DATE TEST', {
   addToSyncQueue('sale_created', salePayload);
 
   if (navigator.onLine) {
-  const { error: saleSyncError } = await supabase
+  supabase
     .from('sales')
     .upsert(
       [
@@ -2337,15 +2337,19 @@ console.log('SALE DATE TEST', {
         },
       ],
       { onConflict: 'id' }
-    );
+    )
+    .then(({ error: saleSyncError }) => {
+      if (saleSyncError) {
+        console.error('Immediate sale sync error:', saleSyncError);
+      }
 
-  if (saleSyncError) {
-    console.error('Immediate sale sync error:', saleSyncError);
-  }
-
-  processSyncQueue().catch((syncError) => {
-    console.error('Queued sales sync error:', syncError);
-  });
+      processSyncQueue().catch((syncError) => {
+        console.error('Queued sales sync error:', syncError);
+      });
+    })
+    .catch((syncError) => {
+      console.error('Immediate sale sync exception:', syncError);
+    });
 }
 
   console.log('Sending sale to Supabase:', saleRecord);
