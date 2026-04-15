@@ -890,28 +890,39 @@ function TabsTrigger({ value, activeValue, onClick, children }) {
 function TabsContent({ value, activeValue, children }) {
   return value === activeValue ? <div>{children}</div> : null;
 }
-function StatCard({ title, value, subtitle = '', icon: Icon, color = 'from-blue-400 to-indigo-500' }) {
+
+        function StatCard({ title, value, subtitle = '', icon: Icon, color = 'bg-orange-300' }) {
   return (
-    <div className={`rounded-2xl bg-gradient-to-r ${color} p-[1px] shadow-lg`}>
-      <div className="rounded-2xl bg-white/14 backdrop-blur-md">
-        <div className="flex items-center justify-between gap-4 px-5 py-4 text-white">
-          <div className="min-w-0">
-            <div className="text-sm font-medium text-white/85">{title}</div>
-            <div className="mt-1 text-2xl font-semibold tracking-tight">{value}</div>
-            {subtitle ? (
-              <div className="mt-1 text-xs leading-5 text-white/80">{subtitle}</div>
-            ) : null}
+    <div className={`rounded-2xl ${color} px-5 py-4 shadow-md`}>
+      <div className="flex items-center justify-between">
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-slate-800">
+            {title}
           </div>
 
-          <div className="rounded-xl bg-white/20 p-3 shadow-sm">
-            <Icon className="h-5 w-5" />
+          <div className="mt-1 flex items-baseline gap-1">
+            <span className="text-sm font-semibold text-slate-700">
+              TZS
+            </span>
+            <span className="text-2xl font-bold text-slate-800 tracking-tight">
+              {String(value).replace('TZS', '').trim()}
+            </span>
           </div>
+
+          {subtitle ? (
+            <div className="mt-1 text-xs text-slate-700">
+              {subtitle}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="rounded-xl bg-white/80 p-2 shadow-sm">
+          <Icon className="h-5 w-5 text-slate-800" />
         </div>
       </div>
     </div>
   );
 }
-
 function Login({ onLogin, users, language, setLanguage }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -1131,7 +1142,7 @@ function getFloatStatus(capital, floatTotal, commissionTotal, language) {
     return `${t(language, 'Below capital, explained by commission: TZS', 'Chini ya mtaji, imeelezwa na kamisheni: TZS')} ${currency(commissionTotal)}`;
   }
 
-  return `${t(language, 'Warning: Float is below capital by TZS', 'Tahadhari: Float iko chini ya mtaji kwa TZS')} ${currency(gap)}`;
+  return `${t(language, 'Warning: Float is below capital by TZS', 'Tahadhari: Float iko chini kwa TZS')} ${currency(gap)}`;
 }
 function getLatestEntryForShop(entries, shopId) {
   const shopEntries = entries
@@ -3573,77 +3584,74 @@ if (error) {
      <TabsContent value="dashboard" activeValue={activeTab}>
   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
     <StatCard
-      title={t(language, 'Today Sales', 'Mauzo ya Leo')}
-      value={`TZS ${currency(todaySales)}`}
-      icon={ShoppingCart}
-      color="from-fuchsia-400 to-pink-500"
-    />
+  title={t(language, 'Today Sales', 'Mauzo ya Leo')}
+  value={`TZS ${currency(todaySales)}`}
+  icon={ShoppingCart}
+  color="bg-orange-300"
+/>
 
-    <StatCard
-      title={t(language, 'Today Expenses', 'Matumizi ya Leo')}
-      value={`TZS ${currency(todayExpenses)}`}
-      icon={AlertTriangle}
-      color="from-orange-300 to-rose-400"
-    />
+<StatCard
+  title={t(language, 'Today Expenses', 'Matumizi ya Leo')}
+  value={`TZS ${currency(todayExpenses)}`}
+  icon={AlertTriangle}
+  color="bg-red-300"
+/>
 
-    <StatCard
-      title={t(language, 'Today Profit', 'Faida ya Leo')}
-      value={`TZS ${currency(todayProfit)}`}
-      icon={Wallet}
-      color="from-violet-400 to-indigo-500"
-    />
+<StatCard
+  title={t(language, 'Today Profit', 'Faida ya Leo')}
+  value={`TZS ${currency(todayProfit)}`}
+  icon={Wallet}
+  color="bg-green-300"
+/>
 
-    <StatCard
-      title={t(language, 'Expiry Alerts', 'Tahadhari za Muda wa Matumizi')}
-      value={`${expiredCount} ${t(language, 'expired', 'zilizoisha')} / ${expiringSoonCount} ${t(language, 'soon', 'zinakaribia')}`}
-      subtitle={t(language, 'Expired / due within 7 days', 'Zilizoisha / ndani ya siku 7')}
-      icon={AlertTriangle}
-      color="from-rose-400 to-red-500"
-    />
+<StatCard
+  title={t(language, 'Expiry Alerts', 'Bidhaa zinazokaribia ku-expire')}
+  value={`${expiringSoonCount}`}
+  icon={AlertTriangle}
+  color="bg-rose-300"
+/>
 
-    <StatCard
-      title={t(language, 'Low Stock Alerts', 'Tahadhari za Stock Ndogo')}
-      value={`${lowStockCount} ${t(language, 'items', 'bidhaa')}`}
-      subtitle={t(language, 'At or below minimum stock', 'Ziko chini au sawa na kiwango cha chini')}
-      icon={AlertTriangle}
-      color="from-amber-400 to-orange-500"
-    />
+<StatCard
+  title={t(language, 'Low Stock Alerts', 'Bidhaa zinazohitaji kuongezwa')}
+  value={`${lowStockCount}`}
+  icon={AlertTriangle}
+  color="bg-amber-300"
+/>
 
-    <StatCard
-      title={t(language, 'Mobile Money Capital', 'Mtaji wa Simu')}
-      value={`TZS ${currency(mobileCapital)}`}
-      subtitle={
-        latestMobileEntry
-          ? getFloatStatus(
-              mobileCapital,
-              mobileFloat,
-              mobileCommission,
-              language
-            )
-          : ''
-      }
-      icon={HandCoins}
-      color="from-sky-400 to-cyan-500"
-    />
+<StatCard
+  title={t(language, 'Mobile Money Capital', 'Mtaji wa Simu')}
+  value={`TZS ${currency(mobileCapital)}`}
+  subtitle={
+    latestMobileEntry
+      ? getFloatStatus(
+          mobileCapital,
+          mobileFloat,
+          mobileCommission,
+          language
+        )
+      : ''
+  }
+  icon={HandCoins}
+  color="bg-cyan-300"
+/>
 
-    <StatCard
-      title={t(language, 'Bank Capital', 'Mtaji wa Benki')}
-      value={`TZS ${currency(bankCapital)}`}
-      subtitle={
-        latestMobileEntry
-          ? getFloatStatus(
-              bankCapital,
-              bankFloat,
-              bankCommission,
-              language
-            )
-          : ''
-      }
-      icon={Building2}
-      color="from-indigo-400 to-blue-500"
-    />
-  </div>
-
+<StatCard
+  title={t(language, 'Bank Capital', 'Mtaji wa Benki')}
+  value={`TZS ${currency(bankCapital)}`}
+  subtitle={
+    latestMobileEntry
+      ? getFloatStatus(
+          bankCapital,
+          bankFloat,
+          bankCommission,
+          language
+        )
+      : ''
+  }
+  icon={Building2}
+  color="bg-blue-300"
+/>
+</div>
   <Card className="mt-6 border-white/50 bg-[linear-gradient(135deg,rgba(255,255,255,0.92),rgba(248,250,255,0.96),rgba(255,244,250,0.96))] shadow-lg backdrop-blur-md">
     <CardHeader>
       <CardTitle>{t(language, 'Business Profit Breakdown', 'Muhtasari wa Faida za Biashara')}</CardTitle>
