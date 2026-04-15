@@ -864,7 +864,11 @@ function Label({ className = '', children }) {
   return <label className={cn('mb-1 block text-sm font-medium text-slate-700', className)}>{children}</label>;
 }
 function TabsList({ children }) {
-  return <div className="mb-6 flex flex-wrap gap-2 rounded-3xl bg-white p-2 shadow-sm sticky top-0 z-[999] border-b">{children}</div>;
+  return (
+    <div className="mb-6 flex flex-wrap gap-2 rounded-[28px] border border-slate-200 bg-white/90 p-2 shadow-md backdrop-blur-sm sticky top-0 z-[999]">
+      {children}
+    </div>
+  );
 }
 function TabsTrigger({ value, activeValue, onClick, children }) {
   const active = value === activeValue;
@@ -873,8 +877,10 @@ function TabsTrigger({ value, activeValue, onClick, children }) {
       type="button"
       onClick={onClick}
       className={cn(
-        'rounded-2xl px-4 py-2 text-sm transition-colors',
-        active ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200',
+        'rounded-2xl px-4 py-2 text-sm font-medium transition-all duration-200 shadow-sm',
+        active
+          ? 'bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-600 text-white shadow-md'
+          : 'bg-white/80 text-slate-700 hover:bg-white hover:text-slate-900'
       )}
     >
       {children}
@@ -884,17 +890,20 @@ function TabsTrigger({ value, activeValue, onClick, children }) {
 function TabsContent({ value, activeValue, children }) {
   return value === activeValue ? <div>{children}</div> : null;
 }
-function StatCard({ title, value, subtitle = '', icon: Icon, color = 'from-blue-500 to-indigo-600' }) {
+function StatCard({ title, value, subtitle = '', icon: Icon, color = 'from-blue-400 to-indigo-500' }) {
   return (
-    <div className={`rounded-3xl bg-gradient-to-r ${color} p-[1px] shadow-lg`}>
-      <div className="rounded-3xl bg-white/10 backdrop-blur-md">
-        <div className="flex items-start justify-between gap-4 p-6 text-white">
-          <div>
-            <div className="text-sm text-white/80">{title}</div>
-            <div className="mt-2 text-2xl font-semibold">{value}</div>
-            {subtitle && <div className="mt-1 text-xs text-white/80">{subtitle}</div>}
+    <div className={`rounded-2xl bg-gradient-to-r ${color} p-[1px] shadow-lg`}>
+      <div className="rounded-2xl bg-white/14 backdrop-blur-md">
+        <div className="flex items-center justify-between gap-4 px-5 py-4 text-white">
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-white/85">{title}</div>
+            <div className="mt-1 text-2xl font-semibold tracking-tight">{value}</div>
+            {subtitle ? (
+              <div className="mt-1 text-xs leading-5 text-white/80">{subtitle}</div>
+            ) : null}
           </div>
-          <div className="rounded-2xl bg-white/15 p-3">
+
+          <div className="rounded-xl bg-white/20 p-3 shadow-sm">
             <Icon className="h-5 w-5" />
           </div>
         </div>
@@ -905,10 +914,10 @@ function StatCard({ title, value, subtitle = '', icon: Icon, color = 'from-blue-
 
 function Login({ onLogin, users, language, setLanguage }) {
   const [username, setUsername] = useState('');
-const [password, setPassword] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
-    const submit = async (e) => {
+  const submit = async (e) => {
     e.preventDefault();
 
     const found = users.find((u) => u.username === username);
@@ -931,45 +940,155 @@ const [password, setPassword] = useState('');
   };
 
   return (
-  <AppShell>
-    <div className="min-h-screen flex items-center justify-center bg-[url('/login-bg.png')] bg-cover bg-center bg-black/50 bg-blend-overlay bg-cover bg-center bg-slate-900/40 bg-blend-overlay">
-      <div className="mx-auto max-w-md w-full">
-        <Card>
-          <CardHeader>
-            <div className="mb-4 flex items-center justify-between">
-              <div>
-                <CardTitle>{t(language, 'Multi-Shop POS', 'POS ya Maduka Mengi')}</CardTitle>
-                <p className="mt-2 text-sm text-slate-500">
-                  {t(language, 'Simple kiosk and wakala management.', 'Usimamizi rahisi wa kioski na wakala.')}
-                </p>
+    <AppShell>
+      <div className="min-h-screen bg-[url('/login-bg.png')] bg-cover bg-center">
+        <div className="min-h-screen bg-[linear-gradient(135deg,rgba(15,23,42,0.82),rgba(79,70,229,0.58),rgba(236,72,153,0.45))] px-4 py-6 md:px-8">
+          <div className="mx-auto flex min-h-[calc(100vh-3rem)] max-w-6xl items-center justify-center">
+            <div className="grid w-full overflow-hidden rounded-[36px] border border-white/20 bg-white/10 shadow-2xl backdrop-blur-xl lg:grid-cols-2">
+              <div className="relative hidden min-h-[620px] flex-col justify-between overflow-hidden bg-[linear-gradient(135deg,rgba(99,102,241,0.88),rgba(236,72,153,0.72),rgba(14,165,233,0.72))] p-8 text-white lg:flex">
+                <div className="absolute -left-16 -top-16 h-52 w-52 rounded-full bg-white/15 blur-3xl" />
+                <div className="absolute -bottom-20 right-0 h-72 w-72 rounded-full bg-fuchsia-300/20 blur-3xl" />
+
+                <div className="relative z-10">
+                  <div className="inline-flex rounded-full border border-white/25 bg-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-white/90">
+                    Myrif Delight
+                  </div>
+
+                  <h1 className="mt-6 max-w-md text-4xl font-semibold leading-tight">
+                    {t(language, 'Welcome back.', 'Karibu tena, Huduma bora, fahari yetu')}
+                  </h1>
+
+                  <p className="mt-4 max-w-lg text-sm leading-7 text-white/85">
+                    {t(
+                      language,
+                      'Manage kiosk, wakala, reports, stock and shop performance in one modern workspace.',
+                      'Simamia kioski, wakala, ripoti, stock na utendaji wa duka katika eneo moja la kisasa.'
+                    )}
+                  </p>
+                </div>
+
+                <div className="relative z-10 grid gap-4">
+                  <div className="rounded-3xl border border-white/20 bg-white/10 p-5 backdrop-blur-md">
+                    <div className="text-sm font-medium text-white/90">
+                    
+                    </div>
+                    <div className="mt-2 text-xs leading-6 text-white/75">
+                      {t(
+  language,
+  'Built for gas, transactions and shop operations.',
+  'Biashara ya gesi, miamala na maduka.'
+)}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="rounded-3xl border border-white/20 bg-white/10 p-4 backdrop-blur-md">
+                      <div className="text-2xl font-semibold">5</div>
+                      <div className="mt-1 text-xs text-white/75">
+                        {t(language, 'Connected shops', 'Maduka yaliyounganishwa')}
+                      </div>
+                    </div>
+
+                    <div className="rounded-3xl border border-white/20 bg-white/10 p-4 backdrop-blur-md">
+                      <div className="text-2xl font-semibold">
+  {t(language, 'Quality-service', 'Huduma Bora')}
+</div>
+<div className="mt-1 text-xs text-white/75">
+  {t(language, 'Gas, transactions and shop operations', 'Biashara ya gesi, miamala na maduka')}
+</div>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <select className="rounded-xl border border-slate-200 px-3 py-2 text-sm" value={language} onChange={(e) => setLanguage(e.target.value)}>
-                <option value="sw">Kiswahili</option>
-                <option value="en">English</option>
-              </select>
+
+              <div className="flex items-center bg-white/70 p-4 backdrop-blur-xl sm:p-6 md:p-8 lg:p-10">
+                <div className="mx-auto w-full max-w-md">
+                  <div className="mb-6 flex items-start justify-between gap-4">
+                    <div>
+                      <div className="inline-flex rounded-full bg-gradient-to-r from-indigo-600 to-fuchsia-600 px-3 py-1 text-xs font-semibold text-white shadow-lg">
+                        {t(language, 'Secure Access', 'Kuingia kwa Usalama')}
+                      </div>
+
+                      <h2 className="mt-4 text-3xl font-semibold text-slate-900">
+                        {t(language, 'Please login to continue', 'Tafadhali ingia kuendelea')}
+                      </h2>
+
+                      <p className="mt-2 text-sm leading-6 text-slate-600">
+                        {t(
+                          language,
+                          'Use your shop credentials to open your workspace.',
+                          'Tumia jina na nenosiri kufungua duka lako.'
+                        )}
+                      </p>
+                    </div>
+
+                    <select
+                      className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm outline-none transition focus:border-indigo-400"
+                      value={language}
+                      onChange={(e) => setLanguage(e.target.value)}
+                    >
+                      <option value="sw">Kiswahili</option>
+                      <option value="en">English</option>
+                    </select>
+                  </div>
+
+                  <div className="rounded-[32px] border border-white/60 bg-white/80 p-5 shadow-xl">
+                    <form onSubmit={submit} className="space-y-5">
+                      <div>
+                        <Label className="mb-2 text-sm font-medium text-slate-700">
+                          {t(language, 'Username', 'Jina la mtumiaji')}
+                        </Label>
+                        <Input
+                          value={username}
+                          onChange={(e) => setUsername(e.target.value)}
+                          placeholder={t(language, 'Enter username', 'Weka jina la mtumiaji')}
+                          className="h-12 rounded-2xl border-slate-200 bg-white/90 px-4 text-sm shadow-sm focus:border-indigo-400"
+                        />
+                      </div>
+
+                      <div>
+  <Label className="mb-2 text-sm font-medium text-slate-700">
+    {t(language, 'Password', 'Nenosiri')}
+  </Label>
+  <Input
+    type="password"
+    value={password}
+    onChange={(e) => setPassword(e.target.value)}
+    placeholder={t(language, 'Enter password', 'Weka nenosiri')}
+    className="h-12 rounded-2xl border-slate-200 bg-white/90 px-4 text-sm shadow-sm focus:border-fuchsia-400"
+  />
+</div>
+
+{error ? (
+  <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+    {error}
+  </div>
+) : null}
+
+<div className="space-y-3 pt-1">
+  <Button
+    type="submit"
+    className="h-12 w-full rounded-2xl bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-600 text-sm font-semibold text-white shadow-lg hover:from-indigo-700 hover:via-violet-700 hover:to-fuchsia-700"
+  >
+    {t(language, 'Login', 'Ingia')}
+  </Button>
+</div>
+</form>
+</div>
+
+<div className="mt-5 text-center text-xs text-slate-500">
+  {t(
+    language,
+    'Owner and shop users use the same secure sign-in area.',
+    'Mmiliki na watumiaji wa duka hutumia eneo hili hili salama la kuingia.'
+  )}
+</div>
+                </div>
+              </div>
             </div>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={submit} className="space-y-4">
-              <div>
-                <Label>{t(language, 'Username', 'Jina la mtumiaji')}</Label>
-                <Input value={username} onChange={(e) => setUsername(e.target.value)} />
-              </div>
-              <div>
-                <Label>{t(language, 'Password', 'Nenosiri')}</Label>
-                <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
-              </div>
-              {error ? <div className="rounded-2xl bg-red-50 p-3 text-sm text-red-600">{error}</div> : null}
-              <div className="flex gap-2">
-                <Button type="submit" className="flex-1">
-                  {t(language, 'Login', 'Ingia')}
-                </Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
- </div>
     </AppShell>
   );
 }
@@ -3353,102 +3472,125 @@ if (error) {
   };
   return (
     <AppShell>
-      <div className="mb-6 flex items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 text-sm text-slate-500">
-            {canBack ? (
-              <button type="button" onClick={backToOwner} className="inline-flex items-center gap-1 rounded-xl border border-slate-200 px-2 py-1 hover:bg-white">
-                <ChevronLeft className="h-4 w-4" />
-                {t(language, 'Back to owner', 'Rudi kwa mmiliki')}
-              </button>
-            ) : null}
+     <div className="mb-6 rounded-2xl bg-[linear-gradient(135deg,rgba(99,102,241,0.12),rgba(236,72,153,0.10),rgba(255,255,255,0.95))] p-5 shadow-lg ring-1 ring-slate-200/70">
+        <div className="rounded-2xl border border-white/70 bg-white/80 px-5 py-5 backdrop-blur-sm">
+          <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-center">
+            <div>
+              <div className="flex items-center gap-2 text-sm text-slate-500">
+                {canBack ? (
+                  <button
+                    type="button"
+                    onClick={backToOwner}
+                    className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm transition hover:bg-slate-50"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    {t(language, 'Back to owner', 'Rudi kwa mmiliki')}
+                  </button>
+                ) : null}
+              </div>
+
+              <div className="mt-3 inline-flex rounded-full bg-gradient-to-r from-indigo-500 via-violet-500 to-fuchsia-500 px-3 py-1 text-xs font-semibold text-white shadow-sm">
+                {t(language, 'Shop Workspace', 'Eneo la Kazi la Duka')}
+              </div>
+
+              <h1 className="mt-4 text-3xl font-semibold tracking-tight text-slate-900">
+                {shop.name}
+              </h1>
+
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+                {t(
+                  language,
+                  'Sales, stock, credit, gas, mobile money and reports in one elegant workspace.',
+                  'Mauzo, stock, madeni, gesi, wakala na ripoti katika eneo moja lenye mwonekano wa kifahari.'
+                )}
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm"
+                value={language}
+                onChange={(e) => setLanguage(e.target.value)}
+              >
+                <option value="sw">Kiswahili</option>
+                <option value="en">English</option>
+              </select>
+
+              <select
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm"
+                value={reportPreset}
+                onChange={(e) => setReportPreset(e.target.value)}
+              >
+                <option value="today">{t(language, 'Today', 'Leo')}</option>
+                <option value="yesterday">{t(language, 'Yesterday', 'Jana')}</option>
+                <option value="week">{t(language, 'Week', 'Wiki')}</option>
+                <option value="month">{t(language, 'Month', 'Mwezi')}</option>
+                <option value="3months">{t(language, '3 Months', 'Miezi 3')}</option>
+                <option value="6months">{t(language, '6 Months', 'Miezi 6')}</option>
+                <option value="year">{t(language, 'Year', 'Mwaka')}</option>
+              </select>
+
+              <Button variant="outline" className="bg-white shadow-sm" onClick={() => exportBackup()}>
+                {t(language, 'Export Backup', 'Pakua Backup')}
+              </Button>
+
+              <Button variant="outline" className="bg-white shadow-sm" onClick={logout}>
+                <LogOut className="mr-2 h-4 w-4" />
+                {t(language, 'Logout', 'Toka')}
+              </Button>
+            </div>
           </div>
-          <h1 className="mt-3 text-3xl font-semibold">{shop.name}</h1>
-          <p className="mt-2 text-sm text-slate-500">
-            {t(language, 'Independent shop view with sales, stock, credit and reports.', 'Mwonekano wa duka huru wenye mauzo, stock, madeni na ripoti.')}
-          </p>
         </div>
-        <div className="flex items-center gap-2">
-  <select
-    className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-    value={language}
-    onChange={(e) => setLanguage(e.target.value)}
-  >
-    <option value="sw">Kiswahili</option>
-    <option value="en">English</option>
-  </select>
-
-  <select
-    className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-    value={reportPreset}
-    onChange={(e) => setReportPreset(e.target.value)}
-  >
-    <option value="today">{t(language, 'Today', 'Leo')}</option>
-    <option value="yesterday">{t(language, 'Yesterday', 'Jana')}</option>
-    <option value="week">{t(language, 'Week', 'Wiki')}</option>
-    <option value="month">{t(language, 'Month', 'Mwezi')}</option>
-    <option value="3months">{t(language, '3 Months', 'Miezi 3')}</option>
-    <option value="6months">{t(language, '6 Months', 'Miezi 6')}</option>
-    <option value="year">{t(language, 'Year', 'Mwaka')}</option>
-  </select>
-
-  <Button variant="outline" onClick={() => exportBackup()}>
-    {t(language, 'Export Backup', 'Pakua Backup')}
-  </Button>
-
-  <Button variant="outline" onClick={logout}>
-    <LogOut className="mr-2 h-4 w-4" />
-    {t(language, 'Logout', 'Toka')}
-  </Button>
-</div>
       </div>
 
-      <TabsList>
-  {[
-    ['dashboard', t(language, 'Dashboard', 'Dashibodi')],
-    ['products', t(language, 'Record Products', 'Sajili Bidhaa')],
-    ['purchases', t(language, 'Record Purchases', 'Sajili Manunuzi')],
-    ['pos', t(language, 'Sales', 'Mauzo')],
-    ['expenses', t(language, 'Expenses', 'Matumizi')],
-    ['credit', t(language, 'Credit', 'Madeni')],
-    ['change', t(language, 'Customer Change', 'Chenji ya Mteja')],
-    ['mobilemoney', t(language, 'Mobile Money', 'Wakala')],
-['gas', t(language, 'Gas Business', 'Biashara ya Gesi')],
-...(
-  data.currentUser?.role === 'owner' ||
-  String(data.currentUser?.shop_id || data.currentUser?.shopId || '') === 'shop-1'
-    ? [['rental', 'Rental Property']]
-    : []
-),
-['reports', t(language, 'Reports', 'Ripoti')],
-  ].map(([value, label]) => (
-    <TabsTrigger key={value} value={value} activeValue={activeTab} onClick={() => setActiveTab(value)}>
-      {label}
-    </TabsTrigger>
-  ))}
-</TabsList>
+      <div className="mb-6 rounded-[30px] bg-[linear-gradient(135deg,rgba(255,255,255,0.88),rgba(248,250,255,0.94),rgba(255,244,250,0.94))] p-2 shadow-lg ring-1 ring-slate-200/70">
+  <TabsList>
+    {[
+      ['dashboard', t(language, 'Dashboard', 'Dashibodi')],
+      ['products', t(language, 'Record Products', 'Sajili Bidhaa')],
+      ['purchases', t(language, 'Record Purchases', 'Sajili Manunuzi')],
+      ['pos', t(language, 'Sales', 'Mauzo')],
+      ['expenses', t(language, 'Expenses', 'Matumizi')],
+      ['credit', t(language, 'Credit', 'Madeni')],
+      ['change', t(language, 'Customer Change', 'Chenji ya Mteja')],
+      ['mobilemoney', t(language, 'Mobile Money', 'Wakala')],
+      ['gas', t(language, 'Gas Business', 'Biashara ya Gesi')],
+      ...(
+        data.currentUser?.role === 'owner' ||
+        String(data.currentUser?.shop_id || data.currentUser?.shopId || '') === 'shop-1'
+          ? [['rental', 'Rental Property']]
+          : []
+      ),
+      ['reports', t(language, 'Reports', 'Ripoti')],
+    ].map(([value, label]) => (
+      <TabsTrigger key={value} value={value} activeValue={activeTab} onClick={() => setActiveTab(value)}>
+        {label}
+      </TabsTrigger>
+    ))}
+  </TabsList>
+</div>
 
      <TabsContent value="dashboard" activeValue={activeTab}>
-  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
     <StatCard
       title={t(language, 'Today Sales', 'Mauzo ya Leo')}
       value={`TZS ${currency(todaySales)}`}
       icon={ShoppingCart}
-      color="from-fuchsia-500 to-purple-600"
+      color="from-fuchsia-400 to-pink-500"
     />
 
     <StatCard
       title={t(language, 'Today Expenses', 'Matumizi ya Leo')}
       value={`TZS ${currency(todayExpenses)}`}
       icon={AlertTriangle}
-      color="from-orange-400 to-pink-500"
+      color="from-orange-300 to-rose-400"
     />
 
     <StatCard
       title={t(language, 'Today Profit', 'Faida ya Leo')}
       value={`TZS ${currency(todayProfit)}`}
       icon={Wallet}
-      color="from-violet-500 to-indigo-700"
+      color="from-violet-400 to-indigo-500"
     />
 
     <StatCard
@@ -3456,7 +3598,7 @@ if (error) {
       value={`${expiredCount} ${t(language, 'expired', 'zilizoisha')} / ${expiringSoonCount} ${t(language, 'soon', 'zinakaribia')}`}
       subtitle={t(language, 'Expired / due within 7 days', 'Zilizoisha / ndani ya siku 7')}
       icon={AlertTriangle}
-      color="from-rose-500 to-red-600"
+      color="from-rose-400 to-red-500"
     />
 
     <StatCard
@@ -3464,7 +3606,7 @@ if (error) {
       value={`${lowStockCount} ${t(language, 'items', 'bidhaa')}`}
       subtitle={t(language, 'At or below minimum stock', 'Ziko chini au sawa na kiwango cha chini')}
       icon={AlertTriangle}
-      color="from-amber-500 to-orange-600"
+      color="from-amber-400 to-orange-500"
     />
 
     <StatCard
@@ -3481,7 +3623,7 @@ if (error) {
           : ''
       }
       icon={HandCoins}
-      color="from-cyan-500 to-sky-600"
+      color="from-sky-400 to-cyan-500"
     />
 
     <StatCard
@@ -3498,30 +3640,30 @@ if (error) {
           : ''
       }
       icon={Building2}
-      color="from-indigo-500 to-blue-700"
+      color="from-indigo-400 to-blue-500"
     />
   </div>
 
-  <Card className="mt-6">
+  <Card className="mt-6 border-white/50 bg-[linear-gradient(135deg,rgba(255,255,255,0.92),rgba(248,250,255,0.96),rgba(255,244,250,0.96))] shadow-lg backdrop-blur-md">
     <CardHeader>
       <CardTitle>{t(language, 'Business Profit Breakdown', 'Muhtasari wa Faida za Biashara')}</CardTitle>
     </CardHeader>
 
     <CardContent>
       <div className="grid gap-3 md:grid-cols-4 text-sm">
-        <div className="rounded-2xl bg-slate-50 p-3">
+        <div className="rounded-2xl bg-gradient-to-r from-fuchsia-100 to-pink-100 p-3 font-medium text-slate-800">
           {t(language, 'Retail Profit', 'Faida ya Duka')}: TZS {currency(todayRetailProfit)}
         </div>
 
-        <div className="rounded-2xl bg-slate-50 p-3">
+        <div className="rounded-2xl bg-gradient-to-r from-orange-100 to-rose-100 p-3 font-medium text-slate-800">
           {t(language, 'Gas Profit', 'Faida ya Gesi')}: TZS {currency(todayGasProfit)}
         </div>
 
-        <div className="rounded-2xl bg-slate-50 p-3">
+        <div className="rounded-2xl bg-gradient-to-r from-cyan-100 to-sky-100 p-3 font-medium text-slate-800">
           {t(language, 'Wakala Commission', 'Kamisheni ya Wakala')}: TZS {currency(todayWakalaCommission)}
         </div>
 
-        <div className="rounded-2xl bg-slate-100 p-3 font-semibold">
+        <div className="rounded-2xl bg-gradient-to-r from-violet-100 to-indigo-100 p-3 font-semibold text-slate-900">
           {t(language, 'Total Business Profit', 'Jumla ya Faida za Biashara')}: TZS {currency(totalBusinessProfit)}
         </div>
       </div>
