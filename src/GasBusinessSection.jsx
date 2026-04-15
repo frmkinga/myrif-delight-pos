@@ -2,22 +2,22 @@ import React, { useMemo } from 'react';
 import { Pencil, Trash2, PlusCircle } from 'lucide-react';
 const GAS_PRICE_BOOK = {
   'Taifa Gas': {
-    smallBuy: 20000,
+    smallBuy: 20500,
     smallSell: 23000,
-    bigBuy: 45000,
-    bigSell: 50000,
+    bigBuy: 49000,
+    bigSell: 55000,
   },
   'Oryx Gas': {
-    smallBuy: 21000,
-    smallSell: 24000,
-    bigBuy: 46000,
-    bigSell: 51000,
+    smallBuy: 21500,
+    smallSell: 23000,
+    bigBuy: 52000,
+    bigSell: 55000,
   },
   'O Gas': {
-    smallBuy: 20500,
-    smallSell: 23500,
-    bigBuy: 45500,
-    bigSell: 50500,
+    smallBuy: 21000,
+    smallSell: 23000,
+    bigBuy: 49000,
+    bigSell: 55000,
   },
 };
 function getGasProfitBreakdown(entry) {
