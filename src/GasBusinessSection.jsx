@@ -201,6 +201,12 @@ setShowGasPrices,
           <CardTitle>{t(language, 'Gas Business', 'Biashara ya Gesi')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+  {!isOwnerUser && !gasForm.id && todayGasEntries.length > 0 ? (
+    <div className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+      Tayari umejaza taarifa za gesi kwa tarehe ya leo. Tafadhali wasiliana na admini kama ungependa kufanya marekebisho.
+    </div>
+  ) : null}
+
   <div className="grid gap-3 md:grid-cols-2">
     <div>
       <div className="mb-1 text-sm text-slate-600">{t(language, 'Date', 'Tarehe')}</div>
@@ -415,9 +421,22 @@ setShowGasPrices,
   ) : null}
 
   <div className="flex gap-2">
-    <Button type="button" onClick={onSaveGas}>
-      {gasForm.id ? t(language, 'Update Gas Record', 'Sasisha Rekodi ya Gesi') : t(language, 'Save Gas Record', 'Hifadhi Rekodi ya Gesi')}
-    </Button>
+    <Button
+  type="button"
+  onClick={onSaveGas}
+  disabled={
+    (!isOwnerUser && !gasForm.id && todayGasEntries.length > 0) || 
+    (isOwnerUser && !gasForm.id)
+  }
+>
+  {(!isOwnerUser && !gasForm.id && todayGasEntries.length > 0)
+    ? 'Taarifa za leo tayari zipo'
+    : (isOwnerUser && !gasForm.id)
+      ? 'Owner hawezi kuanzisha rekodi mpya'
+      : gasForm.id
+        ? t(language, 'Update Gas Record', 'Sasisha Rekodi ya Gesi')
+        : t(language, 'Save Gas Record', 'Hifadhi Rekodi ya Gesi')}
+</Button>
 
     {gasForm.id ? (
       <Button
@@ -475,19 +494,29 @@ bigGasSellPrice: '',
                       <div className="mt-1 font-semibold">{t(language, 'Total Profit', 'Jumla ya Faida')}: TZS {currency(profits.totalProfit)}</div>
                     </div>
 
-                    <div className="flex items-center gap-2">
-  <>
-    <Button type="button" variant="outline" size="sm" onClick={() => onEditGas(entry)}>
-      <Pencil className="h-4 w-4" />
-    </Button>
-    <Button type="button" variant="outline" size="sm" onClick={() => onDeleteGas(entry.id)}>
-      <Trash2 className="h-4 w-4" />
-    </Button>
-  </>
+                   <div className="flex items-center gap-2">
+  <Button
+    type="button"
+    variant="outline"
+    size="sm"
+    onClick={() => onEditGas(entry)}
+    disabled={!isOwnerUser && todayGasEntries.length > 0}
+  >
+    <Pencil className="h-4 w-4" />
+  </Button>
+  <Button
+    type="button"
+    variant="outline"
+    size="sm"
+    onClick={() => onDeleteGas(entry.id)}
+    disabled={!isOwnerUser && todayGasEntries.length > 0}
+  >
+    <Trash2 className="h-4 w-4" />
+  </Button>
 </div>
-                  </div>
+</div>
 
-                  <div className="mt-3 grid gap-3 md:grid-cols-2 text-sm">
+<div className="mt-3 grid gap-3 md:grid-cols-2 text-sm">
                     <div className={`rounded-2xl p-3 ${alignment.bigMatches ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'}`}>
                       {alignment.bigMessage}
                     </div>

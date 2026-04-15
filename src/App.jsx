@@ -44,7 +44,7 @@ const BACKUP_KEYS = [
 ];
 const DEFAULT_LANGUAGE = 'sw';
 const MOBILE_PROVIDERS = ['M-Pesa', 'Mixx by Yas', 'Airtel Money', 'HaloPesa'];
-const BANKS = ['CRDB', 'NMB', 'NBC', 'Equity', 'Absa', 'Stanbic', 'Exim', 'DTB', 'Azania'];
+const BANKS = ['CRDB', 'NMB', 'NBC'];
 const GAS_TYPES = ['Taifa Gas', 'Oryx Gas', 'Mihan / Taifa Gas', 'O Gas', 'Other'];
 const GAS_CYLINDER_SIZES = ['Small Cylinder', 'Big Cylinder'];
 const GAS_PRICE_BOOK = {
@@ -1126,23 +1126,25 @@ function getBankCommissionTotal(entry) {
   return (entry.banks || []).reduce((a, n) => a + Number(n.commission || 0), 0);
 }
 
-function getFloatStatus(capital, floatTotal, commissionTotal, language) {
-  const diff = Number(floatTotal || 0) - Number(capital || 0);
+function getFloatStatus(capital, cashTotal, floatTotal, commissionTotal, language) {
+  const availableBalance = Number(cashTotal || 0) + Number(floatTotal || 0);
+  const diff = Number(availableBalance || 0) - Number(capital || 0);
 
   if (diff === 0) {
     return t(language, 'Balanced', 'Imesawazika');
   }
 
-  if (diff > 0) {
-    return `${t(language, 'Warning: Float exceeds capital by TZS', 'Tahadhari: Float imezidi mtaji kwa TZS')} ${currency(diff)}`;
+ if (diff > 0) {
+    return `${t(language, 'Balance is above capital by TZS', 'Salio limezidi mtaji kwa TZS')} ${currency(diff)}`;
   }
 
   const gap = Math.abs(diff);
+
   if (commissionTotal > 0 && gap === Number(commissionTotal || 0)) {
-    return `${t(language, 'Below capital, explained by commission: TZS', 'Chini ya mtaji, imeelezwa na kamisheni: TZS')} ${currency(commissionTotal)}`;
+    return `${t(language, 'Below capital, explained by commission: TZS', 'Upungufu umeelezwa na kamisheni: TZS')} ${currency(commissionTotal)}`;
   }
 
-  return `${t(language, 'Warning: Float is below capital by TZS', 'Tahadhari: Float iko chini kwa TZS')} ${currency(gap)}`;
+  return `${t(language, 'Balance is below capital by TZS', 'Mtaji umepungua kwa TZS')} ${currency(gap)}`;
 }
 function getLatestEntryForShop(entries, shopId) {
   const shopEntries = entries
@@ -1550,6 +1552,20 @@ const [showGasSales, setShowGasSales] = useState(false);
 const [showGasPrices, setShowGasPrices] = useState(false);
 
 const saveGas = async () => {
+  const existingTodayGasEntry = (data.gasEntries || []).find(
+    (entry) =>
+      String(entry.shop_id) === String(shop.id) &&
+      String(entry.date) === String(gasForm.date || todayISO()) &&
+      String(entry.id) !== String(gasForm.id || '')
+  );
+
+  const isOwnerUser = String(data.currentUser?.role || '') === 'owner';
+
+  if (!isOwnerUser && existingTodayGasEntry) {
+    alert('Tayari umejaza taarifa za gesi kwa tarehe ya leo. Tafadhali wasiliana na admini kama ungependa kufanya marekebisho.');
+    return;
+  }
+
   const record = {
   ...buildGasRecord(gasForm),
   shop_id: shop.id,
@@ -1772,6 +1788,10 @@ const mobileMoneyEntries = data.mobileMoneyEntries.filter(
 );
 
 const todayMobileMoneyEntries = mobileMoneyEntries.filter((m) => m.date === todayISO());
+const isOwnerUser = String(data.currentUser?.role || '') === 'owner';
+const isEditingMobileMoney = Boolean(mobileMoneyForm.id);
+const shouldShowMobileMoneyWarning = !isOwnerUser && todayMobileMoneyEntries.length > 0;
+const shouldDisableMobileMoneySave = !isOwnerUser && todayMobileMoneyEntries.length > 0 && !isEditingMobileMoney;
 
 const gasEntries = (data.gasEntries || []).filter(
   (g) => String(g.shop_id) === String(shop.id)
@@ -3274,6 +3294,105 @@ console.log('CHANGE LEDGER REDUCE TEST - BEFORE CLOUD', {
     }));
 
   const saveMobileMoney = async () => {
+  if (isOwnerUser && !mobileMoneyForm.id) {
+    alert('Admin hawezi kuanzisha rekodi mpya ya wakala. Anaweza kuhariri au kufuta tu.');
+    return;
+  }
+
+// 🔴 VALIDATION START
+
+// Mobile capital lazima
+if (!String(mobileMoneyForm.mobileCapital || '').trim()) {
+  alert('Tafadhali jaza sehemu ya mtaji.');
+  return;
+}
+
+// Mobile cash lazima
+if (!String(mobileMoneyForm.mobileCashTotal || '').trim()) {
+  alert('Tafadhali jaza pesa taslimu.');
+  return;
+}
+
+// ALL 4 networks lazima
+const requiredProviders = ['M-Pesa', 'Mixx by Yas', 'Airtel Money', 'HaloPesa'];
+
+for (const provider of requiredProviders) {
+  const row = (mobileMoneyForm.networks || []).find((n) => n.provider === provider);
+
+  if (!row) {
+    alert(`Tafadhali ongeza ${provider}.`);
+    return;
+  }
+
+  if (!String(row.float || '').trim()) {
+    alert(`Tafadhali jaza float ya ${provider}.`);
+    return;
+  }
+
+  if (!String(row.commission || '').trim()) {
+    alert(`Tafadhali jaza commission ya ${provider}.`);
+    return;
+  }
+}
+
+// 👉 Angalia kama user ameanza kutumia bank
+const hasBankData =
+  String(mobileMoneyForm.bankCashTotal || '').trim() ||
+  (mobileMoneyForm.banks || []).some(
+    (b) =>
+      String(b.float || '').trim() ||
+      String(b.commission || '').trim()
+  );
+
+// 👉 Kama hajatumia bank, usimlazimishe
+if (hasBankData) {
+  if (!String(mobileMoneyForm.bankCashTotal || '').trim()) {
+    alert('Tafadhali jaza pesa taslimu ya benki.');
+    return;
+  }
+
+  const requiredBanks = ['CRDB', 'NMB', 'NBC'];
+
+for (let i = 0; i < requiredBanks.length; i += 1) {
+  const bankName = requiredBanks[i];
+  const row = (mobileMoneyForm.banks || [])[i];
+
+  if (!row) {
+    alert(`Tafadhali ongeza ${bankName}.`);
+    return;
+  }
+
+  if (String(row.bankName || '').trim() !== bankName) {
+    alert(`Tafadhali ongeza ${bankName}.`);
+    return;
+  }
+
+  if (!String(row.float || '').trim()) {
+    alert(`Tafadhali jaza float ya ${bankName}.`);
+    return;
+  }
+
+  if (!String(row.commission || '').trim()) {
+    alert(`Tafadhali jaza commission ya ${bankName}.`);
+    return;
+  }
+}
+}
+
+// 🔴 VALIDATION END
+
+  const existingTodayEntry = (data.mobileMoneyEntries || []).find(
+    (entry) =>
+      String(entry.shop_id) === String(shop.id) &&
+      String(entry.date) === String(mobileMoneyForm.date || todayISO()) &&
+      String(entry.id) !== String(mobileMoneyForm.id || '')
+  );
+
+  if (existingTodayEntry) {
+    alert('Tayari umejaza taarifa za wakala kwa tarehe ya leo. Tafadhali wasiliana na admini kwa msaada zaidi.');
+    return;
+  }
+
   const record = {
   id: mobileMoneyForm.id || `mm-${Date.now()}`,
   shop_id: shop.id,
@@ -3305,10 +3424,17 @@ addToSyncQueue('mobile_money_created', record);
 
 const { error } = await supabase
   .from('mobileMoneyEntries')
-  .insert([record]);
+  .upsert([record], { onConflict: 'id' });
 
 if (error) {
   alert(`Mobile money sync failed: ${error.message}`);
+  return;
+}
+
+if (navigator.onLine) {
+  processSyncQueue().catch((syncError) => {
+    console.error('Queued mobile money sync error:', syncError);
+  });
 }
     setMobileMoneyForm({
   id: '',
@@ -3350,7 +3476,21 @@ if (error) {
   });
 };
 
-  const deleteMobileMoney = (id) => saveData({ ...data, mobileMoneyEntries: data.mobileMoneyEntries.filter((m) => m.id !== id) });
+  const deleteMobileMoney = async (id) => {
+  saveData({
+    ...data,
+    mobileMoneyEntries: data.mobileMoneyEntries.filter((m) => m.id !== id),
+  });
+
+  const { error } = await supabase
+    .from('mobileMoneyEntries')
+    .delete()
+    .eq('id', id);
+
+  if (error) {
+    alert(`Mobile money delete failed: ${error.message}`);
+  }
+};
   const exportCurrentReportToExcel = () => {
     let rows = [];
     const reportDateLabel =
@@ -3667,15 +3807,16 @@ if (error) {
   title={t(language, 'Mobile Money Capital', 'Mtaji wa Simu')}
   value={`TZS ${currency(mobileCapital)}`}
   subtitle={
-    latestMobileEntry
-      ? getFloatStatus(
-          mobileCapital,
-          mobileFloat,
-          mobileCommission,
-          language
-        )
-      : ''
-  }
+  latestMobileEntry
+    ? getFloatStatus(
+        mobileCapital,
+        latestMobileEntry.mobileCashTotal,
+        mobileFloat,
+        mobileCommission,
+        language
+      )
+    : ''
+}
   icon={HandCoins}
   color="bg-cyan-300"
 />
@@ -3684,15 +3825,16 @@ if (error) {
   title={t(language, 'Bank Capital', 'Mtaji wa Benki')}
   value={`TZS ${currency(bankCapital)}`}
   subtitle={
-    latestMobileEntry
-      ? getFloatStatus(
-          bankCapital,
-          bankFloat,
-          bankCommission,
-          language
-        )
-      : ''
-  }
+  latestMobileEntry
+    ? getFloatStatus(
+        bankCapital,
+        latestMobileEntry.bankCashTotal,
+        bankFloat,
+        bankCommission,
+        language
+      )
+    : ''
+}
   icon={Building2}
   color="bg-blue-300"
 />
@@ -5124,7 +5266,7 @@ onDeleteGas={deleteGas}
                 <div>{t(language, 'Total Mobile Float', 'Jumla ya Float ya Simu')}: TZS {currency(getMobileFloatTotal(entry))}</div>
                 <div>{t(language, 'Total Mobile Commission', 'Jumla ya Kamisheni ya Simu')}: TZS {currency(getMobileCommissionTotal(entry))}</div>
                 <div className="mt-2 font-medium">
-                  {t(language, 'Status', 'Hali')}: {getFloatStatus(entry.mobileCapital, getMobileFloatTotal(entry), getMobileCommissionTotal(entry), language)}
+                  {t(language, 'Status', 'Hali')}: {getFloatStatus(entry.mobileCapital, entry.mobileCashTotal, getMobileFloatTotal(entry), getMobileCommissionTotal(entry), language)}
                 </div>
               </div>
 
@@ -5134,7 +5276,7 @@ onDeleteGas={deleteGas}
                 <div>{t(language, 'Total Bank Float', 'Jumla ya Float ya Benki')}: TZS {currency(getBankFloatTotal(entry))}</div>
                 <div>{t(language, 'Total Bank Commission', 'Jumla ya Kamisheni ya Benki')}: TZS {currency(getBankCommissionTotal(entry))}</div>
                 <div className="mt-2 font-medium">
-                  {t(language, 'Status', 'Hali')}: {getFloatStatus(entry.bankCapital, getBankFloatTotal(entry), getBankCommissionTotal(entry), language)}
+                  {getFloatStatus(entry.bankCapital, entry.bankCashTotal, getBankFloatTotal(entry), getBankCommissionTotal(entry), language)} 
                 </div>
               </div>
             </div>
@@ -5228,6 +5370,11 @@ onDeleteGas={deleteGas}
               <CardTitle>{t(language, 'Mobile Money / Wakala', 'Wakala / Mitandao ya Simu na Benki')}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+  {shouldShowMobileMoneyWarning ? (
+  <div className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+    Tayari umejaza taarifa za wakala kwa tarehe ya leo. Tafadhali wasiliana na admini kama ungependa kufanya marekebisho.
+  </div>
+) : null}
               <div className="grid gap-3 md:grid-cols-2">
   <Input
     type="date"
@@ -5318,9 +5465,20 @@ onDeleteGas={deleteGas}
               </div>
 
               <Input placeholder={t(language, 'Notes', 'Maelezo')} value={mobileMoneyForm.notes} onChange={(e) => setMobileMoneyForm((prev) => ({ ...prev, notes: e.target.value }))} />
-              <Button type="button" onClick={saveMobileMoney}>
-                {t(language, 'Save Wakala', 'Hifadhi Wakala')}
-              </Button>
+              <Button
+  type="button"
+  onClick={saveMobileMoney}
+  disabled={
+    shouldDisableMobileMoneySave ||
+    (isOwnerUser && !mobileMoneyForm.id)
+  }
+>
+  {shouldDisableMobileMoneySave
+    ? 'Taarifa za leo tayari zipo'
+    : (isOwnerUser && !mobileMoneyForm.id)
+      ? 'Admin hawezi kuanzisha rekodi mpya'
+      : t(language, 'Save Wakala', 'Hifadhi Wakala')}
+</Button>
             </CardContent>
           </Card>
 
@@ -5373,7 +5531,7 @@ onDeleteGas={deleteGas}
             <div>{t(language, 'Total Mobile Float', 'Jumla ya Float ya Simu')}: TZS {currency(getMobileFloatTotal(entry))}</div>
             <div>{t(language, 'Total Mobile Commission', 'Jumla ya Kamisheni ya Simu')}: TZS {currency(getMobileCommissionTotal(entry))}</div>
             <div className="font-medium">
-              {t(language, 'Status', 'Hali')}: {getFloatStatus(entry.mobileCapital, getMobileFloatTotal(entry), getMobileCommissionTotal(entry), language)}
+              {t(language, 'Status', 'Hali')}: {getFloatStatus(entry.mobileCapital, entry.mobileCashTotal, getMobileFloatTotal(entry), getMobileCommissionTotal(entry), language)}
             </div>
           </div>
         </div>
@@ -5397,7 +5555,7 @@ onDeleteGas={deleteGas}
             <div>{t(language, 'Total Bank Float', 'Jumla ya Float ya Benki')}: TZS {currency(getBankFloatTotal(entry))}</div>
             <div>{t(language, 'Total Bank Commission', 'Jumla ya Kamisheni ya Benki')}: TZS {currency(getBankCommissionTotal(entry))}</div>
             <div className="font-medium">
-              {t(language, 'Status', 'Hali')}: {getFloatStatus(entry.bankCapital, getBankFloatTotal(entry), getBankCommissionTotal(entry), language)}
+              {t(language, 'Status', 'Hali')}: {getFloatStatus(entry.bankCapital, entry.bankCashTotal, getBankFloatTotal(entry), getBankCommissionTotal(entry), language)}
             </div>
           </div>
         </div>
