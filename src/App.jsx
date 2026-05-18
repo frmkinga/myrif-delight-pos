@@ -187,10 +187,26 @@ if (Array.isArray(item.payload.products)) {
         await supabase.from('purchases').upsert([purchasePayload], { onConflict: 'id' });
 
         if (Array.isArray(item.payload.products) && item.payload.products.length) {
-          await supabase
-            .from('products')
-            .upsert(item.payload.products, { onConflict: 'id' });
-        }
+  const safeProductRows = item.payload.products
+    .filter((p) => p.id && p.shop_id && p.name)
+    .map((p) => ({
+      id: p.id,
+      name: String(p.name || '').trim(),
+      buyingprice: Number(p.buyingprice ?? p.buyPrice ?? 0),
+      sellingprice: Number(p.sellingprice ?? p.sellPrice ?? 0),
+      stock: Number(p.stock ?? p.stockBaseQty ?? 0),
+      shop_id: p.shop_id,
+      baseunit: p.baseunit || p.baseUnit || 'pc',
+      expirydate: p.expirydate || p.expiryDate || null,
+      created_at: p.created_at || new Date().toISOString(),
+    }));
+
+  if (safeProductRows.length) {
+    await supabase
+      .from('products')
+      .upsert(safeProductRows, { onConflict: 'id' });
+  }
+}
       } else if (item.actionType === 'expense_created') {
 
         await supabase.from('expenses').upsert([item.payload], { onConflict: 'id' });
@@ -265,7 +281,26 @@ async function readFromDB(key) {
   });
 }
 const cn = (...classes) => classes.filter(Boolean).join(' ');
-const currency = (value) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(Number(value || 0));
+
+const parseMoneyInput = (value) => {
+  if (value === null || value === undefined || value === '') return 0;
+  return Number(String(value).replace(/,/g, '').trim() || 0);
+};
+
+const currency = (value) =>
+  new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(parseMoneyInput(value));
+
+const formatMoneyInput = (value) => {
+  const raw = String(value ?? '').replace(/,/g, '').replace(/[^\d.]/g, '');
+
+  if (!raw) return '';
+
+  const [whole, decimal] = raw.split('.');
+  const formattedWhole = new Intl.NumberFormat('en-US').format(Number(whole || 0));
+
+  return decimal !== undefined ? `${formattedWhole}.${decimal.slice(0, 2)}` : formattedWhole;
+};
+
 const formatQty = (value) => {
   const num = Number(value || 0);
   return Number.isInteger(num) ? String(num) : new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(num);
@@ -373,12 +408,21 @@ const emptyProductRow = {
   subUnits: '0.75,0.5,0.25',
   qrCode: '',
 };
-const emptyPurchaseRow = { id: '', productId: '', quantity: '', unitCost: '', date: todayISO(), notes: '' };
+const emptyPurchaseRow = {
+  id: '',
+  productId: '',
+  productSearch: '',
+  quantity: '',
+  unitCost: '',
+  date: todayISO(),
+  expiryDate: '',
+  notes: '',
+};
 const emptyExpenseRow = { id: '', title: '', amount: '', category: '', date: todayISO(), notes: '' };
 const emptyCreditRow = { id: '', customerName: '', amount: '', phone: '', notes: '' };
 const emptyChangeRow = { id: '', customerName: '', amountOwed: '', notes: '' };
-const emptyNetworkRow = { provider: 'M-Pesa', float: '', commission: '' };
-const emptyBankRow = { bankName: 'CRDB', float: '', commission: '' };
+const emptyNetworkRow = { provider: 'M-Pesa', float: '', commission: '0' };
+const emptyBankRow = { bankName: 'CRDB', float: '', commission: '0' };
 const RECURRING_EXPENSES_BY_SHOP = {
   'shop-1': [
     { title: 'Home Expenses', amount: '10000', category: 'Recurring', notes: '' },
@@ -1725,6 +1769,14 @@ const removeGasSalesRow = (rowId) => {
     prev.length === 1 ? prev : prev.filter((row) => row.id !== rowId)
   );
 };
+
+
+
+
+
+
+
+
 const [mobileMoneyForm, setMobileMoneyForm] = useState({
   id: '',
   date: todayISO(),
@@ -2020,6 +2072,34 @@ const todayWakalaCommission = (data.mobileMoneyEntries || [])
 const mobileCapital = latestMobileEntry ? Number(latestMobileEntry.mobileCapital || 0) : 0;
 const bankCapital = latestMobileEntry ? Number(latestMobileEntry.bankCapital || 0) : 0;
 
+useEffect(() => {
+  if (!shop?.id) return;
+
+  setMobileMoneyForm((prev) => {
+    // Do not disturb an existing record being edited
+    if (prev.id) return prev;
+
+    const currentMobileCapital = String(prev.mobileCapital || '').trim();
+    const currentBankCapital = String(prev.bankCapital || '').trim();
+
+    return {
+      ...prev,
+      mobileCapital:
+        currentMobileCapital !== ''
+          ? prev.mobileCapital
+          : mobileCapital
+            ? String(mobileCapital)
+            : '',
+      bankCapital:
+        currentBankCapital !== ''
+          ? prev.bankCapital
+          : bankCapital
+            ? String(bankCapital)
+            : '',
+    };
+  });
+}, [shop?.id, mobileCapital, bankCapital]);
+
 const mobileFloat = latestMobileEntry ? getMobileFloatTotal(latestMobileEntry) : 0;
 const bankFloat = latestMobileEntry ? getBankFloatTotal(latestMobileEntry) : 0;
 
@@ -2132,7 +2212,7 @@ const expiringProducts = useMemo(() => {
     .filter((p) => p.daysLeft !== null && p.daysLeft <= 30)
     .sort((a, b) => a.daysLeft - b.daysLeft);
 }, [products]);
-const expiringSoonCount = expiringProducts.filter((p) => p.daysLeft >= 0 && p.daysLeft <= 7).length;
+const expiringSoonCount = expiringProducts.filter((p) => p.daysLeft >= 0 && p.daysLeft <= 30).length;
 const expiredCount = expiringProducts.filter((p) => p.daysLeft < 0).length;
 const lowStockCount = products.filter(
   (p) => Number(p.stockBaseQty || 0) <= Number(p.minStockLevel || 0)
@@ -2533,14 +2613,61 @@ console.log('SALE DATE TEST', {
       ],
       { onConflict: 'id' }
     )
-    .then(({ error: saleSyncError }) => {
+    .then(async ({ error: saleSyncError }) => {
       if (saleSyncError) {
         console.error('Immediate sale sync error:', saleSyncError);
+        return;
       }
 
-      processSyncQueue().catch((syncError) => {
+      try {
+        await processSyncQueue();
+
+        const stillHasPendingSync = readSyncQueue().some((item) => item?.synced === false);
+
+        if (stillHasPendingSync) {
+          setSyncMessage('Sync pending - dashboard not refreshed yet');
+          return;
+        }
+
+        const { data: confirmedShopSales, error: confirmedSalesError } = await supabase
+          .from('sales')
+          .select('*')
+          .eq('shop_id', shop.id)
+          .gte('date', daysAgoISO(30))
+          .order('created_at', { ascending: false });
+
+        if (confirmedSalesError) throw confirmedSalesError;
+
+        if (!Array.isArray(confirmedShopSales)) {
+          throw new Error('Supabase confirmed sales response was not a valid list.');
+        }
+
+        const previousSales = Array.isArray(data.sales) ? data.sales : [];
+
+        const nextData = {
+          ...data,
+          products: nextProducts,
+          sales: [
+            ...previousSales.filter(
+              (sale) =>
+                String(sale.shop_id || sale.shopId || sale.shopid || '') !== String(shop.id)
+            ),
+            ...confirmedShopSales.map((sale) => ({
+              ...sale,
+              shop_id: String(sale.shop_id || sale.shopId || sale.shopid || shop.id).trim(),
+              date: sale.date || (sale.created_at ? String(sale.created_at).slice(0, 10) : todayISO()),
+              confirmed: true,
+            })),
+          ],
+        };
+
+        await saveData(nextData);
+
+        writeStorage(STORAGE_LAST_SYNC_KEY, Date.now());
+        setSyncMessage('Sync complete');
+      } catch (syncError) {
         console.error('Queued sales sync error:', syncError);
-      });
+      }
     })
     .catch((syncError) => {
       console.error('Immediate sale sync exception:', syncError);
@@ -2795,17 +2922,18 @@ const saveProductRows = async () => {
   saveData({ ...data, products: nextProducts });
 
   const rowsToSync = nextProducts
-    .filter((p) => String(p.shop_id) === String(shop.id))
-    .map((p) => ({
-      id: p.id,
-      name: p.name,
-      buyingprice: Number(p.buyPrice || 0),
-      sellingprice: Number(p.sellPrice || 0),
-      stock: Number(p.stockBaseQty || 0),
-      shop_id: p.shop_id,
-      baseunit: p.baseUnit || 'pc',
-      created_at: p.created_at || new Date().toISOString(),
-    }));
+  .filter((p) => String(p.shop_id) === String(shop.id))
+  .map((p) => ({
+    id: p.id,
+    name: p.name,
+    buyingprice: Number(p.buyPrice || 0),
+    sellingprice: Number(p.sellPrice || 0),
+    stock: Number(p.stockBaseQty || 0),
+    shop_id: p.shop_id,
+    baseunit: p.baseUnit || 'pc',
+    expirydate: p.expiryDate || null,
+    created_at: p.created_at || new Date().toISOString(),
+  }));
 
   const { error } = await supabase
     .from('products')
@@ -2859,15 +2987,16 @@ const rows = purchaseRows;
     const unitCost = Number(row.unitCost || 0);
 
     const preparedPurchase = {
-      id: row.id || `purchase-${Date.now()}-${idx}`,
-      shop_id: shop.id,
-      productId: row.productId,
-      quantity,
-      unitCost,
-      notes: row.notes || '',
-      date: row.date || todayISO(),
-      confirmed: true,
-    };
+  id: row.id || `purchase-${Date.now()}-${idx}`,
+  shop_id: shop.id,
+  productId: row.productId,
+  quantity,
+  unitCost,
+  expiryDate: row.expiryDate || '',
+  notes: row.notes || '',
+  date: row.date || todayISO(),
+  confirmed: true,
+};
 
     newlyPreparedPurchases.push(preparedPurchase);
 
@@ -2938,31 +3067,33 @@ Weka bei mpya ya kuuza au acha iliyopendekezwa.`
 );
       }
 
-      nextProducts[productIndex] = {
-        ...nextProducts[productIndex],
-        stockBaseQty:
-          Number(nextProducts[productIndex].stockBaseQty || 0) +
-          Number(preparedPurchase.quantity || 0),
-        buyPrice: newBuyPrice,
-        sellPrice: nextSellPrice,
-      };
+     nextProducts[productIndex] = {
+  ...nextProducts[productIndex],
+  stockBaseQty:
+    Number(nextProducts[productIndex].stockBaseQty || 0) +
+    Number(preparedPurchase.quantity || 0),
+  buyPrice: newBuyPrice,
+  sellPrice: nextSellPrice,
+  expiryDate: preparedPurchase.expiryDate || nextProducts[productIndex].expiryDate || '',
+};
     }
   }
 
   saveData({ ...data, purchases: nextPurchases, products: nextProducts });
 
-  const productRowsForSync = nextProducts
-    .filter((p) => String(p.shop_id) === String(shop.id))
-    .map((p) => ({
-      id: p.id,
-      name: p.name,
-      buyingprice: Number(p.buyPrice || 0),
-      sellingprice: Number(p.sellPrice || 0),
-      stock: Number(p.stockBaseQty || 0),
-      shop_id: p.shop_id,
-      baseunit: p.baseUnit || 'pc',
-      created_at: p.created_at || (p.createdAt ? new Date(p.createdAt).toISOString() : new Date().toISOString()),
-    }));
+ const productRowsForSync = nextProducts
+  .filter((p) => String(p.shop_id) === String(shop.id))
+  .map((p) => ({
+    id: p.id,
+    name: p.name,
+    buyingprice: Number(p.buyPrice || 0),
+    sellingprice: Number(p.sellPrice || 0),
+    stock: Number(p.stockBaseQty || 0),
+    shop_id: p.shop_id,
+    baseunit: p.baseUnit || 'pc',
+    expirydate: p.expiryDate ? p.expiryDate : null,
+    created_at: p.created_at || (p.createdAt ? new Date(p.createdAt).toISOString() : new Date().toISOString()),
+  }));
 
   newlyPreparedPurchases.forEach((purchase) =>
     addToSyncQueue('purchase_created', {
@@ -3293,95 +3424,182 @@ console.log('CHANGE LEDGER REDUCE TEST - BEFORE CLOUD', {
       banks: prev.banks.length === 1 ? prev.banks : prev.banks.filter((_, i) => i !== index),
     }));
 
-  const saveMobileMoney = async () => {
-  if (isOwnerUser && !mobileMoneyForm.id) {
-    alert('Admin hawezi kuanzisha rekodi mpya ya wakala. Anaweza kuhariri au kufuta tu.');
+const saveMobileMoney = async () => {
+  const toMoneyNumber = (value) =>
+    Number(String(value || '0').replace(/,/g, '').trim() || 0);
+
+  const formatMoneyInput = (value) => {
+    const numberValue = toMoneyNumber(value);
+    return numberValue ? numberValue.toLocaleString('en-US') : '';
+  };
+
+  const existingEntries = Array.isArray(data.mobileMoneyEntries)
+    ? data.mobileMoneyEntries
+    : [];
+
+  const shopEntries = existingEntries
+    .filter((entry) => String(entry.shop_id) === String(shop.id))
+    .sort((a, b) => {
+      const aDate = String(a.date || '');
+      const bDate = String(b.date || '');
+
+      if (aDate !== bDate) {
+        return bDate.localeCompare(aDate);
+      }
+
+      return String(b.id || '').localeCompare(String(a.id || ''));
+    });
+
+  const latestShopEntry = shopEntries[0] || null;
+
+  // OWNER / ADMIN RULE:
+  // Admin may create the first baseline capital record if no Wakala record exists.
+  // If a record already exists, admin only updates the latest record's capital fields.
+  if (isOwnerUser) {
+    const mobileCapitalValue = toMoneyNumber(mobileMoneyForm.mobileCapital);
+    const bankCapitalValue = toMoneyNumber(mobileMoneyForm.bankCapital);
+
+    if (!String(mobileMoneyForm.mobileCapital || '').trim() && !String(mobileMoneyForm.bankCapital || '').trim()) {
+      alert('Tafadhali jaza angalau Mtaji wa Simu au Mtaji wa Benki.');
+      return;
+    }
+
+    const baseRecord = latestShopEntry || {
+      id: `mm-${Date.now()}`,
+      shop_id: shop.id,
+      date: mobileMoneyForm.date || todayISO(),
+      mobileCashTotal: 0,
+      bankCashTotal: 0,
+      mobileCapital: 0,
+      bankCapital: 0,
+      networks: [],
+      banks: [],
+      notes: '',
+    };
+
+    const record = {
+      ...baseRecord,
+      id: mobileMoneyForm.id || baseRecord.id || `mm-${Date.now()}`,
+      shop_id: shop.id,
+      date: baseRecord.date || mobileMoneyForm.date || todayISO(),
+      mobileCapital: mobileCapitalValue,
+      bankCapital: bankCapitalValue,
+    };
+
+    const next = [...existingEntries];
+    const existingIndex = next.findIndex((x) => String(x.id) === String(record.id));
+
+    if (existingIndex >= 0) {
+      next[existingIndex] = record;
+    } else {
+      next.push(record);
+    }
+
+    saveData({ ...data, mobileMoneyEntries: next });
+    addToSyncQueue('mobile_money_created', record);
+
+    const { error } = await supabase
+      .from('mobileMoneyEntries')
+      .upsert([record], { onConflict: 'id' });
+
+    if (error) {
+      alert(`Mobile money sync failed: ${error.message}`);
+      return;
+    }
+
+    if (navigator.onLine) {
+      processSyncQueue().catch((syncError) => {
+        console.error('Queued mobile money sync error:', syncError);
+      });
+    }
+
+    setMobileMoneyForm((prev) => ({
+      ...prev,
+      id: record.id,
+      date: record.date || todayISO(),
+      mobileCapital: formatMoneyInput(record.mobileCapital),
+      bankCapital: formatMoneyInput(record.bankCapital),
+    }));
+
+    alert('Mtaji wa wakala umehifadhiwa.');
     return;
   }
 
-// 🔴 VALIDATION START
+  // 🔴 VALIDATION START
 
-// Mobile capital lazima
-if (!String(mobileMoneyForm.mobileCapital || '').trim()) {
-  alert('Tafadhali jaza sehemu ya mtaji.');
-  return;
-}
-
-// Mobile cash lazima
-if (!String(mobileMoneyForm.mobileCashTotal || '').trim()) {
-  alert('Tafadhali jaza pesa taslimu.');
-  return;
-}
-
-// ALL 4 networks lazima
-const requiredProviders = ['M-Pesa', 'Mixx by Yas', 'Airtel Money', 'HaloPesa'];
-
-for (const provider of requiredProviders) {
-  const row = (mobileMoneyForm.networks || []).find((n) => n.provider === provider);
-
-  if (!row) {
-    alert(`Tafadhali ongeza ${provider}.`);
+  // Mobile capital lazima
+  if (!String(mobileMoneyForm.mobileCapital || '').trim()) {
+    alert('Tafadhali jaza sehemu ya mtaji.');
     return;
   }
 
-  if (!String(row.float || '').trim()) {
-    alert(`Tafadhali jaza float ya ${provider}.`);
+  // Mobile cash lazima
+  if (!String(mobileMoneyForm.mobileCashTotal || '').trim()) {
+    alert('Tafadhali jaza pesa taslimu.');
     return;
   }
 
-  if (!String(row.commission || '').trim()) {
-    alert(`Tafadhali jaza commission ya ${provider}.`);
-    return;
-  }
-}
+  // ALL 4 networks lazima
+  const requiredProviders = ['M-Pesa', 'Mixx by Yas', 'Airtel Money', 'HaloPesa'];
 
-// 👉 Angalia kama user ameanza kutumia bank
-const hasBankData =
-  String(mobileMoneyForm.bankCashTotal || '').trim() ||
-  (mobileMoneyForm.banks || []).some(
-    (b) =>
-      String(b.float || '').trim() ||
-      String(b.commission || '').trim()
-  );
+  for (const provider of requiredProviders) {
+    const row = (mobileMoneyForm.networks || []).find((n) => n.provider === provider);
 
-// 👉 Kama hajatumia bank, usimlazimishe
-if (hasBankData) {
-  if (!String(mobileMoneyForm.bankCashTotal || '').trim()) {
-    alert('Tafadhali jaza pesa taslimu ya benki.');
-    return;
+    if (!row) {
+      alert(`Tafadhali ongeza ${provider}.`);
+      return;
+    }
+
+    if (!String(row.float || '').trim()) {
+      alert(`Tafadhali jaza float ya ${provider}.`);
+      return;
+    }
   }
 
-  const requiredBanks = ['CRDB', 'NMB', 'NBC'];
+  // 👉 Angalia kama user ameanza kutumia bank
+  const hasBankData =
+    String(mobileMoneyForm.bankCashTotal || '').trim() ||
+    (mobileMoneyForm.banks || []).some(
+      (b) =>
+        String(b.float || '').trim() ||
+        String(b.commission || '').trim()
+    );
 
-for (let i = 0; i < requiredBanks.length; i += 1) {
-  const bankName = requiredBanks[i];
-  const row = (mobileMoneyForm.banks || [])[i];
+  // 👉 Kama hajatumia bank, usimlazimishe
+  if (hasBankData) {
+    if (!String(mobileMoneyForm.bankCashTotal || '').trim()) {
+      alert('Tafadhali jaza pesa taslimu ya benki.');
+      return;
+    }
 
-  if (!row) {
-    alert(`Tafadhali ongeza ${bankName}.`);
-    return;
+    const requiredBanks = ['CRDB', 'NMB', 'NBC'];
+
+    for (let i = 0; i < requiredBanks.length; i += 1) {
+      const bankName = requiredBanks[i];
+      const row = (mobileMoneyForm.banks || [])[i];
+
+      if (!row) {
+        alert(`Tafadhali ongeza ${bankName}.`);
+        return;
+      }
+
+      if (String(row.bankName || '').trim() !== bankName) {
+        alert(`Tafadhali ongeza ${bankName}.`);
+        return;
+      }
+
+      if (!String(row.float || '').trim()) {
+        alert(`Tafadhali jaza float ya ${bankName}.`);
+        return;
+      }
+
+      
+    }
   }
 
-  if (String(row.bankName || '').trim() !== bankName) {
-    alert(`Tafadhali ongeza ${bankName}.`);
-    return;
-  }
+  // 🔴 VALIDATION END
 
-  if (!String(row.float || '').trim()) {
-    alert(`Tafadhali jaza float ya ${bankName}.`);
-    return;
-  }
-
-  if (!String(row.commission || '').trim()) {
-    alert(`Tafadhali jaza commission ya ${bankName}.`);
-    return;
-  }
-}
-}
-
-// 🔴 VALIDATION END
-
-  const existingTodayEntry = (data.mobileMoneyEntries || []).find(
+  const existingTodayEntry = existingEntries.find(
     (entry) =>
       String(entry.shop_id) === String(shop.id) &&
       String(entry.date) === String(mobileMoneyForm.date || todayISO()) &&
@@ -3394,60 +3612,65 @@ for (let i = 0; i < requiredBanks.length; i += 1) {
   }
 
   const record = {
-  id: mobileMoneyForm.id || `mm-${Date.now()}`,
-  shop_id: shop.id,
-  date: mobileMoneyForm.date || todayISO(),
-  mobileCashTotal: Number(mobileMoneyForm.mobileCashTotal || 0),
-  bankCashTotal: Number(mobileMoneyForm.bankCashTotal || 0),
-  mobileCapital: Number(mobileMoneyForm.mobileCapital || 0),
-  bankCapital: Number(mobileMoneyForm.bankCapital || 0),
-  networks: mobileMoneyForm.networks.map((n) => ({
-    provider: n.provider,
-    float: Number(n.float || 0),
-    commission: Number(n.commission || 0),
-  })),
+    id: mobileMoneyForm.id || `mm-${Date.now()}`,
+    shop_id: shop.id,
+    date: mobileMoneyForm.date || todayISO(),
+    mobileCashTotal: toMoneyNumber(mobileMoneyForm.mobileCashTotal),
+    bankCashTotal: toMoneyNumber(mobileMoneyForm.bankCashTotal),
+    mobileCapital: toMoneyNumber(mobileMoneyForm.mobileCapital),
+    bankCapital: toMoneyNumber(mobileMoneyForm.bankCapital),
+    networks: mobileMoneyForm.networks.map((n) => ({
+      provider: n.provider,
+      float: toMoneyNumber(n.float),
+      commission: toMoneyNumber(n.commission),
+    })),
     banks: mobileMoneyForm.banks.map((b) => ({
       bankName: b.bankName,
-      float: Number(b.float || 0),
-      commission: Number(b.commission || 0),
+      float: toMoneyNumber(b.float),
+      commission: toMoneyNumber(b.commission),
     })),
     notes: mobileMoneyForm.notes || '',
   };
 
-    const next = [...data.mobileMoneyEntries];
-    const existingIndex = next.findIndex((x) => x.id === record.id);
-    if (existingIndex >= 0) next[existingIndex] = record;
-    else next.push(record);
+  const next = [...existingEntries];
+  const existingIndex = next.findIndex((x) => String(x.id) === String(record.id));
 
-    saveData({ ...data, mobileMoneyEntries: next });
-addToSyncQueue('mobile_money_created', record);
+  if (existingIndex >= 0) {
+    next[existingIndex] = record;
+  } else {
+    next.push(record);
+  }
 
-const { error } = await supabase
-  .from('mobileMoneyEntries')
-  .upsert([record], { onConflict: 'id' });
+  saveData({ ...data, mobileMoneyEntries: next });
+  addToSyncQueue('mobile_money_created', record);
 
-if (error) {
-  alert(`Mobile money sync failed: ${error.message}`);
-  return;
-}
+  const { error } = await supabase
+    .from('mobileMoneyEntries')
+    .upsert([record], { onConflict: 'id' });
 
-if (navigator.onLine) {
-  processSyncQueue().catch((syncError) => {
-    console.error('Queued mobile money sync error:', syncError);
+  if (error) {
+    alert(`Mobile money sync failed: ${error.message}`);
+    return;
+  }
+
+  if (navigator.onLine) {
+    processSyncQueue().catch((syncError) => {
+      console.error('Queued mobile money sync error:', syncError);
+    });
+  }
+
+  setMobileMoneyForm({
+    id: '',
+    date: todayISO(),
+    mobileCashTotal: '',
+    bankCashTotal: '',
+    mobileCapital: '',
+    bankCapital: '',
+    networks: [{ ...emptyNetworkRow }],
+    banks: [{ ...emptyBankRow }],
+    notes: '',
   });
-}
-    setMobileMoneyForm({
-  id: '',
-  date: todayISO(),
-  mobileCashTotal: '',
-  bankCashTotal: '',
-  mobileCapital: '',
-  bankCapital: '',
-  networks: [{ ...emptyNetworkRow }],
-  banks: [{ ...emptyBankRow }],
-  notes: '',
-});
-  };
+};
 
   const editMobileMoney = (entry) => {
   setActiveTab('mobilemoney');
@@ -3603,6 +3826,8 @@ if (navigator.onLine) {
         NbcFloat: Number(row.nbcFloat || 0),
         Notes: row.notes || '',
       }));
+
+
     } else if (reportType === 'gas') {
       const filteredGas = filterByPreset(gasEntries, reportPreset, reportDateValue);
       rows = filteredGas.map((row) => ({
@@ -3941,7 +4166,16 @@ if (navigator.onLine) {
 </div>
                       <Input type="number" placeholder={t(language, 'Opening stock *', 'Stock ya mwanzo *')} value={row.stockQty} onChange={(e) => updateProductRow(index, 'stockQty', e.target.value)} />
                       <Input type="number" placeholder={t(language, 'Minimum stock', 'Kiwango cha chini')} value={row.minStockLevel} onChange={(e) => updateProductRow(index, 'minStockLevel', e.target.value)} />
-                      <Input type="date" value={row.expiryDate} onChange={(e) => updateProductRow(index, 'expiryDate', e.target.value)} />
+                      <div>
+  <label className="mb-1 block text-xs font-semibold text-slate-600">
+    {t(language, 'Expiry date', 'Tarehe ya mwisho wa matumizi')}
+  </label>
+  <Input
+    type="date"
+    value={row.expiryDate}
+    onChange={(e) => updateProductRow(index, 'expiryDate', e.target.value)}
+  />
+</div>
                       <Input placeholder="QR code" value={row.qrCode} onChange={(e) => updateProductRow(index, 'qrCode', e.target.value)} />
                       <div className="md:col-span-2">
                         <Input
@@ -4074,11 +4308,33 @@ if (navigator.onLine) {
                     </div>
 
                     <Input type="number" placeholder={t(language, 'Quantity', 'Idadi')} value={row.quantity} onChange={(e) => updatePurchaseRow(index, 'quantity', e.target.value)} />
-                    <Input type="number" placeholder={t(language, 'Unit cost', 'Bei ya kununua')} value={row.unitCost} onChange={(e) => updatePurchaseRow(index, 'unitCost', e.target.value)} />
-                    <Input type="date" value={row.date} onChange={(e) => updatePurchaseRow(index, 'date', e.target.value)} />
-                    <div className="md:col-span-2">
-                      <Input placeholder={t(language, 'Notes', 'Maelezo')} value={row.notes} onChange={(e) => updatePurchaseRow(index, 'notes', e.target.value)} />
-                    </div>
+<Input type="number" placeholder={t(language, 'Unit cost', 'Bei ya kununua')} value={row.unitCost} onChange={(e) => updatePurchaseRow(index, 'unitCost', e.target.value)} />
+
+<div>
+  <label className="mb-1 block text-xs font-semibold text-slate-600">
+    {t(language, 'Purchase date', 'Tarehe ya manunuzi')}
+  </label>
+  <Input
+    type="date"
+    value={row.date}
+    onChange={(e) => updatePurchaseRow(index, 'date', e.target.value)}
+  />
+</div>
+
+<div>
+  <label className="mb-1 block text-xs font-semibold text-slate-600">
+    {t(language, 'Expiry date', 'Tarehe ya mwisho wa matumizi')}
+  </label>
+  <Input
+    type="date"
+    value={row.expiryDate || ''}
+    onChange={(e) => updatePurchaseRow(index, 'expiryDate', e.target.value)}
+  />
+</div>
+
+<div className="md:col-span-2">
+  <Input placeholder={t(language, 'Notes', 'Maelezo')} value={row.notes} onChange={(e) => updatePurchaseRow(index, 'notes', e.target.value)} />
+</div>
                     <div className="md:col-span-2">
                       <Button type="button" variant="outline" onClick={() => removePurchaseRow(index)}>
                         <Trash2 className="mr-2 h-4 w-4" />
@@ -5381,19 +5637,30 @@ onDeleteGas={deleteGas}
     value={mobileMoneyForm.date}
     onChange={(e) => setMobileMoneyForm((prev) => ({ ...prev, date: e.target.value }))}
   />
-  <div />
-  <Input
-    type="number"
-    placeholder={t(language, 'Mobile Capital', 'Mtaji wa Simu')}
-    value={mobileMoneyForm.mobileCapital}
-    onChange={(e) => setMobileMoneyForm((prev) => ({ ...prev, mobileCapital: e.target.value }))}
-  />
-  <Input
-    type="number"
-    placeholder={t(language, 'Bank Capital', 'Mtaji wa Benki')}
-    value={mobileMoneyForm.bankCapital}
-    onChange={(e) => setMobileMoneyForm((prev) => ({ ...prev, bankCapital: e.target.value }))}
-  />
+ <Input
+  type="text"
+  inputMode="decimal"
+  placeholder={t(language, 'Mobile Capital', 'Mtaji wa Simu')}
+  value={formatMoneyInput(mobileMoneyForm.mobileCapital)}
+  onChange={(e) =>
+    setMobileMoneyForm((prev) => ({
+      ...prev,
+      mobileCapital: formatMoneyInput(e.target.value),
+    }))
+  }
+/>
+<Input
+  type="text"
+  inputMode="decimal"
+  placeholder={t(language, 'Bank Capital', 'Mtaji wa Benki')}
+  value={formatMoneyInput(mobileMoneyForm.bankCapital)}
+  onChange={(e) =>
+    setMobileMoneyForm((prev) => ({
+      ...prev,
+      bankCapital: formatMoneyInput(e.target.value),
+    }))
+  }
+/>
 </div>
 
               <div className="rounded-2xl border border-slate-200 p-4">
@@ -5470,13 +5737,20 @@ onDeleteGas={deleteGas}
   onClick={saveMobileMoney}
   disabled={
     shouldDisableMobileMoneySave ||
-    (isOwnerUser && !mobileMoneyForm.id)
+    (
+      isOwnerUser &&
+      !mobileMoneyForm.id &&
+      !String(mobileMoneyForm.mobileCapital || '').trim() &&
+      !String(mobileMoneyForm.bankCapital || '').trim()
+    )
   }
 >
   {shouldDisableMobileMoneySave
     ? 'Taarifa za leo tayari zipo'
-    : (isOwnerUser && !mobileMoneyForm.id)
-      ? 'Admin hawezi kuanzisha rekodi mpya'
+    : isOwnerUser
+      ? mobileMoneyForm.id
+        ? 'Hifadhi Mtaji wa Wakala'
+        : 'Hifadhi Mtaji wa Mwanzo'
       : t(language, 'Save Wakala', 'Hifadhi Wakala')}
 </Button>
             </CardContent>
@@ -5597,40 +5871,32 @@ const [syncMessage, setSyncMessage] = useState('');
 const [isHydrating, setIsHydrating] = useState(true);
 const [hasLoadedInitialData, setHasLoadedInitialData] = useState(false);
 
- useEffect(() => {
+useEffect(() => {
+  let cancelled = false;
+
   (async () => {
     try {
-      const { data: authSession } = await supabase.auth.getSession();
-      const authUser = authSession?.session?.user || null;
+      const savedSessionUser = readStorage(STORAGE_SESSION_KEY, null);
 
-      let restoredCurrentUser = null;
+      let localData = null;
 
-      if (authUser) {
-        const matchedUser = (seedData.users || []).find(
-          (u) =>
-            String(u.email || '').toLowerCase() ===
-            String(authUser.email || '').toLowerCase()
-        );
-
-        if (matchedUser) {
-          restoredCurrentUser = {
-            ...matchedUser,
-            auth_user_id: authUser.id,
-          };
-
-          writeStorage(STORAGE_SESSION_KEY, restoredCurrentUser);
-        }
-      } else {
-        writeStorage(STORAGE_SESSION_KEY, null);
+      try {
+        localData = await readFromDB(DB_DATA_KEY);
+      } catch (dbError) {
+        console.error('IndexedDB startup read failed:', dbError);
       }
 
-      // Load fresh data from Supabase on startup
-      const initial = await readData();
+      const initial = normalizeData(localData || seedData);
+
+      const restoredCurrentUser =
+        savedSessionUser || initial.currentUser || null;
 
       const nextData = {
         ...initial,
         currentUser: restoredCurrentUser,
       };
+
+      if (cancelled) return;
 
       setData(nextData);
 
@@ -5638,36 +5904,170 @@ const [hasLoadedInitialData, setHasLoadedInitialData] = useState(false);
         setActiveShopId(
           restoredCurrentUser.shop_id ||
             restoredCurrentUser.shopId ||
+            restoredCurrentUser.shopid ||
             null
         );
       } else {
         setActiveShopId(null);
       }
+
+      setIsOnline(navigator.onLine);
+
+      if (navigator.onLine) {
+        setSyncMessage('POS opened from saved local data');
+      } else {
+        setSyncMessage('You are offline - using saved local data');
+      }
     } catch (error) {
-      console.error('readData init failed:', error);
+      console.error('Local POS startup failed:', error);
+
+      const savedSessionUser = readStorage(STORAGE_SESSION_KEY, null);
+
+      if (!cancelled) {
+        setData({
+          ...normalizeData(seedData),
+          currentUser: savedSessionUser || null,
+        });
+
+        if (savedSessionUser?.role === 'shop') {
+          setActiveShopId(
+            savedSessionUser.shop_id ||
+              savedSessionUser.shopId ||
+              savedSessionUser.shopid ||
+              null
+          );
+        } else {
+          setActiveShopId(null);
+        }
+      }
     } finally {
-      setHasLoadedInitialData(true);
-      setIsHydrating(false);
+      if (!cancelled) {
+        setHasLoadedInitialData(true);
+        setIsHydrating(false);
+      }
     }
   })();
-}, []);
-useEffect(() => {
 
+  return () => {
+    cancelled = true;
+  };
+}, []);
+
+useEffect(() => {
   debugSyncQueue();
 
-  const goOnline = async () => {
-    setIsOnline(true);
-    setSyncMessage('Back online - syncing.');
+  let refreshTimer = null;
+  let isRefreshingConfirmedSales = false;
 
-    const syncedSomething = await processSyncQueue();
+  const loadConfirmedSalesFromSupabaseOnly = async () => {
+    const savedSessionUser = readStorage(STORAGE_SESSION_KEY, null);
 
-    if (syncedSomething) {
-      const freshData = await readData({ preferFresh: true });
-      setAppData(freshData);
+    const isOwnerUser = String(savedSessionUser?.role || '') === 'owner';
+
+    const shopId = isOwnerUser
+      ? ''
+      : String(
+          activeShopId ||
+            savedSessionUser?.shop_id ||
+            savedSessionUser?.shopId ||
+            savedSessionUser?.shopid ||
+            ''
+        ).trim();
+
+    if (!isOwnerUser && !shopId) {
+      throw new Error('Cannot refresh confirmed sales because shop id is missing.');
     }
 
-    writeStorage(STORAGE_LAST_SYNC_KEY, Date.now());
-    setSyncMessage('Sync complete');
+    let salesQuery = supabase
+      .from('sales')
+      .select('*')
+      .gte('date', daysAgoISO(30))
+      .order('created_at', { ascending: false });
+
+    if (!isOwnerUser) {
+      salesQuery = salesQuery.eq('shop_id', shopId);
+    }
+
+    const { data: cloudSales, error } = await salesQuery;
+
+    if (error) throw error;
+
+    if (!Array.isArray(cloudSales)) {
+      throw new Error('Supabase sales response was not a valid list.');
+    }
+
+    return {
+      shopId,
+      isOwnerUser,
+      sales: cloudSales.map((sale) => ({
+        ...sale,
+        confirmed: true,
+      })),
+    };
+  };
+
+  const syncAndReloadConfirmedSales = async (message = 'Checking sync...') => {
+    if (!navigator.onLine) {
+      setIsOnline(false);
+      setSyncMessage('You are offline');
+      return;
+    }
+
+    if (isRefreshingConfirmedSales) return;
+
+    isRefreshingConfirmedSales = true;
+
+    try {
+      setIsOnline(true);
+      setSyncMessage(message);
+
+      await processSyncQueue();
+
+      const stillHasPendingSync = readSyncQueue().some((item) => item?.synced === false);
+
+      if (stillHasPendingSync) {
+        setSyncMessage('Sync pending - dashboard not refreshed yet');
+        return;
+      }
+
+      const confirmedResult = await loadConfirmedSalesFromSupabaseOnly();
+
+      setData((prev) => {
+        const previousSales = Array.isArray(prev.sales) ? prev.sales : [];
+
+        const nextSales = confirmedResult.isOwnerUser
+          ? confirmedResult.sales
+          : [
+              ...previousSales.filter(
+                (sale) => String(sale.shop_id || sale.shopId || sale.shopid || '') !== String(confirmedResult.shopId)
+              ),
+              ...confirmedResult.sales,
+            ];
+
+        const nextData = {
+          ...prev,
+          sales: nextSales,
+        };
+
+        writeToDB(DB_DATA_KEY, nextData).catch((dbError) => {
+          console.error('Failed to save confirmed sales to IndexedDB:', dbError);
+        });
+
+        return nextData;
+      });
+
+      writeStorage(STORAGE_LAST_SYNC_KEY, Date.now());
+      setSyncMessage('Sync complete');
+    } catch (error) {
+      console.error('Confirmed sales refresh failed:', error);
+      setSyncMessage('Confirmed sales refresh failed - keeping current dashboard');
+    } finally {
+      isRefreshingConfirmedSales = false;
+    }
+  };
+
+  const goOnline = async () => {
+    await syncAndReloadConfirmedSales('Back online - syncing.');
   };
 
   const goOffline = () => {
@@ -5678,89 +6078,145 @@ useEffect(() => {
   window.addEventListener('online', goOnline);
   window.addEventListener('offline', goOffline);
 
+  setIsOnline(navigator.onLine);
+
+  if (navigator.onLine) {
+    syncAndReloadConfirmedSales('Checking sync...');
+  }
+
+  refreshTimer = window.setInterval(() => {
+    if (navigator.onLine) {
+      syncAndReloadConfirmedSales('Refreshing confirmed sales...');
+    }
+  }, 15000);
+
   return () => {
     window.removeEventListener('online', goOnline);
     window.removeEventListener('offline', goOffline);
-  };
-}, []);
-  
 
-useEffect(() => {
-  const initOnlineStatus = async () => {
-    const online = navigator.onLine;
-    setIsOnline(online);
-
-    if (online) {
-      setSyncMessage('Checking sync...');
-      const syncedSomething = await processSyncQueue();
-
-      if (syncedSomething) {
-        const freshData = await readData({ preferFresh: true });
-        setAppData(freshData);
-      }
-
-      writeStorage(STORAGE_LAST_SYNC_KEY, Date.now());
-      setSyncMessage('Sync complete');
+    if (refreshTimer) {
+      window.clearInterval(refreshTimer);
     }
   };
-
-  initOnlineStatus();
-}, []);
+}, [activeShopId]);
 
 useEffect(() => {
   if (!activeShopId) return;
 
-  const alreadyHasShopProducts =
-    Array.isArray(data?.products) &&
-    data.products.some(
-      (item) =>
-        String(item?.shop_id || item?.shopId || item?.shopid || '') === String(activeShopId)
-    );
-
   const loadProductsForShop = async () => {
-    const { data: products } = await supabase
-      .from('products')
-      .select('*')
-      .eq('shop_id', activeShopId);
+    if (!navigator.onLine) {
+      return;
+    }
 
-    setData((prev) => {
-      const nextProducts = (products || []).map((p) => ({
-        id: p.id,
-        name: p.name,
-        buyPrice: Number(p.buyingprice || 0),
-        sellPrice: Number(p.sellingprice || 0),
-        stockBaseQty: Number(p.stock || 0),
-        stockQty: Number(p.stock || 0),
-        shop_id: p.shop_id || p.shopid || '',
-        baseUnit: p.baseunit || 'pc',
-        minStockLevel: 5,
-        expiryDate: '',
-        qrCode: '',
-        subUnitsRaw: '',
-        archived: Boolean(p.archived),
-        createdAt: p.createdAt || (p.created_at ? String(p.created_at).slice(0, 10) : ''),
-        confirmed: true,
-      }));
+        try {
+      console.log('PRODUCT LOAD CHECK', {
+        activeShopId,
+        savedSessionUser: readStorage(STORAGE_SESSION_KEY, null),
+      });
 
-      const keepOtherShops = (items = []) =>
-        items.filter(
-          (item) =>
-            String(item?.shop_id || item?.shopId || item?.shopid || '') !== String(activeShopId)
+      const { data: products, error } = await supabase
+        .from('products')
+        .select('*')
+        .eq('shop_id', activeShopId);
+
+      if (error) throw error;
+
+      setData((prev) => {
+        const existingProducts = Array.isArray(prev.products) ? prev.products : [];
+
+        if (!Array.isArray(products) || products.length === 0) {
+          const alreadyHadShopProducts = existingProducts.some(
+            (item) =>
+              String(item?.shop_id || item?.shopId || item?.shopid || '') ===
+              String(activeShopId)
+          );
+
+          if (alreadyHadShopProducts) {
+            console.warn('No products returned from Supabase. Keeping existing local products.');
+            return prev;
+          }
+
+          console.warn('No products returned from Supabase for shop:', activeShopId);
+          return prev;
+        }
+
+        const pendingSaleProductIds = new Set(
+          (readSyncQueue() || [])
+            .filter(
+              (item) =>
+                item?.actionType === 'sale_created' &&
+                item?.synced === false &&
+                String(item?.payload?.shop_id || '') === String(activeShopId)
+            )
+            .flatMap((item) =>
+              Array.isArray(item?.payload?.products) ? item.payload.products : []
+            )
+            .map((p) => String(p?.id || ''))
+            .filter(Boolean)
         );
 
-      return {
-        ...prev,
-        products: [...keepOtherShops(prev.products), ...nextProducts],
-      };
-    });
+        const existingProductById = new Map(
+          existingProducts.map((p) => [String(p?.id || ''), normalizeProduct(p)])
+        );
+
+        const nextProducts = products.map((p) => {
+          const cloudProduct = normalizeProduct({
+            id: p.id,
+            name: p.name,
+            buyPrice: Number(p.buyingprice || p.buyPrice || 0),
+            sellPrice: Number(p.sellingprice || p.sellPrice || 0),
+            stockBaseQty: Number(p.stock || p.stockBaseQty || p.stockQty || 0),
+            stockQty: Number(p.stock || p.stockBaseQty || p.stockQty || 0),
+            shop_id: p.shop_id || p.shopid || '',
+            baseUnit: p.baseunit || p.baseUnit || 'pc',
+            minStockLevel: Number(p.minstocklevel || p.minStockLevel || 5),
+            expiryDate: p.expirydate || p.expiryDate || '',
+            qrCode: p.qrcode || p.qrCode || '',
+            subUnitsRaw: p.subunitsraw || p.subUnitsRaw || '',
+            archived: Boolean(p.archived),
+            createdAt: p.createdAt || (p.created_at ? String(p.created_at).slice(0, 10) : ''),
+            confirmed: true,
+          });
+
+          const localProduct = existingProductById.get(String(cloudProduct.id));
+
+          if (pendingSaleProductIds.has(String(cloudProduct.id)) && localProduct) {
+            return normalizeProduct({
+              ...cloudProduct,
+              stockBaseQty: Number(localProduct.stockBaseQty || 0),
+              stockQty: Number(localProduct.stockBaseQty || 0),
+              confirmed: false,
+            });
+          }
+
+          return cloudProduct;
+        });
+
+        const keepOtherShops = (items = []) =>
+          items.filter(
+            (item) =>
+              String(item?.shop_id || item?.shopId || item?.shopid || '') !==
+              String(activeShopId)
+          );
+
+        const nextData = {
+          ...prev,
+          products: [...keepOtherShops(existingProducts), ...nextProducts],
+        };
+
+        saveData(nextData);
+
+        return nextData;
+      });
+    } catch (error) {
+      console.error('Product refresh failed; keeping local products:', error);
+    }
   };
 
-  if (!alreadyHasShopProducts) {
-    loadProductsForShop();
-  }
+  loadProductsForShop();
 
   const productsChannel = supabase
-    .channel('products-changes')
+    .channel(`products-changes-${activeShopId}`)
     .on(
       'postgres_changes',
       {
@@ -5778,7 +6234,8 @@ useEffect(() => {
   return () => {
     supabase.removeChannel(productsChannel);
   };
-}, [activeShopId, data?.products]);
+}, [activeShopId]);
+
 
 useEffect(() => {
   if (!activeShopId) return;
@@ -6017,8 +6474,16 @@ const importBackup = () => {
     setActiveShopId(null);
   };
 const handleLogin = async (user) => {
-  const { data: authData } = await supabase.auth.getUser();
-  const authUserId = authData?.user?.id || null;
+  let authUserId = null;
+
+  if (navigator.onLine) {
+    try {
+      const { data: authData } = await supabase.auth.getUser();
+      authUserId = authData?.user?.id || null;
+    } catch (error) {
+      console.error('Auth user check failed during login. Continuing with local login:', error);
+    }
+  }
 
   const sessionUser = {
     ...user,
@@ -6029,57 +6494,81 @@ const handleLogin = async (user) => {
 
   const shopId =
     user.role === 'shop'
-      ? user.shop_id || user.shopId || null
+      ? user.shop_id || user.shopId || user.shopid || null
       : null;
-
-  // Clear previous shop data first
-  setData((prev) => ({
-    ...seedData,
-    users: prev.users,
-    currentUser: sessionUser,
-  }));
 
   setActiveShopId(shopId);
 
-  const loaded = await readData();
+  let loaded;
 
-  let products = loaded.products || [];
-
-  if (shopId) {
-    const { data: freshProducts } = await supabase
-      .from('products')
-      .select('*')
-      .eq('shop_id', shopId);
-
-    products = (freshProducts || []).map((p) => ({
-      id: p.id,
-      name: p.name,
-      buyPrice: Number(p.buyingprice || 0),
-      sellPrice: Number(p.sellingprice || 0),
-      stockBaseQty: Number(p.stock || 0),
-      stockQty: Number(p.stock || 0),
-      shop_id: p.shop_id || p.shopid || '',
-      baseUnit: p.baseunit || 'pc',
-      minStockLevel: 5,
-      expiryDate: '',
-      qrCode: '',
-      subUnitsRaw: '',
-      createdAt: p.createdAt || (p.created_at ? String(p.created_at).slice(0, 10) : ''),
-      confirmed: true,
-    }));
+  try {
+    loaded = await readData({ preferFresh: navigator.onLine });
+  } catch (error) {
+    console.error('Login data loading failed. Falling back to local saved data:', error);
+    loaded = await readData({ preferFresh: false });
   }
 
+  let products = Array.isArray(loaded.products) ? loaded.products : [];
+
+  if (shopId && navigator.onLine) {
+    try {
+      const { data: freshProducts, error } = await supabase
+        .from('products')
+        .select('*')
+        .eq('shop_id', shopId);
+
+      if (error) {
+        console.error('Fresh product loading failed during login:', error);
+      } else if (Array.isArray(freshProducts) && freshProducts.length > 0) {
+        products = freshProducts.map((p) =>
+          normalizeProduct({
+            id: p.id,
+            name: p.name,
+            buyPrice: Number(p.buyingprice || p.buyPrice || 0),
+            sellPrice: Number(p.sellingprice || p.sellPrice || 0),
+            stockBaseQty: Number(p.stock || p.stockBaseQty || p.stockQty || 0),
+            stockQty: Number(p.stock || p.stockBaseQty || p.stockQty || 0),
+            shop_id: String(p.shop_id || p.shopid || shopId || '').trim(),
+            baseUnit: p.baseunit || p.baseUnit || 'pc',
+            minStockLevel: Number(p.minstocklevel || p.minStockLevel || 5),
+            expiryDate: p.expirydate || p.expiryDate || '',
+            qrCode: p.qrcode || p.qrCode || '',
+            subUnitsRaw: p.subunitsraw || p.subUnitsRaw || '',
+            archived: Boolean(p.archived),
+            createdAt: p.createdAt || (p.created_at ? String(p.created_at).slice(0, 10) : ''),
+            confirmed: true,
+          })
+        );
+      } else {
+        console.warn('No fresh products returned during login. Keeping loaded/local products.');
+      }
+    } catch (error) {
+      console.error('Fresh product loading crashed during login:', error);
+    }
+  }
+
+  const strictProducts = shopId
+    ? products.filter(
+        (p) =>
+          String(p?.shop_id || p?.shopId || p?.shopid || '').trim() === String(shopId).trim()
+      )
+    : products;
+
   setData((prev) => ({
-  ...loaded,
-  users: loaded.users?.length ? loaded.users : seedData.users,
-  products: (products || []).map((p) => {
-    const existing = prev.products.find((x) => x.id === p.id);
-    return existing?.archived ? { ...p, archived: true } : p;
-  }),
-  expenses: loaded.expenses || prev.expenses || [],
-  currentUser: sessionUser,
-}));
+    ...loaded,
+    users: loaded.users?.length ? loaded.users : seedData.users,
+    products: strictProducts.map((p) => {
+      const existing = (prev.products || []).find((x) => String(x.id) === String(p.id));
+
+      return existing?.archived
+        ? { ...normalizeProduct(p), archived: true }
+        : normalizeProduct(p);
+    }),
+    expenses: loaded.expenses || prev.expenses || [],
+    currentUser: sessionUser,
+  }));
 };
+
 const openShopDashboard = async (shopId) => {
   setActiveShopId(shopId);
 
@@ -6106,7 +6595,7 @@ const openShopDashboard = async (shopId) => {
     shop_id: String(p.shop_id || p.shopid || '').trim(),
     baseUnit: p.baseunit || 'pc',
     minStockLevel: Number(p.minStockLevel || 5),
-    expiryDate: p.expiryDate || '',
+    expiryDate: p.expiryDate || p.expirydate || '',
     qrCode: p.qrCode || '',
     subUnitsRaw: p.subUnitsRaw || '',
     archived: Boolean(p.archived),
