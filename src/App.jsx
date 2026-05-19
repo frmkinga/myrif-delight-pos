@@ -1541,10 +1541,36 @@ const [stockSearch, setStockSearch] = useState('');
   const [cart, setCart] = useState([]);
   const [newProductRows, setNewProductRows] = useState([{ ...emptyProductRow }]);
   const [purchaseRows, setPurchaseRows] = useState([{ ...emptyPurchaseRow }]);
-  const [expenseRows, setExpenseRows] = useState(() => {
-  const defaults = RECURRING_EXPENSES_BY_SHOP[shop.id] || [];
-  return defaults.length
-    ? defaults.map((item, idx) => ({
+  const recurringExpenseDefaults = RECURRING_EXPENSES_BY_SHOP[shop.id] || [];
+
+const isRecurringExpenseAlreadySavedForToday = () => {
+  const today = todayISO();
+
+  return recurringExpenseDefaults.some((item, idx) =>
+    (data.expenses || []).some(
+      (expense) =>
+        String(expense.shop_id || expense.shopId || '') === String(shop.id) &&
+        String(expense.date || '') === String(today) &&
+        (
+          String(expense.id || '') === `recurring-${shop.id}-${idx}` ||
+          (
+            String(expense.title || expense.description || '').trim().toLowerCase() ===
+              String(item.title || '').trim().toLowerCase() &&
+            String(expense.category || '').trim().toLowerCase() ===
+              String(item.category || '').trim().toLowerCase()
+          )
+        )
+    )
+  );
+};
+
+const buildDefaultExpenseRows = () => {
+  if (isRecurringExpenseAlreadySavedForToday()) {
+    return [{ ...emptyExpenseRow }];
+  }
+
+  return recurringExpenseDefaults.length
+    ? recurringExpenseDefaults.map((item, idx) => ({
         ...emptyExpenseRow,
         id: `recurring-${shop.id}-${idx}`,
         title: item.title,
@@ -1554,7 +1580,9 @@ const [stockSearch, setStockSearch] = useState('');
         date: todayISO(),
       }))
     : [{ ...emptyExpenseRow }];
-});
+};
+
+const [expenseRows, setExpenseRows] = useState(buildDefaultExpenseRows);
   const [creditRows, setCreditRows] = useState([{ ...emptyCreditRow }]);
   const [changeRows, setChangeRows] = useState([{ ...emptyChangeRow }]);
   const [reportPreset, setReportPreset] = useState('today');
@@ -3210,13 +3238,28 @@ const updateExpenseRow = (index, field, value) =>
   setExpenseRows((prev) => prev.map((row, i) => (i === index ? { ...row, [field]: value } : row)));
 const removeExpenseRow = (index) => setExpenseRows((prev) => (prev.length === 1 ? prev : prev.filter((_, i) => i !== index)));
 
-
 const saveExpenseRows = () => {
   const rows = expenseRows.filter((r) => r.title && r.amount);
   if (!rows.length) return;
 
+  const containsRecurringExpense = rows.some((row) =>
+    String(row.id || '').startsWith(`recurring-${shop.id}-`) ||
+    recurringExpenseDefaults.some(
+      (item) =>
+        String(row.title || '').trim().toLowerCase() ===
+          String(item.title || '').trim().toLowerCase() &&
+        String(row.category || '').trim().toLowerCase() ===
+          String(item.category || '').trim().toLowerCase()
+    )
+  );
+
+  if (containsRecurringExpense && isRecurringExpenseAlreadySavedForToday()) {
+    alert('Matumizi ya kudumu ya leo tayari yamehifadhiwa. Unaweza kuongeza matumizi mengine tu.');
+    setExpenseRows([{ ...emptyExpenseRow }]);
+    return;
+  }
+
   const nextExpenses = [...data.expenses];
-  const newlyPreparedExpenses = [];
 
   for (const [idx, row] of rows.entries()) {
     const preparedExpense = {
@@ -3231,9 +3274,8 @@ const saveExpenseRows = () => {
       created_at: row.created_at || new Date().toISOString(),
     };
 
-    newlyPreparedExpenses.push(preparedExpense);
+    const existingIndex = nextExpenses.findIndex((x) => String(x.id) === String(preparedExpense.id));
 
-    const existingIndex = nextExpenses.findIndex((x) => x.id === preparedExpense.id);
     if (existingIndex >= 0) {
       nextExpenses[existingIndex] = preparedExpense;
     } else {
