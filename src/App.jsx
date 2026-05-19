@@ -2131,7 +2131,29 @@ const bankCommission = latestMobileEntry ? getBankCommissionTotal(latestMobileEn
       })),
   [products, stockSearch],
 );
-
+const expiryStockValueRows = useMemo(
+  () =>
+    products
+      .filter((p) => !p.archived)
+      .filter((p) => String(p.expiryDate || '').trim())
+      .filter((p) =>
+        String(p.name || '').toLowerCase().includes(stockSearch.toLowerCase())
+      )
+      .map((p) => ({
+        ...p,
+        stockValue: Number(p.stockBaseQty || 0) * Number(p.buyPrice || 0),
+        totalProfitIfSold:
+          Number(p.stockBaseQty || 0) *
+          (Number(p.sellPrice || 0) - Number(p.buyPrice || 0)),
+        expiryDate: p.expiryDate || '',
+      }))
+      .sort((a, b) => {
+        const dateA = new Date(a.expiryDate || '9999-12-31').getTime();
+        const dateB = new Date(b.expiryDate || '9999-12-31').getTime();
+        return dateA - dateB;
+      }),
+  [products, stockSearch],
+);
   const salesReportRows = useMemo(() => {
   const map = {};
 
@@ -2789,72 +2811,133 @@ if (error) {
     setNewProductRows((prev) => prev.map((row, i) => (i === index ? { ...row, [field]: value } : row)));
   const removeProductRow = (index) => setNewProductRows((prev) => (prev.length === 1 ? prev : prev.filter((_, i) => i !== index)));
 
-  const startEditProduct = (product) => {
-    setActiveTab('products');
-    setProductFormError('');
-    setNewProductRows([
-      {
-        id: product.id,
-        name: product.name || '',
-        unit: product.baseUnit || 'pc',
-        buyPrice: String(product.buyPrice || ''),
-        sellPrice: String(product.sellPrice || ''),
-        stockQty: String(product.stockBaseQty || ''),
-        minStockLevel: String(product.minStockLevel || 5),
-        expiryDate: product.expiryDate || '',
-        subUnits:
-          product.subUnitsRaw ||
-          (Array.isArray(product.subUnits)
-            ? product.subUnits
-                .map((x) => Number(x.qty))
-                .filter((qty) => qty > 0 && qty < 1)
-                .sort((a, b) => b - a)
-                .join(',')
-            : ''),
-        qrCode: product.qrCode || '',
-      },
-    ]);
-  };
+const startEditProduct = (product) => {
+  setActiveTab('products');
+  setProductFormError('');
+  setNewProductRows([
+    {
+      id: product.id,
+      name: product.name || '',
+      unit: product.baseUnit || 'pc',
+      buyPrice: String(product.buyPrice || ''),
+      sellPrice: String(product.sellPrice || ''),
+      stockQty: String(product.stockBaseQty || ''),
+      minStockLevel: String(product.minStockLevel || 5),
+      expiryDate: product.expiryDate || '',
+      subUnits:
+        product.subUnitsRaw ||
+        (Array.isArray(product.subUnits)
+          ? product.subUnits
+              .map((x) => Number(x.qty))
+              .filter((qty) => qty > 0 && qty < 1)
+              .sort((a, b) => b - a)
+              .join(',')
+          : ''),
+      qrCode: product.qrCode || '',
+    },
+  ]);
+};
 
 const deleteProduct = async (productId) => {
   const usedInSales = data.sales.some((sale) =>
     (sale.items || []).some((item) => item.productId === productId)
   );
-  const usedInPurchases = data.purchases.some((purchase) => purchase.productId === productId);
+
+  const usedInPurchases = data.purchases.some(
+    (purchase) => purchase.productId === productId
+  );
 
   if (usedInSales || usedInPurchases) {
     alert(
       t(
         language,
-        'This product is already used in sales or purchases, so it cannot be deleted.',
-        'Bidhaa hii tayari imetumika kwenye mauzo au manunuzi, hivyo haiwezi kufutwa.',
-      ),
+        'This product is already used in sales or purchases, so it cannot be deleted. Please archive it instead.',
+        'Bidhaa hii tayari imetumika kwenye mauzo au manunuzi, hivyo haiwezi kufutwa. Tafadhali ihifadhi kwenye archive badala yake.'
+      )
     );
     return;
   }
 
-  saveData({ ...data, products: data.products.filter((x) => x.id !== productId) });
+  const nextProducts = data.products.filter((x) => x.id !== productId);
+
+  await saveData({ ...data, products: nextProducts });
 
   const { error } = await supabase
     .from('products')
     .delete()
-    .eq('id', productId);
+    .eq('id', productId)
+    .eq('shop_id', shop.id);
 
   if (error) {
     alert(`Product delete failed: ${error.message}`);
     return;
   }
 
-  if (newProductRows.some((row) => row.id === productId)) resetProductForm();
+  if (newProductRows.some((row) => row.id === productId)) {
+    resetProductForm();
+  }
+};
+
+const archiveProduct = async (productId) => {
+  const product = data.products.find((p) => String(p.id) === String(productId));
+
+  if (!product) {
+    alert(t(language, 'Product not found.', 'Bidhaa haijapatikana.'));
+    return;
+  }
+
+  const confirmed = window.confirm(
+    t(
+      language,
+      'Archive this product? It will be hidden from active products but kept in records.',
+      'Unataka ku-archive bidhaa hii? Haitaonekana kwenye bidhaa hai lakini itabaki kwenye kumbukumbu.'
+    )
+  );
+
+  if (!confirmed) return;
+
+  const updatedProduct = normalizeProduct({
+    ...product,
+    archived: true,
+  });
+
+  const nextProducts = data.products.map((p) =>
+    String(p.id) === String(productId) ? updatedProduct : p
+  );
+
+  await saveData({ ...data, products: nextProducts });
+
+  const { error } = await supabase
+    .from('products')
+    .update({ archived: true })
+    .eq('id', productId)
+    .eq('shop_id', shop.id);
+
+  if (error) {
+    alert(`Product archive failed: ${error.message}`);
+    return;
+  }
+
+  if (newProductRows.some((row) => String(row.id) === String(productId))) {
+    resetProductForm();
+  }
 };
 
 const saveProductRows = async () => {
-  const rows = newProductRows.filter((r) => r.name || r.buyPrice || r.sellPrice || r.stockQty);
+  const rows = newProductRows.filter(
+    (r) => r.name || r.buyPrice || r.sellPrice || r.stockQty
+  );
+
   if (!rows.length) {
     return setProductFormError(
-      t(language, 'Please fill at least one product row.', 'Jaza angalau mstari mmoja wa bidhaa.')
+      t(
+        language,
+        'Please fill at least one product row.',
+        'Jaza angalau mstari mmoja wa bidhaa.'
+      )
     );
   }
+
   const invalidRow = rows.find(
     (row) =>
       !String(row.name || '').trim() ||
@@ -2874,11 +2957,12 @@ const saveProductRows = async () => {
     );
     return;
   }
+
   const nextProducts = [...data.products];
+  const rowsToSync = [];
 
   for (let idx = 0; idx < rows.length; idx += 1) {
     const row = rows[idx];
-    if (!row.name || !row.unit || !row.buyPrice || !row.sellPrice || row.stockQty === '') continue;
 
     const buyPrice = Number(row.buyPrice || 0);
     const sellPrice = Number(row.sellPrice || 0);
@@ -2894,46 +2978,56 @@ const saveProductRows = async () => {
       return;
     }
 
+    const existingProduct = nextProducts.find((p) => String(p.id) === String(row.id));
+
     const prepared = normalizeProduct({
+      ...(existingProduct || {}),
       id: row.id || `p-${Date.now()}-${idx}`,
       shop_id: shop.id,
       name: row.name,
-      buyPrice: Number(row.buyPrice),
-      sellPrice: Number(row.sellPrice),
-      stock: Number(row.stockQty),
-      stockBaseQty: Number(row.stockQty),
+      buyPrice,
+      sellPrice,
+      stock: Number(row.stockQty || 0),
+      stockBaseQty: Number(row.stockQty || 0),
       baseUnit: row.unit || 'pc',
       minStockLevel: Number(row.minStockLevel || 5),
       expiryDate: row.expiryDate || '',
       qrCode: row.qrCode || '',
       subUnitsRaw: row.unit === 'pc' ? '' : row.subUnits || '',
-      created_at: new Date().toISOString(),
-      createdAt: row.id
-        ? (nextProducts.find((p) => p.id === row.id)?.createdAt || todayISO())
-        : todayISO(),
+      archived: Boolean(existingProduct?.archived),
+      created_at: existingProduct?.created_at || new Date().toISOString(),
+      createdAt: existingProduct?.createdAt || todayISO(),
       confirmed: true,
     });
 
-    const existingIndex = nextProducts.findIndex((p) => p.id === prepared.id);
-    if (existingIndex >= 0) nextProducts[existingIndex] = prepared;
-    else nextProducts.push(prepared);
+    const existingIndex = nextProducts.findIndex(
+      (p) => String(p.id) === String(prepared.id)
+    );
+
+    if (existingIndex >= 0) {
+      nextProducts[existingIndex] = prepared;
+    } else {
+      nextProducts.push(prepared);
+    }
+
+    rowsToSync.push({
+      id: prepared.id,
+      name: prepared.name,
+      buyingprice: Number(prepared.buyPrice || 0),
+      sellingprice: Number(prepared.sellPrice || 0),
+      stock: Number(prepared.stockBaseQty || 0),
+      shop_id: prepared.shop_id,
+      baseunit: prepared.baseUnit || 'pc',
+      minstocklevel: Number(prepared.minStockLevel || 5),
+      expirydate: prepared.expiryDate || null,
+      qrcode: prepared.qrCode || '',
+      subunitsraw: prepared.subUnitsRaw || '',
+      archived: Boolean(prepared.archived),
+      created_at: prepared.created_at || new Date().toISOString(),
+    });
   }
 
-  saveData({ ...data, products: nextProducts });
-
-  const rowsToSync = nextProducts
-  .filter((p) => String(p.shop_id) === String(shop.id))
-  .map((p) => ({
-    id: p.id,
-    name: p.name,
-    buyingprice: Number(p.buyPrice || 0),
-    sellingprice: Number(p.sellPrice || 0),
-    stock: Number(p.stockBaseQty || 0),
-    shop_id: p.shop_id,
-    baseunit: p.baseUnit || 'pc',
-    expirydate: p.expiryDate || null,
-    created_at: p.created_at || new Date().toISOString(),
-  }));
+  await saveData({ ...data, products: nextProducts });
 
   const { error } = await supabase
     .from('products')
@@ -3722,17 +3816,29 @@ const saveMobileMoney = async () => {
         : reportPreset;
 
     if (reportType === 'stockValue') {
-      rows = stockValueRows.map((row) => ({
-        ProductName: row.name,
-        DateRecorded: row.createdAt || '',
-        Unit: row.baseUnit,
-        Balance: Number(row.stockBaseQty || 0),
-        BuyPrice: Number(row.buyPrice || 0),
-        SellPrice: Number(row.sellPrice || 0),
-        StockValue: Number(row.stockValue || 0),
-        ProfitPerProduct: Number(row.totalProfitIfSold || 0),
-      }));
-    } else if (reportType === 'expiryAlert') {
+  rows = stockValueRows.map((row) => ({
+    ProductName: row.name,
+    DateRecorded: row.createdAt || '',
+    Unit: row.baseUnit,
+    Balance: Number(row.stockBaseQty || 0),
+    BuyPrice: Number(row.buyPrice || 0),
+    SellPrice: Number(row.sellPrice || 0),
+    StockValue: Number(row.stockValue || 0),
+    ProfitPerProduct: Number(row.totalProfitIfSold || 0),
+  }));
+} else if (reportType === 'expiryStockValue') {
+  rows = expiryStockValueRows.map((row) => ({
+    ProductName: row.name,
+    DateRecorded: row.createdAt || '',
+    Unit: row.baseUnit,
+    Balance: Number(row.stockBaseQty || 0),
+    BuyPrice: Number(row.buyPrice || 0),
+    SellPrice: Number(row.sellPrice || 0),
+    StockValue: Number(row.stockValue || 0),
+    ProfitPerProduct: Number(row.totalProfitIfSold || 0),
+    ExpiryDate: row.expiryDate || '',
+  }));
+} else if (reportType === 'expiryAlert') {
       rows = expiringProducts.map((row) => ({
         ProductName: row.name,
         Unit: row.baseUnit,
@@ -4962,8 +5068,17 @@ onDeleteGas={deleteGas}
 </Button>
               <div className="flex flex-wrap gap-2">
                 <select className="rounded-xl border border-slate-200 px-3 py-2 text-sm" value={reportType} onChange={(e) => setReportType(e.target.value)}>
-                  <option value="stockValue">{t(language, 'Stock Value Report', 'Ripoti ya Thamani ya Stock')}</option>
-<option value="expiryAlert">{t(language, 'Lock Stock Alert', 'Tahadhari ya Bidhaa Zinazoisha Muda')}</option>
+                  <option value="stockValue">
+  {t(language, 'Stock Value Report', 'Ripoti ya Thamani ya Stock')}
+</option>
+
+<option value="expiryStockValue">
+  {t(language, 'Detailed Expiry Stock Report', 'Ripoti ya Stock zenye Expiry Date')}
+</option>
+
+<option value="expiryAlert">
+  {t(language, 'Expiry Alert Report', 'Tahadhari ya Bidhaa Zinazoisha Muda')}
+</option>
                   <option value="salesReport">{t(language, 'Sales Report', 'Ripoti ya Mauzo')}</option>
 <option value="profitLoss">{t(language, 'Profit & Loss Report', 'Ripoti ya Faida na Hasara')}</option>
 <option value="mostProfitableProducts">
@@ -5227,6 +5342,101 @@ onDeleteGas={deleteGas}
           <td className="py-2 pr-3">{currency(mobileMoneyAllShopsRows.reduce((a, r) => a + Number(r.nbcFloat || 0), 0))}</td>
           
         </tr>
+      </tbody>
+    </table>
+  </div>
+) : reportType === 'expiryStockValue' ? (
+  <div className="overflow-x-auto">
+    <table className="w-full text-sm">
+      <thead>
+        <tr className="text-left border-b">
+          <th className="py-2">Product Name</th>
+          <th className="py-2">Date Recorded</th>
+          <th className="py-2">Unit</th>
+          <th className="py-2">Balance</th>
+          <th className="py-2">Buy Price</th>
+          <th className="py-2">Sell Price</th>
+          <th className="py-2">Stock Value</th>
+          <th className="py-2">Profit per Product</th>
+          <th className="py-2">Expiry Date</th>
+          <th className="py-2">Actions</th>
+        </tr>
+      </thead>
+
+      <tbody>
+        {expiryStockValueRows.length ? (
+          expiryStockValueRows.map((row) => (
+            <tr key={row.id} className="border-b">
+              <td className="py-2">{row.name}</td>
+              <td className="py-2">{row.createdAt || '-'}</td>
+              <td className="py-2">{row.baseUnit}</td>
+              <td className="py-2">{Number(row.stockBaseQty || 0)}</td>
+              <td className="py-2">{currency(row.buyPrice)}</td>
+<td className="py-2">{currency(row.sellPrice)}</td>
+<td className="py-2">{currency(row.stockValue)}</td>
+<td className="py-2">{currency(row.totalProfitIfSold)}</td>
+              <td className="py-2">{row.expiryDate || '-'}</td>
+              <td className="py-2">
+  <div className="flex gap-2">
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      onClick={() => startEditProduct(row)}
+    >
+      <Pencil className="h-4 w-4" />
+    </Button>
+
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      onClick={() => deleteProduct(row.id)}
+    >
+      <Trash2 className="h-4 w-4" />
+    </Button>
+
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      onClick={async () => {
+        if (!confirm('Archive this expired/expiry product?')) return;
+
+        const nextProducts = data.products.map((p) =>
+          String(p.id) === String(row.id)
+            ? { ...p, archived: true }
+            : p
+        );
+
+        await saveData({
+          ...data,
+          products: nextProducts,
+        });
+
+        const { error } = await supabase
+          .from('products')
+          .update({ archived: true })
+          .eq('id', row.id);
+
+        if (error) {
+          alert(`Product archive failed: ${error.message}`);
+        }
+      }}
+    >
+      Archive
+    </Button>
+  </div>
+</td>
+            </tr>
+          ))
+        ) : (
+          <tr>
+            <td colSpan={10} className="py-4 text-slate-500">
+              No products with expiry date recorded.
+            </td>
+          </tr>
+        )}
       </tbody>
     </table>
   </div>
