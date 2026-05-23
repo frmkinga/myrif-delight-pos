@@ -207,12 +207,40 @@ if (Array.isArray(item.payload.products)) {
       .upsert(safeProductRows, { onConflict: 'id' });
   }
 }
+      } else if (item.actionType === 'product_saved') {
+        const productPayload = item.payload || {};
+
+        const productRow = {
+          id: productPayload.id,
+          name: String(productPayload.name || '').trim(),
+          buyingprice: Number(productPayload.buyingprice ?? productPayload.buyPrice ?? 0),
+          sellingprice: Number(productPayload.sellingprice ?? productPayload.sellPrice ?? 0),
+          stock: Number(productPayload.stock ?? productPayload.stockBaseQty ?? 0),
+          shop_id: productPayload.shop_id,
+          baseunit: productPayload.baseunit || productPayload.baseUnit || 'pc',
+          minstocklevel: Number(productPayload.minstocklevel ?? productPayload.minStockLevel ?? 5),
+          expirydate: productPayload.expirydate || productPayload.expiryDate || null,
+          qrcode: productPayload.qrcode || productPayload.qrCode || '',
+          subunitsraw: productPayload.subunitsraw || productPayload.subUnitsRaw || '',
+          archived: Boolean(productPayload.archived),
+          created_at: productPayload.created_at || new Date().toISOString(),
+        };
+
+        if (!productRow.id || !productRow.shop_id || !productRow.name) {
+          throw new Error('Product sync skipped because id, shop_id, or name is missing.');
+        }
+
+        await supabase
+          .from('products')
+          .upsert([productRow], { onConflict: 'id' });
+
       } else if (item.actionType === 'expense_created') {
 
         await supabase.from('expenses').upsert([item.payload], { onConflict: 'id' });
               } else if (item.actionType === 'credit_created') {
   await supabase.from('creditSales').upsert([item.payload], { onConflict: 'id' });
 } else if (item.actionType === 'mobile_money_created') {
+
         await supabase.from('mobileMoneyEntries').upsert([item.payload], { onConflict: 'id' });
       } else if (item.actionType === 'gas_created') {
         await supabase.from('gasEntries').upsert([item.payload], { onConflict: 'id' });
@@ -495,11 +523,11 @@ const seedData = {
   ],
   users: [
   { id: 'u-owner', username: 'admin', email: 'admin@12345.com', password: 'admin123', role: 'owner', shop_id: null, name: 'Owner Admin' },
-  { id: 'u-1', username: 'shop1', email: 'nyumbani@shop1.com', password: '1234', role: 'shop', shop_id: 'shop-1', shopId: 'shop-1', name: 'Nyumbani User' },
-  { id: 'u-2', username: 'shop2', email: 'mkwajuni@shop2.com', password: '1234', role: 'shop', shop_id: 'shop-2', shopId: 'shop-2', name: 'Mkwajuni User' },
-  { id: 'u-3', username: 'shop3', email: 'kwamaganga@shop3.com', password: '1234', role: 'shop', shop_id: 'shop-3', shopId: 'shop-3', name: 'Kwa Maganga User' },
-  { id: 'u-4', username: 'shop4', email: 'shangwe@shop4.com', password: '1234', role: 'shop', shop_id: 'shop-4', shopId: 'shop-4', name: 'Shangwe User' },
-  { id: 'u-5', username: 'shop5', email: 'mungumwema@shop5.com', password: '1234', role: 'shop', shop_id: 'shop-5', shopId: 'shop-5', name: 'Mungu Mwema User' },
+  { id: 'u-1', username: 'shop1', email: 'nyumbani@shop1.com', password: '2026', role: 'shop', shop_id: 'shop-1', shopId: 'shop-1', name: 'Nyumbani User' },
+  { id: 'u-2', username: 'shop2', email: 'mkwajuni@shop2.com', password: '2026', role: 'shop', shop_id: 'shop-2', shopId: 'shop-2', name: 'Mkwajuni User' },
+  { id: 'u-3', username: 'shop3', email: 'kwamaganga@shop3.com', password: '2026', role: 'shop', shop_id: 'shop-3', shopId: 'shop-3', name: 'Kwa Maganga User' },
+  { id: 'u-4', username: 'shop4', email: 'shangwe@shop4.com', password: '2026', role: 'shop', shop_id: 'shop-4', shopId: 'shop-4', name: 'Shangwe User' },
+  { id: 'u-5', username: 'shop5', email: 'mungumwema@shop5.com', password: '2026', role: 'shop', shop_id: 'shop-5', shopId: 'shop-5', name: 'Mungu Mwema User' },
 ],
     products: [],
   sales: [],
@@ -981,6 +1009,8 @@ function Login({ onLogin, users, language, setLanguage }) {
       return setError(t(language, 'Wrong username or password.', 'Jina la mtumiaji au nenosiri si sahihi.'));
     }
 
+
+    
     const { error: authError } = await supabase.auth.signInWithPassword({
       email: found.email,
       password,
@@ -2816,6 +2846,17 @@ const rowsToSync = importedProducts.map((p) => ({
   created_at: p.created_at || new Date().toISOString(),
 }));
 
+const { data: authCheck, error: authCheckError } = await supabase.auth.getUser();
+
+console.log('PRODUCT SAVE DEBUG', {
+  authUserId: authCheck?.user?.id || null,
+  authEmail: authCheck?.user?.email || null,
+  authError: authCheckError?.message || null,
+  localUser: data.currentUser,
+  shopIdFromScreen: shop.id,
+  rowsToSync,
+});
+
 const { error } = await supabase
   .from('products')
   .upsert(rowsToSync, { onConflict: 'id' });
@@ -2987,7 +3028,7 @@ const saveProductRows = async () => {
   }
 
   const nextProducts = [...data.products];
-  const rowsToSync = [];
+  const rowsToQueue = [];
 
   for (let idx = 0; idx < rows.length; idx += 1) {
     const row = rows[idx];
@@ -3025,7 +3066,11 @@ const saveProductRows = async () => {
       archived: Boolean(existingProduct?.archived),
       created_at: existingProduct?.created_at || new Date().toISOString(),
       createdAt: existingProduct?.createdAt || todayISO(),
-      confirmed: true,
+
+      // Local-first meaning:
+      // the product is available immediately, but Supabase sync may still be pending.
+      confirmed: Boolean(existingProduct?.confirmed) && existingProduct?.syncStatus !== 'pending',
+      syncStatus: 'pending',
     });
 
     const existingIndex = nextProducts.findIndex(
@@ -3038,7 +3083,7 @@ const saveProductRows = async () => {
       nextProducts.push(prepared);
     }
 
-    rowsToSync.push({
+    rowsToQueue.push({
       id: prepared.id,
       name: prepared.name,
       buyingprice: Number(prepared.buyPrice || 0),
@@ -3057,17 +3102,29 @@ const saveProductRows = async () => {
 
   await saveData({ ...data, products: nextProducts });
 
-  const { error } = await supabase
-    .from('products')
-    .upsert(rowsToSync, { onConflict: 'id' });
-
-  if (error) {
-    alert(`Product sync failed: ${error.message}`);
-    return;
-  }
+  rowsToQueue.forEach((productRow) => {
+    addToSyncQueue('product_saved', productRow);
+  });
 
   setNewProductRows([{ ...emptyProductRow }]);
   setProductFormError('');
+
+  if (navigator.onLine) {
+    processSyncQueue()
+      .then((syncedSomething) => {
+        if (syncedSomething) {
+          setSyncMessage('Sync complete');
+        } else {
+          setSyncMessage('Product saved locally - sync pending');
+        }
+      })
+      .catch((syncError) => {
+        console.error('Queued product sync error:', syncError);
+        setSyncMessage('Product saved locally - sync pending');
+      });
+  } else {
+    setSyncMessage('Product saved locally - sync pending');
+  }
 };
 
   const addPurchaseRow = () => setPurchaseRows((prev) => [...prev, { ...emptyPurchaseRow }]);
@@ -3694,12 +3751,10 @@ const saveMobileMoney = async () => {
 
   // 👉 Angalia kama user ameanza kutumia bank
   const hasBankData =
-    String(mobileMoneyForm.bankCashTotal || '').trim() ||
-    (mobileMoneyForm.banks || []).some(
-      (b) =>
-        String(b.float || '').trim() ||
-        String(b.commission || '').trim()
-    );
+  String(mobileMoneyForm.bankCashTotal || '').trim() ||
+  (mobileMoneyForm.banks || []).some((b) =>
+    String(b.float || '').trim()
+  );
 
   // 👉 Kama hajatumia bank, usimlazimishe
   if (hasBankData) {
@@ -6728,12 +6783,23 @@ const importBackup = () => {
 const handleLogin = async (user) => {
   let authUserId = null;
 
-  if (navigator.onLine) {
+  if (navigator.onLine && user.email && user.password) {
     try {
-      const { data: authData } = await supabase.auth.getUser();
-      authUserId = authData?.user?.id || null;
+      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: user.password,
+      });
+
+      if (signInError) {
+        alert(`Supabase login failed: ${signInError.message}`);
+        return;
+      }
+
+      authUserId = signInData?.user?.id || null;
     } catch (error) {
-      console.error('Auth user check failed during login. Continuing with local login:', error);
+      console.error('Supabase login crashed:', error);
+      alert('Supabase login failed. Please check internet connection and password.');
+      return;
     }
   }
 

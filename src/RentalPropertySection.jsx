@@ -151,58 +151,81 @@ export default function RentalPropertySectionPreview({ language = 'sw', setLangu
   const meterPreviewNextReading = meterForm.readingDate ? addMonthsISO(meterForm.readingDate, 1) : '';
 
   const housePreview = useMemo(() => {
-    const monthlyRent = Number(houseForm.monthlyRentAmount || 0);
-    const paid = Number(houseForm.amountPaid || 0);
-    const durationMonths = Number(houseForm.rentDurationMonths || 0);
-    const rentStartDate = houseForm.rentStartDate || '';
-    const paymentType = houseForm.paymentType || 'Full';
+  const monthlyRent = Number(houseForm.monthlyRentAmount || 0);
+  const paid = Number(houseForm.amountPaid || 0);
+  const rentStartDate = houseForm.rentStartDate || '';
 
-    let rentEndDate = '';
-    let nextPaymentDate = '';
+  let rentEndDate = '';
+  let nextPaymentDate = '';
+  let calculatedMonths = 0;
+  let fullMonths = 0;
+  let extraAmount = 0;
+  let balance = 0;
+  let paymentStatus = 'Unpaid';
 
-    if (rentStartDate) {
-      if (paymentType === 'Partial' && monthlyRent > 0) {
-        const proportion = paid / monthlyRent;
-        const coveredDays = Math.max(1, Math.round(30 * proportion));
-        rentEndDate = addDaysISO(rentStartDate, coveredDays - 1);
-        nextPaymentDate = addDaysISO(rentEndDate, 1);
-      } else {
-        rentEndDate = addDaysISO(addMonthsISO(rentStartDate, durationMonths || 1), -1);
-        nextPaymentDate = addDaysISO(rentEndDate, 1);
-      }
+  if (monthlyRent > 0 && paid > 0) {
+    calculatedMonths = paid / monthlyRent;
+    fullMonths = Math.floor(calculatedMonths);
+    extraAmount = paid - (fullMonths * monthlyRent);
+
+    if (fullMonths < 1) {
+      balance = monthlyRent - paid;
+      paymentStatus = 'Partial';
+    } else if (extraAmount === 0) {
+      balance = 0;
+      paymentStatus = 'Full';
+    } else {
+      balance = monthlyRent - extraAmount;
+      paymentStatus = 'Partial';
     }
+  }
 
-    const expectedAmount = monthlyRent * (durationMonths || 0);
-    const balance = Math.max(0, expectedAmount - paid);
+  if (rentStartDate && monthlyRent > 0 && paid > 0) {
+    if (fullMonths >= 1) {
+      rentEndDate = addDaysISO(addMonthsISO(rentStartDate, fullMonths), -1);
+      nextPaymentDate = addDaysISO(rentEndDate, 1);
+    } else {
+      rentEndDate = '';
+      nextPaymentDate = rentStartDate;
+    }
+  }
 
-    return { rentEndDate, nextPaymentDate, balance };
-  }, [houseForm]);
+  return {
+    rentEndDate,
+    nextPaymentDate,
+    balance,
+    calculatedMonths,
+    fullMonths,
+    extraAmount,
+    paymentStatus,
+  };
+}, [houseForm]);
 
  const saveHouse = async () => {
   if (!houseForm.houseNumber || !houseForm.monthlyRentAmount || !houseForm.rentStartDate) return;
 
   const monthlyRent = Number(houseForm.monthlyRentAmount || 0);
   const paid = Number(houseForm.amountPaid || 0);
-  const durationMonths = Number(houseForm.rentDurationMonths || 0);
-  const paymentType = houseForm.paymentType || 'Full';
-  const expectedAmount = monthlyRent * (durationMonths || 0);
+  const durationMonths = Number(housePreview.fullMonths || 0);
+  const paymentType = housePreview.paymentStatus || 'Unpaid';
 
-  const record = {
-    id: houseForm.id || `house-${Date.now()}`,
-    houseNumber: houseForm.houseNumber,
-    tenantName: houseForm.tenantName,
-    rentPaidDate: houseForm.rentPaidDate,
-    rentStartDate: houseForm.rentStartDate,
-    rentEndDate: housePreview.rentEndDate,
-    monthlyRentAmount: monthlyRent,
-    amountPaid: paid,
-    rentDurationMonths: durationMonths,
-    paymentType,
-    houseStatus: houseForm.houseStatus,
-    itemsIssued: houseForm.itemsIssued,
-    nextPaymentDate: housePreview.nextPaymentDate,
-    balance: Math.max(0, expectedAmount - paid),
-  };
+const record = {
+  id: houseForm.id || `house-${Date.now()}`,
+  shop_id: shop.id,
+  houseNumber: houseForm.houseNumber,
+  tenantName: houseForm.tenantName,
+  rentPaidDate: houseForm.rentPaidDate,
+  rentStartDate: houseForm.rentStartDate,
+  rentEndDate: housePreview.rentEndDate,
+  monthlyRentAmount: monthlyRent,
+  amountPaid: paid,
+  rentDurationMonths: durationMonths,
+  paymentType,
+  houseStatus: houseForm.houseStatus,
+  itemsIssued: houseForm.itemsIssued,
+  nextPaymentDate: housePreview.nextPaymentDate,
+  balance: Number(housePreview.balance || 0),
+};
 
   const currentHouses = Array.isArray(data?.houses) ? data.houses : [];
 
@@ -216,18 +239,13 @@ export default function RentalPropertySectionPreview({ language = 'sw', setLangu
     return [record, ...currentHouses];
   })();
 
-  saveData({
-    ...data,
-    houses: updatedHouses,
-  });
-
   const { error } = await supabase
     .from('houses')
     .upsert(
       [
         {
           id: record.id,
-          shop_id: data?.currentUser?.shop_id || data?.currentUser?.shopId || '',
+          shop_id: record.shop_id || shop.id,
           houseNumber: record.houseNumber,
           tenantName: record.tenantName || '',
           rentPaidDate: record.rentPaidDate || null,
@@ -235,8 +253,8 @@ export default function RentalPropertySectionPreview({ language = 'sw', setLangu
           rentEndDate: record.rentEndDate || null,
           monthlyRentAmount: Number(record.monthlyRentAmount || 0),
           amountPaid: Number(record.amountPaid || 0),
-          rentDurationMonths: Number(record.rentDurationMonths || 1),
-          paymentType: record.paymentType || 'Full',
+          rentDurationMonths: Number(record.rentDurationMonths || 0),
+          paymentType: record.paymentType || 'Unpaid',
           houseStatus: record.houseStatus || 'Occupied',
           itemsIssued: record.itemsIssued || '',
           nextPaymentDate: record.nextPaymentDate || null,
@@ -247,11 +265,13 @@ export default function RentalPropertySectionPreview({ language = 'sw', setLangu
     );
 
   if (error) {
-    alert(`House sync failed: ${error.message}`);
-    return;
-  }
+  alert(`House sync failed: ${error.message}`);
+  return;
+}
 
-  setHouseForm({ ...emptyHouseForm });
+alert('Taarifa za nyumba zimehifadhiwa kikamilifu.');
+
+setHouseForm({ ...emptyHouseForm });
 };
 
   const saveMeter = async () => {
@@ -615,20 +635,45 @@ const editHouse = (row) => {
                 <Input label={t(language, 'Rent End Date (Auto)', 'Tarehe Kodi Kuisha (Auto)')} type="date" value={housePreview.rentEndDate} readOnly />
                 <Input label={t(language, 'Monthly Rent Amount', 'Kiasi cha Kodi kwa Mwezi')} type="number" placeholder="Amount" value={houseForm.monthlyRentAmount} onChange={(e) => setHouseForm((p) => ({ ...p, monthlyRentAmount: e.target.value }))} />
                 <Input label={t(language, 'Amount Paid', 'Kiasi Kilicholipwa')} type="number" placeholder="Amount paid" value={houseForm.amountPaid} onChange={(e) => setHouseForm((p) => ({ ...p, amountPaid: e.target.value }))} />
-                <Input label={t(language, 'Rent Duration (Months)', 'Muda wa Kodi (Miezi)')} type="number" placeholder="e.g. 1, 2, 3" value={houseForm.rentDurationMonths} onChange={(e) => setHouseForm((p) => ({ ...p, rentDurationMonths: e.target.value }))} />
-                <Select label={t(language, 'Payment Type', 'Aina ya Malipo')} value={houseForm.paymentType} onChange={(e) => setHouseForm((p) => ({ ...p, paymentType: e.target.value }))}>
-                  <option value="Full">{t(language, 'Full', 'Kamili')}</option>
-                  <option value="Partial">{t(language, 'Partial', 'Nusu')}</option>
-                </Select>
+                <PreviewValue
+                  label={t(language, 'Rent Duration Covered (Auto)', 'Muda wa Kodi Uliolipwa (Auto)')}
+                  value={
+                    housePreview.calculatedMonths
+                      ? `${housePreview.calculatedMonths.toFixed(2)} month(s)`
+                      : '-'
+                  }
+                />
+
+                <PreviewValue
+                  label={t(language, 'Payment Type (Auto)', 'Aina ya Malipo (Auto)')}
+                  value={housePreview.paymentStatus}
+                />
                 <Select label={t(language, 'House Status', 'Hali ya Nyumba')} value={houseForm.houseStatus} onChange={(e) => setHouseForm((p) => ({ ...p, houseStatus: e.target.value }))}>
                   <option value="Occupied">{t(language, 'Occupied', 'Ina Mpangaji')}</option>
                   <option value="Vacant">{t(language, 'Vacant', 'Tupu')}</option>
                 </Select>
                 <Textarea label={t(language, 'Items Issued / Notes', 'Vitu Vilivyotolewa / Maelezo')} rows={4} placeholder="Number of keys, cards, meter token, handover notes" value={houseForm.itemsIssued} onChange={(e) => setHouseForm((p) => ({ ...p, itemsIssued: e.target.value }))} />
                 <div className="grid gap-3 md:grid-cols-2">
-                  <PreviewValue label={t(language, 'Next Payment Date', 'Tarehe ya Malipo Yanayofuata')} value={housePreview.nextPaymentDate || '-'} />
-                  <PreviewValue label={t(language, 'Outstanding Balance', 'Salio Linalodaiwa')} value={`TZS ${currency(housePreview.balance)}`} />
-                </div>
+  <PreviewValue
+    label={t(language, 'Next Payment Date', 'Tarehe ya Malipo Yanayofuata')}
+    value={housePreview.nextPaymentDate || '-'}
+  />
+
+  <PreviewValue
+    label={t(language, 'Full Months Paid', 'Miezi Kamili Iliyolipwa')}
+    value={housePreview.fullMonths || 0}
+  />
+
+  <PreviewValue
+    label={t(language, 'Amount Exceeding Full Months', 'Kiasi Kilichozidi Kuelekea Mwezi Unaofuata')}
+    value={`TZS ${currency(housePreview.extraAmount)}`}
+  />
+
+  <PreviewValue
+    label={t(language, 'Deficit to Complete Next Month', 'Pungufu ya Kukamilisha Mwezi Unaofuata')}
+    value={`TZS ${currency(housePreview.balance)}`}
+  />
+</div>
                 <Button type="button" onClick={saveHouse}>{t(language, 'Save House Details', 'Hifadhi Taarifa za Nyumba')}</Button>
               </CardContent>
             </Card>
