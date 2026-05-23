@@ -201,31 +201,37 @@ export default function RentalPropertySectionPreview({ language = 'sw', setLangu
   };
 }, [houseForm]);
 
- const saveHouse = async () => {
+const saveHouse = async () => {
   if (!houseForm.houseNumber || !houseForm.monthlyRentAmount || !houseForm.rentStartDate) return;
+
+  const shopId = String(
+    data?.currentUser?.shop_id ||
+    data?.currentUser?.shopId ||
+    'shop-1'
+  ).trim();
 
   const monthlyRent = Number(houseForm.monthlyRentAmount || 0);
   const paid = Number(houseForm.amountPaid || 0);
   const durationMonths = Number(housePreview.fullMonths || 0);
   const paymentType = housePreview.paymentStatus || 'Unpaid';
 
-const record = {
-  id: houseForm.id || `house-${Date.now()}`,
-  shop_id: shop.id,
-  houseNumber: houseForm.houseNumber,
-  tenantName: houseForm.tenantName,
-  rentPaidDate: houseForm.rentPaidDate,
-  rentStartDate: houseForm.rentStartDate,
-  rentEndDate: housePreview.rentEndDate,
-  monthlyRentAmount: monthlyRent,
-  amountPaid: paid,
-  rentDurationMonths: durationMonths,
-  paymentType,
-  houseStatus: houseForm.houseStatus,
-  itemsIssued: houseForm.itemsIssued,
-  nextPaymentDate: housePreview.nextPaymentDate,
-  balance: Number(housePreview.balance || 0),
-};
+  const record = {
+    id: houseForm.id || `house-${Date.now()}`,
+    shop_id: shopId,
+    houseNumber: houseForm.houseNumber,
+    tenantName: houseForm.tenantName,
+    rentPaidDate: houseForm.rentPaidDate,
+    rentStartDate: houseForm.rentStartDate,
+    rentEndDate: housePreview.rentEndDate,
+    monthlyRentAmount: monthlyRent,
+    amountPaid: paid,
+    rentDurationMonths: durationMonths,
+    paymentType,
+    houseStatus: houseForm.houseStatus,
+    itemsIssued: houseForm.itemsIssued,
+    nextPaymentDate: housePreview.nextPaymentDate,
+    balance: Number(housePreview.balance || 0),
+  };
 
   const currentHouses = Array.isArray(data?.houses) ? data.houses : [];
 
@@ -239,13 +245,19 @@ const record = {
     return [record, ...currentHouses];
   })();
 
+  // This is the missing part: update local app state immediately
+  saveData({
+    ...data,
+    houses: updatedHouses,
+  });
+
   const { error } = await supabase
     .from('houses')
     .upsert(
       [
         {
           id: record.id,
-          shop_id: record.shop_id || shop.id,
+          shop_id: record.shop_id,
           houseNumber: record.houseNumber,
           tenantName: record.tenantName || '',
           rentPaidDate: record.rentPaidDate || null,
@@ -265,13 +277,13 @@ const record = {
     );
 
   if (error) {
-  alert(`House sync failed: ${error.message}`);
-  return;
-}
+    alert(`House sync failed: ${error.message}`);
+    return;
+  }
 
-alert('Taarifa za nyumba zimehifadhiwa kikamilifu.');
+  alert('Taarifa za nyumba zimehifadhiwa kikamilifu.');
 
-setHouseForm({ ...emptyHouseForm });
+  setHouseForm({ ...emptyHouseForm });
 };
 
   const saveMeter = async () => {
