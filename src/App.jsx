@@ -1000,29 +1000,52 @@ function Login({ onLogin, users, language, setLanguage }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
-  const submit = async (e) => {
-    e.preventDefault();
-
-    const found = users.find((u) => u.username === username);
-
-    if (!found || !found.email) {
-      return setError(t(language, 'Wrong username or password.', 'Jina la mtumiaji au nenosiri si sahihi.'));
-    }
 
 
-    
-    const { error: authError } = await supabase.auth.signInWithPassword({
+
+
+ const submit = async (e) => {
+  e.preventDefault();
+
+  const typedUsername = String(username || '').trim();
+  const typedPassword = String(password || '');
+
+  const found = users.find(
+    (u) => String(u.username || '').trim().toLowerCase() === typedUsername.toLowerCase()
+  );
+
+  if (!found || !found.email) {
+    return setError(
+      t(language, 'Wrong username or password.', 'Jina la mtumiaji au nenosiri si sahihi.')
+    );
+  }
+
+  try {
+    const { data: signInData, error: authError } = await supabase.auth.signInWithPassword({
       email: found.email,
-      password,
+      password: typedPassword,
     });
 
     if (authError) {
-      return setError(t(language, 'Wrong username or password.', 'Jina la mtumiaji au nenosiri si sahihi.'));
+      return setError(
+        t(language, 'Wrong username or password.', 'Jina la mtumiaji au nenosiri si sahihi.')
+      );
     }
 
     setError('');
-    onLogin(found);
-  };
+
+    onLogin({
+      ...found,
+      auth_user_id: signInData?.user?.id || null,
+    });
+  } catch (error) {
+    console.error('Supabase login crashed:', error);
+
+    return setError(
+      t(language, 'Login failed. Please try again.', 'Kuingia kumeshindikana. Tafadhali jaribu tena.')
+    );
+  }
+};
 
   return (
     <AppShell>
@@ -6781,31 +6804,9 @@ const importBackup = () => {
     setActiveShopId(null);
   };
 const handleLogin = async (user) => {
-  let authUserId = null;
-
-  if (navigator.onLine && user.email && user.password) {
-    try {
-      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-        email: user.email,
-        password: user.password,
-      });
-
-      if (signInError) {
-        alert(`Supabase login failed: ${signInError.message}`);
-        return;
-      }
-
-      authUserId = signInData?.user?.id || null;
-    } catch (error) {
-      console.error('Supabase login crashed:', error);
-      alert('Supabase login failed. Please check internet connection and password.');
-      return;
-    }
-  }
-
   const sessionUser = {
     ...user,
-    auth_user_id: authUserId,
+    auth_user_id: user.auth_user_id || null,
   };
 
   writeStorage(STORAGE_SESSION_KEY, sessionUser);
