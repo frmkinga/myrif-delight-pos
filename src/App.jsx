@@ -49,22 +49,28 @@ const GAS_TYPES = ['Taifa Gas', 'Oryx Gas', 'Mihan / Taifa Gas', 'O Gas', 'Other
 const GAS_CYLINDER_SIZES = ['Small Cylinder', 'Big Cylinder'];
 const GAS_PRICE_BOOK = {
   'Taifa Gas': {
-    smallBuy: 20000,
-    smallSell: 23000,
-    bigBuy: 45000,
-    bigSell: 50000,
+    smallBuy: 20500,
+    smallSell: 25000,
+    bigBuy: 49000,
+    bigSell: 55000,
+  },
+  'Mihan / Taifa Gas': {
+    smallBuy: 20500,
+    smallSell: 25000,
+    bigBuy: 49000,
+    bigSell: 55000,
   },
   'Oryx Gas': {
-    smallBuy: 21000,
-    smallSell: 24000,
-    bigBuy: 46000,
-    bigSell: 51000,
+    smallBuy: 24500,
+    smallSell: 27000,
+    bigBuy: 56000,
+    bigSell: 60000,
   },
   'O Gas': {
-    smallBuy: 20500,
-    smallSell: 23500,
-    bigBuy: 45500,
-    bigSell: 50500,
+    smallBuy: 21000,
+    smallSell: 25000,
+    bigBuy: 49000,
+    bigSell: 55000,
   },
 };
 const t = (language, en, sw) => (language === 'sw' ? sw : en);
@@ -1001,9 +1007,6 @@ function Login({ onLogin, users, language, setLanguage }) {
   const [error, setError] = useState('');
 
 
-
-
-
  const submit = async (e) => {
   e.preventDefault();
 
@@ -1667,7 +1670,7 @@ const [gasSalesRows, setGasSalesRows] = useState([
     id: `gas-sale-${Date.now()}`,
     gasType: 'Taifa Gas',
     smallGasBuyPrice: '20500',
-    smallGasSellPrice: '23000',
+    smallGasSellPrice: '25000',
     bigGasBuyPrice: '49000',
     bigGasSellPrice: '55000',
   },
@@ -1676,28 +1679,33 @@ const [showGasStatus, setShowGasStatus] = useState(false);
 const [showGasSales, setShowGasSales] = useState(false);
 const [showGasPrices, setShowGasPrices] = useState(false);
 
-const saveGas = async () => {
+const saveGas = async (formOverride = null, options = {}) => {
+  const sourceGasForm = formOverride || gasForm;
+  const selectedDate = sourceGasForm.date || todayISO();
+
   const existingTodayGasEntry = (data.gasEntries || []).find(
     (entry) =>
       String(entry.shop_id) === String(shop.id) &&
-      String(entry.date) === String(gasForm.date || todayISO()) &&
-      String(entry.id) !== String(gasForm.id || '')
+      String(entry.date) === String(selectedDate)
   );
 
-  const isOwnerUser = String(data.currentUser?.role || '') === 'owner';
+  const targetExistingEntry = sourceGasForm.id
+    ? (data.gasEntries || []).find((entry) => String(entry.id) === String(sourceGasForm.id))
+    : existingTodayGasEntry;
 
-  if (!isOwnerUser && existingTodayGasEntry) {
-    alert('Tayari umejaza taarifa za gesi kwa tarehe ya leo. Tafadhali wasiliana na admini kama ungependa kufanya marekebisho.');
-    return;
-  }
+  const formForSave = {
+    ...sourceGasForm,
+    id: sourceGasForm.id || targetExistingEntry?.id || '',
+    date: selectedDate,
+  };
 
   const record = {
-  ...buildGasRecord(gasForm),
-  shop_id: shop.id,
-};
+    ...buildGasRecord(formForSave),
+    shop_id: shop.id,
+  };
 
   const nextGasEntries = [...(data.gasEntries || [])];
-  const existingIndex = nextGasEntries.findIndex((x) => x.id === record.id);
+  const existingIndex = nextGasEntries.findIndex((x) => String(x.id) === String(record.id));
 
   if (existingIndex >= 0) {
     nextGasEntries[existingIndex] = record;
@@ -1719,19 +1727,29 @@ const saveGas = async () => {
   if (error) {
     console.error('Gas save error:', error);
     alert(`Gas save error: ${error.message}`);
-    return;
+    return false;
+  }
+
+  if (options.keepGasForm) {
+    setGasForm({
+      ...formForSave,
+      id: record.id,
+    });
+    return true;
   }
 
   setGasForm({
-  ...emptyGasForm,
-  date: todayISO(),
-  gasType: 'Taifa Gas',
-  cylinderSize: 'Small Cylinder',
-  smallGasBuyPrice: String(GAS_PRICE_BOOK['Taifa Gas'].smallBuy),
-  smallGasSellPrice: String(GAS_PRICE_BOOK['Taifa Gas'].smallSell),
-  bigGasBuyPrice: String(GAS_PRICE_BOOK['Taifa Gas'].bigBuy),
-  bigGasSellPrice: String(GAS_PRICE_BOOK['Taifa Gas'].bigSell),
-});
+    ...emptyGasForm,
+    date: todayISO(),
+    gasType: 'Taifa Gas',
+    cylinderSize: 'Small Cylinder',
+    smallGasBuyPrice: String(GAS_PRICE_BOOK['Taifa Gas'].smallBuy),
+    smallGasSellPrice: String(GAS_PRICE_BOOK['Taifa Gas'].smallSell),
+    bigGasBuyPrice: String(GAS_PRICE_BOOK['Taifa Gas'].bigBuy),
+    bigGasSellPrice: String(GAS_PRICE_BOOK['Taifa Gas'].bigSell),
+  });
+
+  return true;
 };
 const editGas = (entry) => {
   console.log('EDIT CLICKED', entry);
@@ -1785,15 +1803,15 @@ const isBigCylinder = gasForm.cylinderSize === 'Big Cylinder';
 const addGasSalesRow = () => {
   setGasSalesRows((prev) => [
     ...prev,
-    {
-      ...emptyGasSaleRow,
-      id: `gas-sale-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      gasType: 'Taifa Gas',
-      smallGasBuyPrice: '20500',
-      smallGasSellPrice: '23000',
-      bigGasBuyPrice: '49000',
-      bigGasSellPrice: '55000',
-    },
+   {
+  ...emptyGasSaleRow,
+  id: `gas-sale-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+  gasType: 'Taifa Gas',
+  smallGasBuyPrice: '20500',
+  smallGasSellPrice: '25000',
+  bigGasBuyPrice: '49000',
+  bigGasSellPrice: '55000',
+},
   ]);
 };
 
@@ -1804,37 +1822,37 @@ const updateGasSalesRow = (rowId, field, value) => {
 
       if (field === 'gasType') {
         if (value === 'Oryx Gas') {
-          return {
-            ...row,
-            gasType: value,
-            smallGasBuyPrice: '21500',
-            smallGasSellPrice: '23000',
-            bigGasBuyPrice: '52000',
-            bigGasSellPrice: '55000',
-          };
-        }
+  return {
+    ...row,
+    gasType: value,
+    smallGasBuyPrice: '24500',
+    smallGasSellPrice: '27000',
+    bigGasBuyPrice: '56000',
+    bigGasSellPrice: '60000',
+  };
+}
 
-        if (value === 'Taifa Gas') {
-          return {
-            ...row,
-            gasType: value,
-            smallGasBuyPrice: '20500',
-            smallGasSellPrice: '23000',
-            bigGasBuyPrice: '49000',
-            bigGasSellPrice: '55000',
-          };
-        }
+if (value === 'Taifa Gas' || value === 'Mihan / Taifa Gas') {
+  return {
+    ...row,
+    gasType: value,
+    smallGasBuyPrice: '20500',
+    smallGasSellPrice: '25000',
+    bigGasBuyPrice: '49000',
+    bigGasSellPrice: '55000',
+  };
+}
 
-        if (value === 'O Gas') {
-          return {
-            ...row,
-            gasType: value,
-            smallGasBuyPrice: '21000',
-            smallGasSellPrice: '23000',
-            bigGasBuyPrice: '49000',
-            bigGasSellPrice: '55000',
-          };
-        }
+if (value === 'O Gas') {
+  return {
+    ...row,
+    gasType: value,
+    smallGasBuyPrice: '21000',
+    smallGasSellPrice: '25000',
+    bigGasBuyPrice: '49000',
+    bigGasSellPrice: '55000',
+  };
+}
       }
 
       return {
