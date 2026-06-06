@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx';
 import { supabase } from './supabaseClient';
 import { GasBusinessSection, GasDashboardCard, GasReportBlock, buildGasRecord, getGasDashboardSummary } from './GasBusinessSection';
 import RentalPropertySection from './RentalPropertySection';
+import CEODecisionCentre from './CEODecisionCentre';
 import {
   ShoppingCart,
   AlertTriangle,
@@ -162,15 +163,16 @@ if (Array.isArray(item.payload.products)) {
   const safeProductRows = item.payload.products
     .filter((p) => p.id && p.shop_id && p.name)
     .map((p) => ({
-      id: p.id,
-      name: String(p.name || '').trim(),
-      buyingprice: Number(p.buyPrice || 0),
-      sellingprice: Number(p.sellPrice || 0),
-      stock: Number(p.stockBaseQty || 0),
-      shop_id: p.shop_id,
-      baseunit: p.baseUnit || 'pc',
-      created_at: p.created_at || new Date().toISOString(),
-    }));
+  id: p.id,
+  name: String(p.name || '').trim(),
+  standard_product_code: String(p.standard_product_code || p.standardProductCode || '').trim(),
+  buyingprice: Number(p.buyPrice || 0),
+  sellingprice: Number(p.sellPrice || 0),
+  stock: Number(p.stockBaseQty || 0),
+  shop_id: p.shop_id,
+  baseunit: p.baseUnit || 'pc',
+  created_at: p.created_at || new Date().toISOString(),
+}));
 
   if (safeProductRows.length) {
     await supabase
@@ -196,16 +198,17 @@ if (Array.isArray(item.payload.products)) {
   const safeProductRows = item.payload.products
     .filter((p) => p.id && p.shop_id && p.name)
     .map((p) => ({
-      id: p.id,
-      name: String(p.name || '').trim(),
-      buyingprice: Number(p.buyingprice ?? p.buyPrice ?? 0),
-      sellingprice: Number(p.sellingprice ?? p.sellPrice ?? 0),
-      stock: Number(p.stock ?? p.stockBaseQty ?? 0),
-      shop_id: p.shop_id,
-      baseunit: p.baseunit || p.baseUnit || 'pc',
-      expirydate: p.expirydate || p.expiryDate || null,
-      created_at: p.created_at || new Date().toISOString(),
-    }));
+  id: p.id,
+  name: String(p.name || '').trim(),
+  standard_product_code: String(p.standard_product_code || p.standardProductCode || '').trim(),
+  buyingprice: Number(p.buyingprice ?? p.buyPrice ?? 0),
+  sellingprice: Number(p.sellingprice ?? p.sellPrice ?? 0),
+  stock: Number(p.stock ?? p.stockBaseQty ?? 0),
+  shop_id: p.shop_id,
+  baseunit: p.baseunit || p.baseUnit || 'pc',
+  expirydate: p.expirydate || p.expiryDate || null,
+  created_at: p.created_at || new Date().toISOString(),
+}));
 
   if (safeProductRows.length) {
     await supabase
@@ -217,20 +220,21 @@ if (Array.isArray(item.payload.products)) {
         const productPayload = item.payload || {};
 
         const productRow = {
-          id: productPayload.id,
-          name: String(productPayload.name || '').trim(),
-          buyingprice: Number(productPayload.buyingprice ?? productPayload.buyPrice ?? 0),
-          sellingprice: Number(productPayload.sellingprice ?? productPayload.sellPrice ?? 0),
-          stock: Number(productPayload.stock ?? productPayload.stockBaseQty ?? 0),
-          shop_id: productPayload.shop_id,
-          baseunit: productPayload.baseunit || productPayload.baseUnit || 'pc',
-          minstocklevel: Number(productPayload.minstocklevel ?? productPayload.minStockLevel ?? 5),
-          expirydate: productPayload.expirydate || productPayload.expiryDate || null,
-          qrcode: productPayload.qrcode || productPayload.qrCode || '',
-          subunitsraw: productPayload.subunitsraw || productPayload.subUnitsRaw || '',
-          archived: Boolean(productPayload.archived),
-          created_at: productPayload.created_at || new Date().toISOString(),
-        };
+  id: productPayload.id,
+  name: String(productPayload.name || '').trim(),
+  standard_product_code: String(productPayload.standard_product_code || productPayload.standardProductCode || '').trim(),
+  buyingprice: Number(productPayload.buyingprice ?? productPayload.buyPrice ?? 0),
+  sellingprice: Number(productPayload.sellingprice ?? productPayload.sellPrice ?? 0),
+  stock: Number(productPayload.stock ?? productPayload.stockBaseQty ?? 0),
+  shop_id: productPayload.shop_id,
+  baseunit: productPayload.baseunit || productPayload.baseUnit || 'pc',
+  minstocklevel: Number(productPayload.minstocklevel ?? productPayload.minStockLevel ?? 5),
+  expirydate: productPayload.expirydate || productPayload.expiryDate || null,
+  qrcode: productPayload.qrcode || productPayload.qrCode || '',
+  subunitsraw: productPayload.subunitsraw || productPayload.subUnitsRaw || '',
+  archived: Boolean(productPayload.archived),
+  created_at: productPayload.created_at || new Date().toISOString(),
+};
 
         if (!productRow.id || !productRow.shop_id || !productRow.name) {
           throw new Error('Product sync skipped because id, shop_id, or name is missing.');
@@ -248,6 +252,29 @@ if (Array.isArray(item.payload.products)) {
 } else if (item.actionType === 'mobile_money_created') {
 
         await supabase.from('mobileMoneyEntries').upsert([item.payload], { onConflict: 'id' });
+
+      } else if (item.actionType === 'monthly_wakala_commission_saved') {
+        const payload = item.payload || {};
+
+        const row = {
+          id: payload.id,
+          shop_id: payload.shop_id,
+          shopName: payload.shopName || '',
+          commissionMonth: payload.commissionMonth || '',
+          mobileCommissions: payload.mobileCommissions || [],
+          bankCommissions: payload.bankCommissions || [],
+          mobileTotal: Number(payload.mobileTotal || 0),
+          bankTotal: Number(payload.bankTotal || 0),
+          grandTotal: Number(payload.grandTotal || 0),
+          notes: payload.notes || '',
+          created_at: payload.created_at || new Date().toISOString(),
+          updated_at: payload.updated_at || new Date().toISOString(),
+        };
+
+        await supabase
+          .from('monthlyWakalaCommissions')
+          .upsert([row], { onConflict: 'id' });
+
       } else if (item.actionType === 'gas_created') {
         await supabase.from('gasEntries').upsert([item.payload], { onConflict: 'id' });
       }
@@ -339,6 +366,25 @@ const formatQty = (value) => {
   const num = Number(value || 0);
   return Number.isInteger(num) ? String(num) : new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(num);
 };
+
+const buildStandardProductCode = (name, unit = '') => {
+  const cleaned = String(name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\u00C0-\u024F]+/gi, '-')
+    .replace(/^-+|-+$/g, '');
+
+  const cleanUnit = String(unit || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gi, '-')
+    .replace(/^-+|-+$/g, '');
+
+  return cleanUnit && !cleaned.includes(cleanUnit)
+    ? `${cleaned}-${cleanUnit}`.replace(/-+/g, '-')
+    : cleaned.replace(/-+/g, '-');
+};
+
 const todayISO = (input = new Date()) => {
   const d = new Date(input);
   const year = d.getFullYear();
@@ -390,23 +436,55 @@ function filterByPreset(items, preset, customDate) {
     return todayISO();
   };
 
+  const getStartOfWeek = (date) => {
+    const d = startOfDay(date);
+    const day = d.getDay(); // Sunday = 0, Monday = 1
+    const diff = day === 0 ? -6 : 1 - day;
+    return addDays(d, diff);
+  };
+
+  const startOfThisWeek = getStartOfWeek(now);
+  const startOfLastWeek = addDays(startOfThisWeek, -7);
+  const endOfLastWeek = addDays(startOfThisWeek, -1);
+
+  const startOfThisMonth = startOfMonth(now);
+  const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const endOfLastMonth = addDays(startOfThisMonth, -1);
+
+  const startOfThisYear = new Date(now.getFullYear(), 0, 1);
+
   return items.filter((item) => {
     const value = getItemDateValue(item);
     const d = startOfDay(value);
 
     if (preset === 'today') return value === todayISO();
     if (preset === 'yesterday') return value === todayISO(addDays(now, -1));
+
     if (preset === 'date') {
       if (typeof customDate === 'object' && customDate?.start && customDate?.end) {
         return value >= customDate.start && value <= customDate.end;
       }
       return value === customDate;
     }
-    if (preset === 'week') return d >= addDays(now, -6) && d <= now;
-    if (preset === 'month') return d >= startOfMonth(now) && d <= now;
+
+    // This week to date: Monday up to today
+    if (preset === 'week') return d >= startOfThisWeek && d <= now;
+
+    // Last completed week: Monday to Sunday
+    if (preset === 'lastweek') return d >= startOfLastWeek && d <= endOfLastWeek;
+
+    // This month to date: 1st day of this month up to today
+    if (preset === 'month') return d >= startOfThisMonth && d <= now;
+
+    // Last completed month: 1st day to last day of previous month
+    if (preset === 'lastmonth') return d >= startOfLastMonth && d <= endOfLastMonth;
+
     if (preset === '3months') return d >= addDays(now, -89) && d <= now;
     if (preset === '6months') return d >= addDays(now, -179) && d <= now;
-    if (preset === 'year') return d >= addDays(now, -364) && d <= now;
+
+    // This year to date: 1 January up to today
+    if (preset === 'year') return d >= startOfThisYear && d <= now;
+
     return true;
   });
 }
@@ -441,6 +519,8 @@ const emptyProductRow = {
   expiryDate: '',
   subUnits: '0.75,0.5,0.25',
   qrCode: '',
+  standardProductCode: '',
+  standard_product_code: '',
 };
 const emptyPurchaseRow = {
   id: '',
@@ -455,8 +535,8 @@ const emptyPurchaseRow = {
 const emptyExpenseRow = { id: '', title: '', amount: '', category: '', date: todayISO(), notes: '' };
 const emptyCreditRow = { id: '', customerName: '', amount: '', phone: '', notes: '' };
 const emptyChangeRow = { id: '', customerName: '', amountOwed: '', notes: '' };
-const emptyNetworkRow = { provider: 'M-Pesa', float: '', commission: '0' };
-const emptyBankRow = { bankName: 'CRDB', float: '', commission: '0' };
+const emptyNetworkRow = { provider: 'M-Pesa', float: '' };
+const emptyBankRow = { bankName: 'CRDB', float: '' };
 const RECURRING_EXPENSES_BY_SHOP = {
   'shop-1': [
     { title: 'Home Expenses', amount: '10000', category: 'Recurring', notes: '' },
@@ -541,7 +621,8 @@ const seedData = {
   changeLedger: [],
   expenses: [],
   purchases: [],
-  mobileMoneyEntries: [],
+    mobileMoneyEntries: [],
+  monthlyWakalaCommissions: [],
   gasEntries: [],
   houses: [],
   meters: [],
@@ -588,20 +669,22 @@ function normalizeProduct(product) {
   }
 
       return {
-    ...rest,
-    name: String(rest.name || '').trim(),
-    shop_id: normalizedShopId,
-    baseUnit,
-    buyPrice: Number(rest.buyPrice || 0),
-    sellPrice,
-    stockBaseQty: Number(rest.stockBaseQty || stockQty || 0),
-    minStockLevel: Number(rest.minStockLevel || 5),
-    expiryDate: rest.expiryDate || '',
-    qrCode: rest.qrCode || '',
-    subUnitsRaw: rawSubUnits,
-    subUnits: makeSubUnits(baseUnit, sellPrice, rawSubUnits),
-    createdAt: rest.createdAt || '',
-  };
+  ...rest,
+  name: String(rest.name || '').trim(),
+  standardProductCode: String(rest.standardProductCode || rest.standard_product_code || '').trim(),
+  standard_product_code: String(rest.standard_product_code || rest.standardProductCode || '').trim(),
+  shop_id: normalizedShopId,
+  baseUnit,
+  buyPrice: Number(rest.buyPrice || 0),
+  sellPrice,
+  stockBaseQty: Number(rest.stockBaseQty || stockQty || 0),
+  minStockLevel: Number(rest.minStockLevel || 5),
+  expiryDate: rest.expiryDate || '',
+  qrCode: rest.qrCode || '',
+  subUnitsRaw: rawSubUnits,
+  subUnits: makeSubUnits(baseUnit, sellPrice, rawSubUnits),
+  createdAt: rest.createdAt || '',
+};
 }
 
 function normalizeData(parsed = {}) {
@@ -615,6 +698,7 @@ function normalizeData(parsed = {}) {
     expenses: Array.isArray(parsed.expenses) ? parsed.expenses : [],
     purchases: Array.isArray(parsed.purchases) ? parsed.purchases : [],
     mobileMoneyEntries: Array.isArray(parsed.mobileMoneyEntries) ? parsed.mobileMoneyEntries : [],
+    monthlyWakalaCommissions: Array.isArray(parsed.monthlyWakalaCommissions) ? parsed.monthlyWakalaCommissions : [],
     gasEntries: Array.isArray(parsed.gasEntries) ? parsed.gasEntries : [],
     houses: Array.isArray(parsed.houses) ? parsed.houses : [],
     meters: Array.isArray(parsed.meters) ? parsed.meters : [],
@@ -665,6 +749,7 @@ let expensesQuery = supabase.from('expenses').select('*');
 let creditQuery = supabase.from('creditSales').select('*');
 let changeQuery = supabase.from('changeLedger').select('*');
 let mobileMoneyQuery = supabase.from('mobileMoneyEntries').select('*');
+let monthlyWakalaCommissionsQuery = supabase.from('monthlyWakalaCommissions').select('*');
 let gasQuery = supabase.from('gasEntries').select('*');
 let housesQuery = supabase.from('houses').select('*');
 let metersQuery = supabase.from('meters').select('*');
@@ -678,6 +763,7 @@ let serviceChargesQuery = supabase.from('servicecharges').select('*');
   creditQuery = creditQuery.eq('shop_id', sessionShopId);
   changeQuery = changeQuery.eq('shop_id', sessionShopId);
   mobileMoneyQuery = mobileMoneyQuery.eq('shop_id', sessionShopId);
+  monthlyWakalaCommissionsQuery = monthlyWakalaCommissionsQuery.eq('shop_id', sessionShopId);
   gasQuery = gasQuery.eq('shop_id', sessionShopId);
   housesQuery = housesQuery.eq('shop_id', sessionShopId);
   metersQuery = metersQuery.eq('shop_id', sessionShopId);
@@ -692,6 +778,7 @@ let serviceChargesQuery = supabase.from('servicecharges').select('*');
   { data: cloudCreditSales },
   { data: cloudChangeLedger },
   { data: cloudMobileMoneyEntries },
+  { data: cloudMonthlyWakalaCommissions },
   { data: cloudGasEntries },
   { data: cloudHouses },
   { data: cloudMeters },
@@ -704,6 +791,7 @@ let serviceChargesQuery = supabase.from('servicecharges').select('*');
   creditQuery,
   changeQuery,
   mobileMoneyQuery,
+  monthlyWakalaCommissionsQuery,
   gasQuery,
   housesQuery,
   metersQuery,
@@ -764,16 +852,18 @@ const normalized = normalizeData({
   products: (cloudProducts || []).map((p) => ({
   id: p?.id || '',
   name: String(p?.name || '').trim(),
+  standardProductCode: String(p?.standard_product_code || p?.standardProductCode || '').trim(),
+  standard_product_code: String(p?.standard_product_code || p?.standardProductCode || '').trim(),
   buyPrice: Number(p?.buyingprice || p?.buyPrice || 0),
   sellPrice: Number(p?.sellingprice || p?.sellPrice || 0),
   stockBaseQty: Number(p?.stock || p?.stockBaseQty || p?.stockQty || 0),
   stockQty: Number(p?.stock || p?.stockBaseQty || p?.stockQty || 0),
   shop_id: String(p?.shop_id || '').trim(),
   baseUnit: p?.baseunit || p?.baseUnit || 'pc',
-  minStockLevel: Number(p?.minStockLevel || 5),
-  expiryDate: p?.expiryDate || '',
-  qrCode: p?.qrCode || '',
-  subUnitsRaw: p?.subUnitsRaw || '',
+  minStockLevel: Number(p?.minstocklevel || p?.minStockLevel || 5),
+  expiryDate: p?.expirydate || p?.expiryDate || '',
+  qrCode: p?.qrcode || p?.qrCode || '',
+  subUnitsRaw: p?.subunitsraw || p?.subUnitsRaw || '',
   archived: Boolean(p?.archived),
   createdAt: p?.createdAt || (p?.created_at ? String(p.created_at).slice(0, 10) : ''),
   confirmed: true,
@@ -825,6 +915,7 @@ const normalized = normalizeData({
         created_at: c?.created_at || '',
       })),
       mobileMoneyEntries: cloudMobileMoneyEntries || [],
+      monthlyWakalaCommissions: cloudMonthlyWakalaCommissions || [],
       gasEntries: cloudGasEntries || [],
     });
 
@@ -875,6 +966,7 @@ const normalized = normalizeData({
   creditSales: separateCredit || raw.creditSales,
   changeLedger: separateChange || raw.changeLedger,
   mobileMoneyEntries: separateMobileMoney || raw.mobileMoneyEntries,
+  monthlyWakalaCommissions: raw.monthlyWakalaCommissions || [],
   gasEntries: separateGas || raw.gasEntries,
 });
 
@@ -1303,6 +1395,8 @@ setAppData(nextData);
   setConfirmPasswordInput('');
 };
     const shouldLoadOldOwnerSalesFromSupabase =
+    ownerPeriod === 'lastweek' ||
+    ownerPeriod === 'lastmonth' ||
     ownerPeriod === '3months' ||
     ownerPeriod === '6months' ||
     ownerPeriod === 'year';
@@ -1319,8 +1413,34 @@ setAppData(nextData);
         setOwnerSalesLoading(true);
 
         let startDate = daysAgoISO(89);
+        let endDate = todayISO();
 
-        if (ownerPeriod === '6months') {
+        const now = startOfDay(new Date());
+
+        const getStartOfWeekForOwner = (date) => {
+          const d = startOfDay(date);
+          const day = d.getDay();
+          const diff = day === 0 ? -6 : 1 - day;
+          return addDays(d, diff);
+        };
+
+        const startOfThisWeek = getStartOfWeekForOwner(now);
+        const startOfLastWeek = addDays(startOfThisWeek, -7);
+        const endOfLastWeek = addDays(startOfThisWeek, -1);
+
+        const startOfThisMonthForOwner = startOfMonth(now);
+        const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        const endOfLastMonth = addDays(startOfThisMonthForOwner, -1);
+
+        if (ownerPeriod === 'lastweek') {
+          startDate = todayISO(startOfLastWeek);
+          endDate = todayISO(endOfLastWeek);
+        } else if (ownerPeriod === 'lastmonth') {
+          startDate = todayISO(startOfLastMonth);
+          endDate = todayISO(endOfLastMonth);
+        } else if (ownerPeriod === '3months') {
+          startDate = daysAgoISO(89);
+        } else if (ownerPeriod === '6months') {
           startDate = daysAgoISO(179);
         } else if (ownerPeriod === 'year') {
           startDate = daysAgoISO(364);
@@ -1330,6 +1450,7 @@ setAppData(nextData);
           .from('sales')
           .select('*')
           .gte('date', startDate)
+          .lte('date', endDate)
           .order('created_at', { ascending: false });
 
         if (error) throw error;
@@ -1386,18 +1507,81 @@ const totalGasProfit = (data.gasEntries || [])
     return a + small + big;
   }, 0);
 
-const totalWakalaCommission = (data.mobileMoneyEntries || [])
-  .filter((x) => filterByPreset([x], ownerPeriod, todayISO()).length > 0)
-  .reduce((a, x) => {
-    const mobileCommission = (x.networks || []).reduce((sum, n) => sum + Number(n.commission || 0), 0);
-    const bankCommission = (x.banks || []).reduce((sum, b) => sum + Number(b.commission || 0), 0);
-    return a + mobileCommission + bankCommission;
-  }, 0);
+const commissionMonthMatchesOwnerPeriod = (record) => {
+  if (!record?.commissionMonth) return false;
+
+  const [year, month] = String(record.commissionMonth).split('-').map(Number);
+  if (!year || !month) return false;
+
+  const now = startOfDay(new Date());
+  const commissionMonthStart = new Date(year, month - 1, 1);
+
+  const thisMonthStart = startOfMonth(now);
+  const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const thisYearStart = new Date(now.getFullYear(), 0, 1);
+
+  if (ownerPeriod === 'month') {
+    return (
+      commissionMonthStart.getFullYear() === thisMonthStart.getFullYear() &&
+      commissionMonthStart.getMonth() === thisMonthStart.getMonth()
+    );
+  }
+
+  if (ownerPeriod === 'lastmonth') {
+    return (
+      commissionMonthStart.getFullYear() === lastMonthStart.getFullYear() &&
+      commissionMonthStart.getMonth() === lastMonthStart.getMonth()
+    );
+  }
+
+  if (ownerPeriod === '3months') {
+    const start = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+    return commissionMonthStart >= start && commissionMonthStart <= thisMonthStart;
+  }
+
+  if (ownerPeriod === '6months') {
+    const start = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+    return commissionMonthStart >= start && commissionMonthStart <= thisMonthStart;
+  }
+
+  if (ownerPeriod === 'year') {
+    return commissionMonthStart >= thisYearStart && commissionMonthStart <= thisMonthStart;
+  }
+
+  return false;
+};
+
+const monthlyCommissionRecordsForOwnerPeriod = (data.monthlyWakalaCommissions || [])
+  .filter(commissionMonthMatchesOwnerPeriod);
+
+const totalMobileWakalaCommission = monthlyCommissionRecordsForOwnerPeriod.reduce(
+  (sum, record) => sum + Number(record.mobileTotal || 0),
+  0
+);
+
+const totalBankWakalaCommission = monthlyCommissionRecordsForOwnerPeriod.reduce(
+  (sum, record) => sum + Number(record.bankTotal || 0),
+  0
+);
+
+const totalWakalaCommission = totalMobileWakalaCommission + totalBankWakalaCommission;
 
 const totalBusinessProfit = totalProfit + totalGasProfit + totalWakalaCommission;
   const latestPerShop = data.shops.map((shop) => getLatestEntryForShop(data.mobileMoneyEntries, shop.id)).filter(Boolean);
   const totalMobileCapital = latestPerShop.reduce((a, entry) => a + getMobileCapital(entry), 0);
   const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(entry), 0);
+
+  const ownerPeriodLabel = {
+    today: t(language, 'Today', 'Leo'),
+    yesterday: t(language, 'Yesterday', 'Jana'),
+    week: t(language, 'This week to date', 'Wiki hii hadi leo'),
+    lastweek: t(language, 'Last week', 'Wiki iliyopita'),
+    month: t(language, 'This month to date', 'Mwezi huu hadi leo'),
+    lastmonth: t(language, 'Last month', 'Mwezi uliopita'),
+    '3months': t(language, 'Last 3 months', 'Miezi 3 iliyopita'),
+    '6months': t(language, 'Last 6 months', 'Miezi 6 iliyopita'),
+    year: t(language, 'This year', 'Mwaka huu'),
+  }[ownerPeriod] || t(language, 'Selected period', 'Kipindi ulichochagua');
 
  return (
   <AppShell>
@@ -1415,15 +1599,17 @@ const totalBusinessProfit = totalProfit + totalGasProfit + totalWakalaCommission
             <option value="sw">Kiswahili</option>
             <option value="en">English</option>
           </select>
-          <select className="rounded-xl border border-slate-200 px-3 py-2 text-sm" value={ownerPeriod} onChange={(e) => setOwnerPeriod(e.target.value)}>
-            <option value="today">{t(language, 'Today', 'Leo')}</option>
-            <option value="yesterday">{t(language, 'Yesterday', 'Jana')}</option>
-            <option value="week">{t(language, 'Week', 'Wiki')}</option>
-            <option value="month">{t(language, 'Month', 'Mwezi')}</option>
-            <option value="3months">{t(language, '3 Months', 'Miezi 3')}</option>
-            <option value="6months">{t(language, '6 Months', 'Miezi 6')}</option>
-            <option value="year">{t(language, 'Year', 'Mwaka')}</option>
-          </select>
+         <select className="rounded-xl border border-slate-200 px-3 py-2 text-sm" value={ownerPeriod} onChange={(e) => setOwnerPeriod(e.target.value)}>
+  <option value="today">{t(language, 'Today', 'Leo')}</option>
+  <option value="yesterday">{t(language, 'Yesterday', 'Jana')}</option>
+  <option value="week">{t(language, 'This week to date', 'Wiki hii hadi leo')}</option>
+  <option value="lastweek">{t(language, 'Last week', 'Wiki iliyopita')}</option>
+  <option value="month">{t(language, 'This month to date', 'Mwezi huu hadi leo')}</option>
+  <option value="lastmonth">{t(language, 'Last month', 'Mwezi uliopita')}</option>
+  <option value="3months">{t(language, 'Last 3 months', 'Miezi 3 iliyopita')}</option>
+  <option value="6months">{t(language, 'Last 6 months', 'Miezi 6 iliyopita')}</option>
+  <option value="year">{t(language, 'This year', 'Mwaka huu')}</option>
+</select>
           <Button variant="outline" onClick={exportBackup}>
   {t(language, 'Export Backup', 'Pakua Backup')}
 </Button>
@@ -1447,36 +1633,38 @@ const totalBusinessProfit = totalProfit + totalGasProfit + totalWakalaCommission
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
   <StatCard
-    title={t(language, 'Total Sales Today', 'Jumla ya Mauzo Leo')}
+    title={`${t(language, 'Total Sales', 'Jumla ya Mauzo')} ${ownerPeriodLabel}`}
     value={`TZS ${currency(totalSales)}`}
     icon={ShoppingCart}
     color="from-fuchsia-500 to-purple-600"
   />
 
   <StatCard
-    title={t(language, 'Total Expenses Today', 'Jumla ya Matumizi Leo')}
+    title={`${t(language, 'Total Expenses', 'Jumla ya Matumizi')} ${ownerPeriodLabel}`}
     value={`TZS ${currency(totalExpenses)}`}
     icon={AlertTriangle}
     color="from-orange-400 to-pink-500"
   />
 
   <StatCard
-    title={t(language, 'Profit Today', 'Faida ya Leo')}
+    title={`${t(language, 'Profit', 'Faida ya')} ${ownerPeriodLabel}`}
     value={`TZS ${currency(totalProfit)}`}
     icon={Wallet}
     color="from-violet-500 to-indigo-700"
   />
 
   <StatCard
-    title={t(language, 'Total Capital for Mobile Money', 'Jumla ya Mtaji wa Simu')}
+    title={t(language, 'Current Mobile Money Capital', 'Mtaji wa Sasa wa Simu')}
     value={`TZS ${currency(totalMobileCapital)}`}
+    subtitle={t(language, 'Based on latest entry per shop', 'Kutokana na rekodi ya mwisho ya kila duka')}
     icon={HandCoins}
     color="from-blue-500 to-cyan-600"
   />
 
   <StatCard
-    title={t(language, 'Total Capital for Banks', 'Jumla ya Mtaji wa Benki')}
+    title={t(language, 'Current Bank Capital', 'Mtaji wa Sasa wa Benki')}
     value={`TZS ${currency(totalBankCapital)}`}
+    subtitle={t(language, 'Based on latest entry per shop', 'Kutokana na rekodi ya mwisho ya kila duka')}
     icon={Building2}
     color="from-indigo-500 to-blue-700"
   />
@@ -1487,21 +1675,29 @@ const totalBusinessProfit = totalProfit + totalGasProfit + totalWakalaCommission
   </CardHeader>
 
   <CardContent>
-    <div className="grid gap-3 md:grid-cols-4 text-sm">
+    <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6 text-sm">
       <div className="rounded-2xl bg-gradient-to-r from-fuchsia-500/15 to-purple-600/15 p-3 font-medium">
-  {t(language, 'Retail Profit', 'Faida ya Duka')}: TZS {currency(totalProfit)}
-</div>
+        {t(language, 'Retail Profit after Expenses', 'Faida ya Duka baada ya Matumizi')}: TZS {currency(totalProfit)}
+      </div>
 
       <div className="rounded-2xl bg-gradient-to-r from-orange-400/15 to-pink-500/15 p-3 font-medium">
-        {t(language, 'Gas Profit', 'Faida ya Gesi')}: TZS {currency(0)}
+        {t(language, 'Gas Profit', 'Faida ya Gesi')}: TZS {currency(totalGasProfit)}
       </div>
 
       <div className="rounded-2xl bg-gradient-to-r from-cyan-500/15 to-sky-600/15 p-3 font-medium">
-        {t(language, 'Wakala Commission', 'Kamisheni ya Wakala')}: TZS {currency(0)}
+        {t(language, 'Mobile Money Commission', 'Kamisheni za Simu')}: TZS {currency(totalMobileWakalaCommission)}
+      </div>
+
+      <div className="rounded-2xl bg-gradient-to-r from-blue-500/15 to-indigo-600/15 p-3 font-medium">
+        {t(language, 'Bank Commission', 'Kamisheni za Benki')}: TZS {currency(totalBankWakalaCommission)}
+      </div>
+
+      <div className="rounded-2xl bg-gradient-to-r from-emerald-500/15 to-teal-600/15 p-3 font-medium">
+        {t(language, 'Total Wakala Commission', 'Jumla ya Kamisheni ya Wakala')}: TZS {currency(totalWakalaCommission)}
       </div>
 
       <div className="rounded-2xl bg-gradient-to-r from-violet-500/20 to-indigo-700/20 p-3 font-semibold">
-        {t(language, 'Total Business Profit', 'Jumla ya Faida za Biashara')}: TZS {currency(totalProfit)}
+        {t(language, 'Total Business Profit', 'Jumla ya Faida za Biashara')}: TZS {currency(totalBusinessProfit)}
       </div>
     </div>
   </CardContent>
@@ -1535,6 +1731,25 @@ const totalBusinessProfit = totalProfit + totalGasProfit + totalWakalaCommission
           }, 0);
 
           const shopProfit = shopRetailProfit - shopExpenses;
+
+          const shopCommissionRecords = (data.monthlyWakalaCommissions || []).filter(
+            (record) =>
+              String(record.shop_id || '') === String(shop.id) &&
+              commissionMonthMatchesOwnerPeriod(record)
+          );
+
+          const shopMobileWakalaCommission = shopCommissionRecords.reduce(
+            (sum, record) => sum + Number(record.mobileTotal || 0),
+            0
+          );
+
+          const shopBankWakalaCommission = shopCommissionRecords.reduce(
+            (sum, record) => sum + Number(record.bankTotal || 0),
+            0
+          );
+
+          const shopWakalaCommission = shopMobileWakalaCommission + shopBankWakalaCommission;
+
           const latest = getLatestEntryForShop(data.mobileMoneyEntries, shop.id);
           const mobileCapital = latest ? getMobileCapital(latest) : 0;
           const bankCapital = latest ? getBankCapital(latest) : 0;
@@ -1560,6 +1775,22 @@ const totalBusinessProfit = totalProfit + totalGasProfit + totalWakalaCommission
 
         <div className="rounded-2xl bg-white/70 px-3 py-2 font-medium shadow-sm">
           {t(language, 'Profit', 'Faida')}: TZS {currency(shopProfit)}
+        </div>
+
+        <div className="rounded-2xl bg-white/70 px-3 py-2 shadow-sm">
+          {t(language, 'Mobile Money Commission', 'Kamisheni za Simu')}: TZS {currency(shopMobileWakalaCommission)}
+        </div>
+
+        <div className="rounded-2xl bg-white/70 px-3 py-2 shadow-sm">
+          {t(language, 'Bank Commission', 'Kamisheni za Benki')}: TZS {currency(shopBankWakalaCommission)}
+        </div>
+
+        <div className="rounded-2xl bg-white/70 px-3 py-2 font-medium shadow-sm">
+          {t(language, 'Total Wakala Commission', 'Jumla ya Kamisheni ya Wakala')}: TZS {currency(shopWakalaCommission)}
+        </div>
+
+        <div className="rounded-2xl bg-emerald-50 px-3 py-2 font-semibold text-emerald-800 shadow-sm">
+          {t(language, 'Total Shop Profit including Wakala', 'Jumla ya Faida ya Duka pamoja na Wakala')}: TZS {currency(shopProfit + shopWakalaCommission)}
         </div>
 
         <div className="rounded-2xl bg-white/70 px-3 py-2 shadow-sm">
@@ -1598,47 +1829,77 @@ const [stockSearch, setStockSearch] = useState('');
   const [newProductRows, setNewProductRows] = useState([{ ...emptyProductRow }]);
   const [purchaseRows, setPurchaseRows] = useState([{ ...emptyPurchaseRow }]);
   const recurringExpenseDefaults = RECURRING_EXPENSES_BY_SHOP[shop.id] || [];
+  const recurringAutoSaveRef = useRef('');
+  const [expenseRows, setExpenseRows] = useState([{ ...emptyExpenseRow }]);
 
-const isRecurringExpenseAlreadySavedForToday = () => {
-  const today = todayISO();
-
-  return recurringExpenseDefaults.some((item, idx) =>
-    (data.expenses || []).some(
-      (expense) =>
-        String(expense.shop_id || expense.shopId || '') === String(shop.id) &&
-        String(expense.date || '') === String(today) &&
+const isRecurringExpenseSavedForDate = (item, idx, dateValue) => {
+  return (data.expenses || []).some(
+    (expense) =>
+      String(expense.shop_id || expense.shopId || '') === String(shop.id) &&
+      String(expense.date || '') === String(dateValue) &&
+      (
+        String(expense.id || '') === `recurring-${shop.id}-${dateValue}-${idx}` ||
+        String(expense.id || '') === `recurring-${shop.id}-${idx}` ||
         (
-          String(expense.id || '') === `recurring-${shop.id}-${idx}` ||
-          (
-            String(expense.title || expense.description || '').trim().toLowerCase() ===
-              String(item.title || '').trim().toLowerCase() &&
-            String(expense.category || '').trim().toLowerCase() ===
-              String(item.category || '').trim().toLowerCase()
-          )
+          String(expense.title || expense.description || '').trim().toLowerCase() ===
+            String(item.title || '').trim().toLowerCase() &&
+          String(expense.category || '').trim().toLowerCase() ===
+            String(item.category || '').trim().toLowerCase()
         )
-    )
+      )
   );
 };
 
-const buildDefaultExpenseRows = () => {
-  if (isRecurringExpenseAlreadySavedForToday()) {
-    return [{ ...emptyExpenseRow }];
+const autoSaveRecurringExpensesForToday = async () => {
+  const today = todayISO();
+  const autoSaveKey = `${shop.id}-${today}`;
+
+  if (recurringAutoSaveRef.current === autoSaveKey) return;
+  recurringAutoSaveRef.current = autoSaveKey;
+
+  const rowsToAutoSave = recurringExpenseDefaults
+    .map((item, idx) => ({
+      id: `recurring-${shop.id}-${today}-${idx}`,
+      shop_id: shop.id,
+      title: item.title,
+      description: item.title,
+      amount: Number(item.amount || 0),
+      category: item.category || 'Recurring',
+      date: today,
+      notes: item.notes || 'Auto-saved fixed daily expense',
+      created_at: new Date().toISOString(),
+      autoRecurring: true,
+    }))
+    .filter((item, idx) => Number(item.amount || 0) > 0 && !isRecurringExpenseSavedForDate(item, idx, today));
+
+  if (!rowsToAutoSave.length) {
+    setExpenseRows([{ ...emptyExpenseRow }]);
+    return;
   }
 
-  return recurringExpenseDefaults.length
-    ? recurringExpenseDefaults.map((item, idx) => ({
-        ...emptyExpenseRow,
-        id: `recurring-${shop.id}-${idx}`,
-        title: item.title,
-        amount: item.amount,
-        category: item.category,
-        notes: item.notes,
-        date: todayISO(),
-      }))
-    : [{ ...emptyExpenseRow }];
+  const nextExpenses = [...(data.expenses || []), ...rowsToAutoSave];
+
+  await saveData({
+    ...data,
+    expenses: nextExpenses,
+  });
+
+  rowsToAutoSave.forEach((expense) => {
+    addToSyncQueue('expense_created', expense);
+  });
+
+  setExpenseRows([{ ...emptyExpenseRow }]);
+
+  if (navigator.onLine) {
+    processSyncQueue().catch((syncError) => {
+      console.error('Auto recurring expenses sync error:', syncError);
+    });
+  }
 };
 
-const [expenseRows, setExpenseRows] = useState(buildDefaultExpenseRows);
+useEffect(() => {
+  autoSaveRecurringExpensesForToday();
+}, [shop.id]);
   const [creditRows, setCreditRows] = useState([{ ...emptyCreditRow }]);
   const [changeRows, setChangeRows] = useState([{ ...emptyChangeRow }]);
   const [reportPreset, setReportPreset] = useState('today');
@@ -1869,13 +2130,6 @@ const removeGasSalesRow = (rowId) => {
   );
 };
 
-
-
-
-
-
-
-
 const [mobileMoneyForm, setMobileMoneyForm] = useState({
   id: '',
   date: todayISO(),
@@ -1885,6 +2139,32 @@ const [mobileMoneyForm, setMobileMoneyForm] = useState({
   bankCapital: '',
   networks: [{ ...emptyNetworkRow }],
   banks: [{ ...emptyBankRow }],
+  notes: '',
+});
+
+const getPreviousMonthValue = () => {
+  const d = new Date();
+  d.setMonth(d.getMonth() - 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+};
+
+const [monthlyCommissionForm, setMonthlyCommissionForm] = useState({
+  id: '',
+  commissionMonth: getPreviousMonthValue(),
+  mobileCommissions: MOBILE_PROVIDERS.map((provider) => ({
+    provider,
+    amount: '',
+    receivedDate: todayISO(),
+    notReceived: false,
+    note: '',
+  })),
+  bankCommissions: BANKS.map((bankName) => ({
+    bankName,
+    amount: '',
+    receivedDate: todayISO(),
+    notReceived: false,
+    note: '',
+  })),
   notes: '',
 });
 
@@ -1958,6 +2238,8 @@ const reportDateValue =
 const shouldLoadOldSalesFromSupabase =
   reportType === 'salesReport' &&
   (
+    reportPreset === 'lastweek' ||
+    reportPreset === 'lastmonth' ||
     reportPreset === '3months' ||
     reportPreset === '6months' ||
     reportPreset === 'year' ||
@@ -1978,7 +2260,30 @@ useEffect(() => {
       let startDate = daysAgoISO(30);
       let endDate = todayISO();
 
-      if (reportPreset === '3months') {
+      const now = startOfDay(new Date());
+
+      const getStartOfWeekForReport = (date) => {
+        const d = startOfDay(date);
+        const day = d.getDay();
+        const diff = day === 0 ? -6 : 1 - day;
+        return addDays(d, diff);
+      };
+
+      const startOfThisWeek = getStartOfWeekForReport(now);
+      const startOfLastWeek = addDays(startOfThisWeek, -7);
+      const endOfLastWeek = addDays(startOfThisWeek, -1);
+
+      const startOfThisMonthForReport = startOfMonth(now);
+      const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const endOfLastMonth = addDays(startOfThisMonthForReport, -1);
+
+      if (reportPreset === 'lastweek') {
+        startDate = todayISO(startOfLastWeek);
+        endDate = todayISO(endOfLastWeek);
+      } else if (reportPreset === 'lastmonth') {
+        startDate = todayISO(startOfLastMonth);
+        endDate = todayISO(endOfLastMonth);
+      } else if (reportPreset === '3months') {
         startDate = daysAgoISO(89);
       } else if (reportPreset === '6months') {
         startDate = daysAgoISO(179);
@@ -2140,8 +2445,10 @@ const todaySales = dashboardFilteredSales.reduce(
   0
 );
 const todayExpenses = filterByPreset(expenses, reportPreset, dashboardDateValue).reduce((a, e) => a + Number(e.amount || 0), 0);
+
 const todayGasProfit = (data.gasEntries || [])
-  .filter((x) => x.date === todayISO())
+  .filter((x) => String(x.shop_id || '') === String(shop.id))
+  .filter((x) => filterByPreset([x], reportPreset, dashboardDateValue).length > 0)
   .reduce((a, x) => {
     const small =
       (Number(x.smallGasSellPrice || 0) - Number(x.smallGasBuyPrice || 0)) *
@@ -2154,17 +2461,58 @@ const todayGasProfit = (data.gasEntries || [])
     return a + small + big;
   }, 0);
 
-  const totalSales = filteredSales.reduce((a, s) => a + Number(s.total || 0), 0);
-  const totalExpenses = filteredExpenses.reduce((a, e) => a + Number(e.amount || 0), 0);
-  const totalProfit = totalSales - totalExpenses;
+const totalSales = filteredSales.reduce((a, s) => a + Number(s.total || 0), 0);
+const totalExpenses = filteredExpenses.reduce((a, e) => a + Number(e.amount || 0), 0);
+const totalProfit = totalSales - totalExpenses;
 
-const todayWakalaCommission = (data.mobileMoneyEntries || [])
-  .filter((x) => x.date === todayISO())
-  .reduce((a, x) => {
-    const mobileCommission = (x.networks || []).reduce((sum, n) => sum + Number(n.commission || 0), 0);
-    const bankCommission = (x.banks || []).reduce((sum, b) => sum + Number(b.commission || 0), 0);
-    return a + mobileCommission + bankCommission;
-  }, 0);
+const shopCommissionMonthMatchesReportPreset = (record) => {
+  if (!record?.commissionMonth) return false;
+
+  const [year, month] = String(record.commissionMonth).split('-').map(Number);
+  if (!year || !month) return false;
+
+  const baseDate = startOfDay(dashboardDateValue || new Date());
+  const commissionMonthStart = new Date(year, month - 1, 1);
+
+  const thisMonthStart = startOfMonth(baseDate);
+  const lastMonthStart = new Date(baseDate.getFullYear(), baseDate.getMonth() - 1, 1);
+  const thisYearStart = new Date(baseDate.getFullYear(), 0, 1);
+
+  if (reportPreset === 'month') {
+    return (
+      commissionMonthStart.getFullYear() === thisMonthStart.getFullYear() &&
+      commissionMonthStart.getMonth() === thisMonthStart.getMonth()
+    );
+  }
+
+  if (reportPreset === 'lastmonth') {
+    return (
+      commissionMonthStart.getFullYear() === lastMonthStart.getFullYear() &&
+      commissionMonthStart.getMonth() === lastMonthStart.getMonth()
+    );
+  }
+
+  if (reportPreset === '3months') {
+    const start = new Date(baseDate.getFullYear(), baseDate.getMonth() - 2, 1);
+    return commissionMonthStart >= start && commissionMonthStart <= thisMonthStart;
+  }
+
+  if (reportPreset === '6months') {
+    const start = new Date(baseDate.getFullYear(), baseDate.getMonth() - 5, 1);
+    return commissionMonthStart >= start && commissionMonthStart <= thisMonthStart;
+  }
+
+  if (reportPreset === 'year') {
+    return commissionMonthStart >= thisYearStart && commissionMonthStart <= thisMonthStart;
+  }
+
+  return false;
+};
+
+const todayWakalaCommission = (data.monthlyWakalaCommissions || [])
+  .filter((record) => String(record.shop_id || '') === String(shop.id))
+  .filter(shopCommissionMonthMatchesReportPreset)
+  .reduce((sum, record) => sum + Number(record.grandTotal || 0), 0);
 
   const latestMobileEntry = getLatestEntryForShop(data.mobileMoneyEntries, shop.id);
 
@@ -2850,10 +3198,16 @@ const removeCartItem = (productId) => {
 
             const subUnitsRaw = unit === 'pc' ? '' : '0.75,0.5,0.25';
 
-    return normalizeProduct({
+    const standardProductCode =
+  String(normalizedRow['standard product code'] || normalizedRow['product code'] || '').trim() ||
+  buildStandardProductCode(productName, unit);
+
+return normalizeProduct({
   id: `import-${Date.now()}-${index}`,
   shop_id: shop.id,
   name: productName,
+  standardProductCode,
+  standard_product_code: standardProductCode,
   baseUnit: unit,
   baseQty: 1,
   buyPrice,
@@ -2879,6 +3233,9 @@ saveData({ ...data, products: nextProducts });
 const rowsToSync = importedProducts.map((p) => ({
   id: p.id,
   name: p.name,
+  standard_product_code:
+    String(p.standard_product_code || p.standardProductCode || '').trim() ||
+    buildStandardProductCode(p.name, p.baseUnit || 'pc'),
   buyingprice: Number(p.buyPrice || 0),
   sellingprice: Number(p.sellPrice || 0),
   stock: Number(p.stockBaseQty || 0),
@@ -2944,6 +3301,8 @@ const startEditProduct = (product) => {
               .join(',')
           : ''),
       qrCode: product.qrCode || '',
+standardProductCode: product.standardProductCode || product.standard_product_code || '',
+standard_product_code: product.standard_product_code || product.standardProductCode || '',
     },
   ]);
 };
@@ -3090,29 +3449,42 @@ const saveProductRows = async () => {
 
     const existingProduct = nextProducts.find((p) => String(p.id) === String(row.id));
 
-    const prepared = normalizeProduct({
-      ...(existingProduct || {}),
-      id: row.id || `p-${Date.now()}-${idx}`,
-      shop_id: shop.id,
-      name: row.name,
-      buyPrice,
-      sellPrice,
-      stock: Number(row.stockQty || 0),
-      stockBaseQty: Number(row.stockQty || 0),
-      baseUnit: row.unit || 'pc',
-      minStockLevel: Number(row.minStockLevel || 5),
-      expiryDate: row.expiryDate || '',
-      qrCode: row.qrCode || '',
-      subUnitsRaw: row.unit === 'pc' ? '' : row.subUnits || '',
-      archived: Boolean(existingProduct?.archived),
-      created_at: existingProduct?.created_at || new Date().toISOString(),
-      createdAt: existingProduct?.createdAt || todayISO(),
+const productName = String(row.name || '').trim();
+const productUnit = row.unit || 'pc';
 
-      // Local-first meaning:
-      // the product is available immediately, but Supabase sync may still be pending.
-      confirmed: Boolean(existingProduct?.confirmed) && existingProduct?.syncStatus !== 'pending',
-      syncStatus: 'pending',
-    });
+const standardProductCode = String(
+  row.standardProductCode ||
+    row.standard_product_code ||
+    existingProduct?.standardProductCode ||
+    existingProduct?.standard_product_code ||
+    buildStandardProductCode(productName, productUnit)
+).trim();
+
+const prepared = normalizeProduct({
+  ...(existingProduct || {}),
+  id: row.id || `p-${Date.now()}-${idx}`,
+  shop_id: shop.id,
+  name: productName,
+  standardProductCode,
+  standard_product_code: standardProductCode,
+  buyPrice,
+  sellPrice,
+  stock: Number(row.stockQty || 0),
+  stockBaseQty: Number(row.stockQty || 0),
+  baseUnit: productUnit,
+  minStockLevel: Number(row.minStockLevel || 5),
+  expiryDate: row.expiryDate || '',
+  qrCode: row.qrCode || '',
+  subUnitsRaw: productUnit === 'pc' ? '' : row.subUnits || '',
+  archived: Boolean(existingProduct?.archived),
+  created_at: existingProduct?.created_at || new Date().toISOString(),
+  createdAt: existingProduct?.createdAt || todayISO(),
+
+  // Local-first meaning:
+  // the product is available immediately, but Supabase sync may still be pending.
+  confirmed: Boolean(existingProduct?.confirmed) && existingProduct?.syncStatus !== 'pending',
+  syncStatus: 'pending',
+});
 
     const existingIndex = nextProducts.findIndex(
       (p) => String(p.id) === String(prepared.id)
@@ -3125,20 +3497,23 @@ const saveProductRows = async () => {
     }
 
     rowsToQueue.push({
-      id: prepared.id,
-      name: prepared.name,
-      buyingprice: Number(prepared.buyPrice || 0),
-      sellingprice: Number(prepared.sellPrice || 0),
-      stock: Number(prepared.stockBaseQty || 0),
-      shop_id: prepared.shop_id,
-      baseunit: prepared.baseUnit || 'pc',
-      minstocklevel: Number(prepared.minStockLevel || 5),
-      expirydate: prepared.expiryDate || null,
-      qrcode: prepared.qrCode || '',
-      subunitsraw: prepared.subUnitsRaw || '',
-      archived: Boolean(prepared.archived),
-      created_at: prepared.created_at || new Date().toISOString(),
-    });
+  id: prepared.id,
+  name: prepared.name,
+  standard_product_code:
+    String(prepared.standard_product_code || prepared.standardProductCode || '').trim() ||
+    buildStandardProductCode(prepared.name, prepared.baseUnit || 'pc'),
+  buyingprice: Number(prepared.buyPrice || 0),
+  sellingprice: Number(prepared.sellPrice || 0),
+  stock: Number(prepared.stockBaseQty || 0),
+  shop_id: prepared.shop_id,
+  baseunit: prepared.baseUnit || 'pc',
+  minstocklevel: Number(prepared.minStockLevel || 5),
+  expirydate: prepared.expiryDate || null,
+  qrcode: prepared.qrCode || '',
+  subunitsraw: prepared.subUnitsRaw || '',
+  archived: Boolean(prepared.archived),
+  created_at: prepared.created_at || new Date().toISOString(),
+});
   }
 
   await saveData({ ...data, products: nextProducts });
@@ -3337,27 +3712,30 @@ const updateExpenseRow = (index, field, value) =>
 const removeExpenseRow = (index) => setExpenseRows((prev) => (prev.length === 1 ? prev : prev.filter((_, i) => i !== index)));
 
 const saveExpenseRows = () => {
-  const rows = expenseRows.filter((r) => r.title && r.amount);
+  const rows = expenseRows.filter((r) => r.title && Number(r.amount || 0) > 0);
   if (!rows.length) return;
 
-  const containsRecurringExpense = rows.some((row) =>
-    String(row.id || '').startsWith(`recurring-${shop.id}-`) ||
-    recurringExpenseDefaults.some(
-      (item) =>
-        String(row.title || '').trim().toLowerCase() ===
-          String(item.title || '').trim().toLowerCase() &&
-        String(row.category || '').trim().toLowerCase() ===
-          String(item.category || '').trim().toLowerCase()
-    )
+  const fixedExpenseTitles = recurringExpenseDefaults.map((item) =>
+    String(item.title || '').trim().toLowerCase()
   );
 
-  if (containsRecurringExpense && isRecurringExpenseAlreadySavedForToday()) {
-    alert('Matumizi ya kudumu ya leo tayari yamehifadhiwa. Unaweza kuongeza matumizi mengine tu.');
+  const fixedExpenseAttempt = rows.find((row) =>
+    fixedExpenseTitles.includes(String(row.title || '').trim().toLowerCase())
+  );
+
+  if (fixedExpenseAttempt) {
+    alert(
+      t(
+        language,
+        'This is a fixed daily expense and is saved automatically. Please enter only additional expenses here.',
+        'Hili ni matumizi ya kudumu ya kila siku na linahifadhiwa moja kwa moja. Tafadhali ingiza matumizi ya ziada tu hapa.'
+      )
+    );
     setExpenseRows([{ ...emptyExpenseRow }]);
     return;
   }
 
-  const nextExpenses = [...data.expenses];
+  const nextExpenses = [...(data.expenses || [])];
 
   for (const [idx, row] of rows.entries()) {
     const preparedExpense = {
@@ -3367,9 +3745,11 @@ const saveExpenseRows = () => {
       title: row.title || '',
       description: row.title || '',
       amount: Number(row.amount || 0),
-      category: row.category || '',
+      category: row.category || 'Additional',
       date: row.date || todayISO(),
+      notes: row.notes || '',
       created_at: row.created_at || new Date().toISOString(),
+      autoRecurring: false,
     };
 
     const existingIndex = nextExpenses.findIndex((x) => String(x.id) === String(preparedExpense.id));
@@ -3658,6 +4038,294 @@ console.log('CHANGE LEDGER REDUCE TEST - BEFORE CLOUD', {
       banks: prev.banks.length === 1 ? prev.banks : prev.banks.filter((_, i) => i !== index),
     }));
 
+  const updateMonthlyMobileCommission = (index, field, value) =>
+    setMonthlyCommissionForm((prev) => ({
+      ...prev,
+      mobileCommissions: prev.mobileCommissions.map((row, i) =>
+        i === index ? { ...row, [field]: value } : row
+      ),
+    }));
+
+        const updateMonthlyBankCommission = (index, field, value) =>
+    setMonthlyCommissionForm((prev) => ({
+      ...prev,
+      bankCommissions: prev.bankCommissions.map((row, i) =>
+        i === index ? { ...row, [field]: value } : row
+      ),
+    }));
+
+  const monthlyMobileCommissionTotal = monthlyCommissionForm.mobileCommissions.reduce(
+    (sum, row) => sum + parseMoneyInput(row.amount),
+    0
+  );
+
+  const monthlyBankCommissionTotal = monthlyCommissionForm.bankCommissions.reduce(
+    (sum, row) => sum + parseMoneyInput(row.amount),
+    0
+  );
+
+  const monthlyCommissionGrandTotal = monthlyMobileCommissionTotal + monthlyBankCommissionTotal;
+
+  const missingMonthlyMobileCommissions = monthlyCommissionForm.mobileCommissions.filter(
+    (row) => !parseMoneyInput(row.amount)
+  );
+
+  const missingMonthlyBankCommissions = monthlyCommissionForm.bankCommissions.filter(
+    (row) => !parseMoneyInput(row.amount)
+  );
+
+  const commissionReminderDay = new Date().getDate();
+  const shouldShowMonthlyCommissionReminder = commissionReminderDay >= 3 && commissionReminderDay <= 6;
+  const isCommissionForceDay = commissionReminderDay >= 6;
+
+  const previousCommissionMonth = getPreviousMonthValue();
+
+  const currentShopMonthlyCommissionRecord = (data.monthlyWakalaCommissions || []).find(
+    (record) =>
+      String(record.shop_id || '') === String(shop.id) &&
+      String(record.commissionMonth || '') === String(previousCommissionMonth)
+  );
+
+  const shopsWithBankAgency = ['shop-1', 'shop-2'];
+  const currentShopHasBankAgency = shopsWithBankAgency.includes(String(shop.id));
+
+  const recordedMobileCommissionsForPreviousMonth =
+    currentShopMonthlyCommissionRecord?.mobileCommissions || [];
+
+  const recordedBankCommissionsForPreviousMonth =
+    currentShopMonthlyCommissionRecord?.bankCommissions || [];
+
+  const missingMobileCommissionNames = MOBILE_PROVIDERS.filter((provider) => {
+    const savedRow = recordedMobileCommissionsForPreviousMonth.find(
+      (row) => String(row.provider || '') === String(provider)
+    );
+
+    return !savedRow || Number(savedRow.amount || 0) <= 0;
+  });
+
+  const missingBankCommissionNames = currentShopHasBankAgency
+    ? BANKS.filter((bankName) => {
+        const savedRow = recordedBankCommissionsForPreviousMonth.find(
+          (row) => String(row.bankName || '') === String(bankName)
+        );
+
+        return !savedRow || Number(savedRow.amount || 0) <= 0;
+      })
+    : [];
+
+  const confirmedNotReceivedMobileNames = MOBILE_PROVIDERS.filter((provider) => {
+    const savedRow = recordedMobileCommissionsForPreviousMonth.find(
+      (row) => String(row.provider || '') === String(provider)
+    );
+
+    return savedRow && Number(savedRow.amount || 0) <= 0 && savedRow.notReceived === true;
+  });
+
+  const confirmedNotReceivedBankNames = currentShopHasBankAgency
+    ? BANKS.filter((bankName) => {
+        const savedRow = recordedBankCommissionsForPreviousMonth.find(
+          (row) => String(row.bankName || '') === String(bankName)
+        );
+
+        return savedRow && Number(savedRow.amount || 0) <= 0 && savedRow.notReceived === true;
+      })
+    : [];
+
+  const confirmedNotReceivedCommissionNames = [
+    ...confirmedNotReceivedMobileNames,
+    ...confirmedNotReceivedBankNames,
+  ];
+
+  const missingMonthlyCommissionNames = [
+    ...missingMobileCommissionNames,
+    ...missingBankCommissionNames,
+  ];
+
+  const shouldWarnAboutMonthlyCommission =
+    shouldShowMonthlyCommissionReminder &&
+    missingMonthlyCommissionNames.length > 0;
+
+  const resetMonthlyCommissionForm = () => {
+    setMonthlyCommissionForm({
+      id: '',
+      commissionMonth: getPreviousMonthValue(),
+      mobileCommissions: MOBILE_PROVIDERS.map((provider) => ({
+        provider,
+        amount: '',
+        receivedDate: todayISO(),
+        notReceived: false,
+        note: '',
+      })),
+      bankCommissions: BANKS.map((bankName) => ({
+        bankName,
+        amount: '',
+        receivedDate: todayISO(),
+        notReceived: false,
+        note: '',
+      })),
+      notes: '',
+    });
+  };
+
+  const saveMonthlyCommission = async () => {
+    if (!monthlyCommissionForm.commissionMonth) {
+      alert(t(language, 'Please select commission month.', 'Tafadhali chagua mwezi wa kamisheni.'));
+      return;
+    }
+
+    const mobileRows = Array.isArray(monthlyCommissionForm.mobileCommissions)
+      ? monthlyCommissionForm.mobileCommissions
+      : [];
+
+    const bankRows = Array.isArray(monthlyCommissionForm.bankCommissions)
+      ? monthlyCommissionForm.bankCommissions
+      : [];
+
+    const hasAnyAmount =
+      mobileRows.some((row) => parseMoneyInput(row.amount) > 0) ||
+      bankRows.some((row) => parseMoneyInput(row.amount) > 0);
+
+    const hasAnyNotReceivedConfirmation =
+      mobileRows.some((row) => row.notReceived === true) ||
+      bankRows.some((row) => row.notReceived === true);
+
+    if (!hasAnyAmount && !hasAnyNotReceivedConfirmation) {
+      alert(
+        t(
+          language,
+          'Enter at least one commission amount or tick Not received yet for at least one network or bank.',
+          'Weka angalau kiasi cha kamisheni moja au weka alama Haijapokelewa bado kwa angalau mtandao au benki moja.'
+        )
+      );
+      return;
+    }
+
+    if (
+      isCommissionForceDay &&
+      String(monthlyCommissionForm.commissionMonth || '') === String(previousCommissionMonth)
+    ) {
+      const unresolvedMobileNames = mobileRows
+        .filter((row) => parseMoneyInput(row.amount) <= 0 && row.notReceived !== true)
+        .map((row) => row.provider);
+
+      const unresolvedBankNames = currentShopHasBankAgency
+        ? bankRows
+            .filter((row) => parseMoneyInput(row.amount) <= 0 && row.notReceived !== true)
+            .map((row) => row.bankName)
+        : [];
+
+      const unresolvedNames = [...unresolvedMobileNames, ...unresolvedBankNames];
+
+      if (unresolvedNames.length > 0) {
+        alert(
+          `${t(
+            language,
+            'From the 6th day, you must record commission or tick Not received yet for:',
+            'Kuanzia tarehe 6, lazima urekodi kamisheni au uweke alama Haijapokelewa bado kwa:'
+          )} ${unresolvedNames.join(', ')}`
+        );
+        return;
+      }
+    }
+
+    const existingRecord = (data.monthlyWakalaCommissions || []).find(
+      (record) =>
+        String(record.shop_id || '') === String(shop.id) &&
+        String(record.commissionMonth || '') === String(monthlyCommissionForm.commissionMonth) &&
+        String(record.id || '') !== String(monthlyCommissionForm.id || '')
+    );
+
+    if (existingRecord) {
+      alert(
+        t(
+          language,
+          'This commission month has already been recorded for this shop. Edit the existing record instead of recording twice.',
+          'Kamisheni ya mwezi huu tayari imerekodiwa kwa duka hili. Hariri rekodi iliyopo badala ya kurekodi mara mbili.'
+        )
+      );
+      return;
+    }
+
+    const cleanMobileCommissions = monthlyCommissionForm.mobileCommissions.map((row) => ({
+      provider: row.provider,
+      amount: parseMoneyInput(row.amount),
+      receivedDate: row.notReceived ? '' : (row.receivedDate || todayISO()),
+      notReceived: Boolean(row.notReceived),
+      note: row.note || '',
+    }));
+
+    const cleanBankCommissions = monthlyCommissionForm.bankCommissions.map((row) => ({
+      bankName: row.bankName,
+      amount: parseMoneyInput(row.amount),
+      receivedDate: row.notReceived ? '' : (row.receivedDate || todayISO()),
+      notReceived: Boolean(row.notReceived),
+      note: row.note || '',
+    }));
+
+    const mobileTotal = cleanMobileCommissions.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+    const bankTotal = cleanBankCommissions.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+
+    const record = {
+      id: monthlyCommissionForm.id || `wakala-commission-${Date.now()}`,
+      shop_id: shop.id,
+      shopName: shop.name,
+      commissionMonth: monthlyCommissionForm.commissionMonth,
+      mobileCommissions: cleanMobileCommissions,
+      bankCommissions: cleanBankCommissions,
+      mobileTotal,
+      bankTotal,
+      grandTotal: mobileTotal + bankTotal,
+      notes: monthlyCommissionForm.notes || '',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    const nextMonthlyCommissions = monthlyCommissionForm.id
+      ? (data.monthlyWakalaCommissions || []).map((item) =>
+          String(item.id) === String(monthlyCommissionForm.id) ? record : item
+        )
+      : [...(data.monthlyWakalaCommissions || []), record];
+
+    await saveData({
+      ...data,
+      monthlyWakalaCommissions: nextMonthlyCommissions,
+    });
+
+    if (navigator.onLine) {
+      try {
+        const row = {
+          id: record.id,
+          shop_id: record.shop_id,
+          shopName: record.shopName || '',
+          commissionMonth: record.commissionMonth || '',
+          mobileCommissions: record.mobileCommissions || [],
+          bankCommissions: record.bankCommissions || [],
+          mobileTotal: Number(record.mobileTotal || 0),
+          bankTotal: Number(record.bankTotal || 0),
+          grandTotal: Number(record.grandTotal || 0),
+          notes: record.notes || '',
+          created_at: record.created_at || new Date().toISOString(),
+          updated_at: record.updated_at || new Date().toISOString(),
+        };
+
+        const { error } = await supabase
+          .from('monthlyWakalaCommissions')
+          .upsert([row], { onConflict: 'id' });
+
+        if (error) throw error;
+      } catch (error) {
+        console.error('Monthly wakala commission Supabase save failed:', error);
+        addToSyncQueue('monthly_wakala_commission_saved', record);
+      }
+    } else {
+      addToSyncQueue('monthly_wakala_commission_saved', record);
+    }
+
+    resetMonthlyCommissionForm();
+
+    alert(t(language, 'Monthly commission saved successfully.', 'Kamisheni ya mwezi imehifadhiwa kikamilifu.'));
+  };
+
 const saveMobileMoney = async () => {
   const toMoneyNumber = (value) =>
     Number(String(value || '0').replace(/,/g, '').trim() || 0);
@@ -3851,16 +4519,14 @@ const saveMobileMoney = async () => {
     bankCashTotal: toMoneyNumber(mobileMoneyForm.bankCashTotal),
     mobileCapital: toMoneyNumber(mobileMoneyForm.mobileCapital),
     bankCapital: toMoneyNumber(mobileMoneyForm.bankCapital),
-    networks: mobileMoneyForm.networks.map((n) => ({
-      provider: n.provider,
-      float: toMoneyNumber(n.float),
-      commission: toMoneyNumber(n.commission),
-    })),
-    banks: mobileMoneyForm.banks.map((b) => ({
-      bankName: b.bankName,
-      float: toMoneyNumber(b.float),
-      commission: toMoneyNumber(b.commission),
-    })),
+   networks: mobileMoneyForm.networks.map((n) => ({
+  provider: n.provider,
+  float: toMoneyNumber(n.float),
+})),
+banks: mobileMoneyForm.banks.map((b) => ({
+  bankName: b.bankName,
+  float: toMoneyNumber(b.float),
+})),
     notes: mobileMoneyForm.notes || '',
   };
 
@@ -4181,19 +4847,21 @@ const saveMobileMoney = async () => {
                 <option value="en">English</option>
               </select>
 
-              <select
-                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm"
-                value={reportPreset}
-                onChange={(e) => setReportPreset(e.target.value)}
-              >
-                <option value="today">{t(language, 'Today', 'Leo')}</option>
-                <option value="yesterday">{t(language, 'Yesterday', 'Jana')}</option>
-                <option value="week">{t(language, 'Week', 'Wiki')}</option>
-                <option value="month">{t(language, 'Month', 'Mwezi')}</option>
-                <option value="3months">{t(language, '3 Months', 'Miezi 3')}</option>
-                <option value="6months">{t(language, '6 Months', 'Miezi 6')}</option>
-                <option value="year">{t(language, 'Year', 'Mwaka')}</option>
-              </select>
+               <select
+  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm"
+  value={reportPreset}
+  onChange={(e) => setReportPreset(e.target.value)}
+>
+  <option value="today">{t(language, 'Today', 'Leo')}</option>
+  <option value="yesterday">{t(language, 'Yesterday', 'Jana')}</option>
+  <option value="week">{t(language, 'This week to date', 'Wiki hii hadi leo')}</option>
+  <option value="lastweek">{t(language, 'Last week', 'Wiki iliyopita')}</option>
+  <option value="month">{t(language, 'This month to date', 'Mwezi huu hadi leo')}</option>
+  <option value="lastmonth">{t(language, 'Last month', 'Mwezi uliopita')}</option>
+  <option value="3months">{t(language, 'Last 3 months', 'Miezi 3 iliyopita')}</option>
+  <option value="6months">{t(language, 'Last 6 months', 'Miezi 6 iliyopita')}</option>
+  <option value="year">{t(language, 'This year', 'Mwaka huu')}</option>
+</select>
 
               <Button variant="outline" className="bg-white shadow-sm" onClick={() => exportBackup()}>
                 {t(language, 'Export Backup', 'Pakua Backup')}
@@ -4651,6 +5319,9 @@ const saveMobileMoney = async () => {
   .map((p) => ({
     id: p.id,
     name: p.name,
+    standard_product_code:
+      String(p.standard_product_code || p.standardProductCode || '').trim() ||
+      buildStandardProductCode(p.name, p.baseUnit || 'pc'),
     buyingprice: Number(p.buyPrice || 0),
     sellingprice: Number(p.sellPrice || 0),
     stock: Number(p.stockBaseQty || 0),
@@ -5239,15 +5910,17 @@ onDeleteGas={deleteGas}
                 </select>
 
                 <select className="rounded-xl border border-slate-200 px-3 py-2 text-sm" value={reportPreset} onChange={(e) => setReportPreset(e.target.value)}>
-                  <option value="today">{t(language, 'Today', 'Leo')}</option>
-                  <option value="yesterday">{t(language, 'Yesterday', 'Jana')}</option>
-                  <option value="date">{t(language, 'Specific date', 'Tarehe maalum')}</option>
-                  <option value="week">{t(language, 'Week', 'Wiki')}</option>
-                  <option value="month">{t(language, 'Month', 'Mwezi')}</option>
-                  <option value="3months">{t(language, '3 Months', 'Miezi 3')}</option>
-                  <option value="6months">{t(language, '6 Months', 'Miezi 6')}</option>
-                  <option value="year">{t(language, 'Year', 'Mwaka')}</option>
-                </select>
+  <option value="today">{t(language, 'Today', 'Leo')}</option>
+  <option value="yesterday">{t(language, 'Yesterday', 'Jana')}</option>
+  <option value="date">{t(language, 'Custom range', 'Chagua tarehe')}</option>
+  <option value="week">{t(language, 'This week to date', 'Wiki hii hadi leo')}</option>
+  <option value="lastweek">{t(language, 'Last week', 'Wiki iliyopita')}</option>
+  <option value="month">{t(language, 'This month to date', 'Mwezi huu hadi leo')}</option>
+  <option value="lastmonth">{t(language, 'Last month', 'Mwezi uliopita')}</option>
+  <option value="3months">{t(language, 'Last 3 months', 'Miezi 3 iliyopita')}</option>
+  <option value="6months">{t(language, 'Last 6 months', 'Miezi 6 iliyopita')}</option>
+  <option value="year">{t(language, 'This year', 'Mwaka huu')}</option>
+</select>
 
         {reportPreset === 'date' ? (
   <div className="flex gap-2">
@@ -6020,67 +6693,84 @@ onDeleteGas={deleteGas}
                   onChange={(e) => setMobileMoneyForm((prev) => ({ ...prev, mobileCashTotal: e.target.value }))}
                 />
                 <div className="mt-3 space-y-3">
-                  {mobileMoneyForm.networks.map((row, index) => (
-                    <div key={index} className="grid gap-3 rounded-2xl border border-slate-200 p-3 md:grid-cols-3">
-                      <select className="h-10 rounded-2xl border border-slate-200 bg-white px-3 text-sm" value={row.provider} onChange={(e) => updateNetworkRow(index, 'provider', e.target.value)}>
-                        {MOBILE_PROVIDERS.map((provider) => (
-                          <option key={provider} value={provider}>
-                            {provider}
-                          </option>
-                        ))}
-                      </select>
-                      <Input type="number" placeholder={t(language, 'Float', 'Float')} value={row.float} onChange={(e) => updateNetworkRow(index, 'float', e.target.value)} />
-                      <div className="flex gap-2">
-                        <Input type="number" placeholder={t(language, 'Commission', 'Kamisheni')} value={row.commission} onChange={(e) => updateNetworkRow(index, 'commission', e.target.value)} />
-                        <Button type="button" variant="outline" onClick={() => removeNetworkRow(index)}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+{mobileMoneyForm.networks.map((row, index) => (
+  <div key={index} className="grid gap-3 rounded-2xl border border-slate-200 p-3 md:grid-cols-3">
+    <select className="h-10 rounded-2xl border border-slate-200 bg-white px-3 text-sm" value={row.provider} onChange={(e) => updateNetworkRow(index, 'provider', e.target.value)}>
+      {MOBILE_PROVIDERS.map((provider) => (
+        <option key={provider} value={provider}>
+          {provider}
+        </option>
+      ))}
+    </select>
+    <Input type="number" placeholder={t(language, 'Float', 'Float')} value={row.float} onChange={(e) => updateNetworkRow(index, 'float', e.target.value)} />
+    <div className="flex gap-2">
+      <Button type="button" variant="outline" onClick={() => removeNetworkRow(index)}>
+        <Trash2 className="h-4 w-4" />
+      </Button>
+    </div>
+  </div>
+))}
+
+                                 </div>
                 <Button type="button" variant="outline" className="mt-3" onClick={addNetworkRow}>
                   <PlusCircle className="mr-2 h-4 w-4" />
                   {t(language, 'Add Another Network', 'Ongeza Mtandao')}
                 </Button>
               </div>
 
-              <div className="rounded-2xl border border-slate-200 p-4">
-                <div className="mb-3 text-lg font-semibold">{t(language, 'Banks', 'Benki')}</div>
-                <Input
-                  type="number"
-                  placeholder={t(language, 'Total cash for all banks', 'Jumla ya cash kwa benki zote')}
-                  value={mobileMoneyForm.bankCashTotal}
-                  onChange={(e) => setMobileMoneyForm((prev) => ({ ...prev, bankCashTotal: e.target.value }))}
-                />
-                <div className="mt-3 space-y-3">
-                  {mobileMoneyForm.banks.map((row, index) => (
-                    <div key={index} className="grid gap-3 rounded-2xl border border-slate-200 p-3 md:grid-cols-3">
-                      <select className="h-10 rounded-2xl border border-slate-200 bg-white px-3 text-sm" value={row.bankName} onChange={(e) => updateBankRow(index, 'bankName', e.target.value)}>
-                        {BANKS.map((bank) => (
-                          <option key={bank} value={bank}>
-                            {bank}
-                          </option>
-                        ))}
-                      </select>
-                      <Input type="number" placeholder={t(language, 'Float', 'Float')} value={row.float} onChange={(e) => updateBankRow(index, 'float', e.target.value)} />
-                      <div className="flex gap-2">
-                        <Input type="number" placeholder={t(language, 'Commission', 'Kamisheni')} value={row.commission} onChange={(e) => updateBankRow(index, 'commission', e.target.value)} />
-                        <Button type="button" variant="outline" onClick={() => removeBankRow(index)}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <Button type="button" variant="outline" className="mt-3" onClick={addBankRow}>
-                  <PlusCircle className="mr-2 h-4 w-4" />
-                  {t(language, 'Add Another Bank', 'Ongeza Benki')}
-                </Button>
-              </div>
+<div className="rounded-2xl border border-slate-200 p-4">
+  <div className="mb-3 text-lg font-semibold">{t(language, 'Banks', 'Benki')}</div>
+  <Input
+    type="number"
+    placeholder={t(language, 'Total cash for all banks', 'Jumla ya cash kwa benki zote')}
+    value={mobileMoneyForm.bankCashTotal}
+    onChange={(e) => setMobileMoneyForm((prev) => ({ ...prev, bankCashTotal: e.target.value }))}
+  />
 
-              <Input placeholder={t(language, 'Notes', 'Maelezo')} value={mobileMoneyForm.notes} onChange={(e) => setMobileMoneyForm((prev) => ({ ...prev, notes: e.target.value }))} />
-              <Button
+  <div className="mt-3 space-y-3">
+    {mobileMoneyForm.banks.map((row, index) => (
+      <div key={index} className="grid gap-3 rounded-2xl border border-slate-200 p-3 md:grid-cols-3">
+        <select
+          className="h-10 rounded-2xl border border-slate-200 bg-white px-3 text-sm"
+          value={row.bankName}
+          onChange={(e) => updateBankRow(index, 'bankName', e.target.value)}
+        >
+          {BANKS.map((bank) => (
+            <option key={bank} value={bank}>
+              {bank}
+            </option>
+          ))}
+        </select>
+
+        <Input
+          type="number"
+          placeholder={t(language, 'Float', 'Float')}
+          value={row.float}
+          onChange={(e) => updateBankRow(index, 'float', e.target.value)}
+        />
+
+        <div className="flex gap-2">
+          <Button type="button" variant="outline" onClick={() => removeBankRow(index)}>
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+    ))}
+  </div>
+
+  <Button type="button" variant="outline" className="mt-3" onClick={addBankRow}>
+    <PlusCircle className="mr-2 h-4 w-4" />
+    {t(language, 'Add Another Bank', 'Ongeza Benki')}
+  </Button>
+</div>
+
+<Input
+  placeholder={t(language, 'Notes', 'Maelezo')}
+  value={mobileMoneyForm.notes}
+  onChange={(e) => setMobileMoneyForm((prev) => ({ ...prev, notes: e.target.value }))}
+/>
+
+<Button
   type="button"
   onClick={saveMobileMoney}
   disabled={
@@ -6101,6 +6791,435 @@ onDeleteGas={deleteGas}
         : 'Hifadhi Mtaji wa Mwanzo'
       : t(language, 'Save Wakala', 'Hifadhi Wakala')}
 </Button>
+
+<Card className="mt-6 border-emerald-100 bg-emerald-50/60">
+  <CardHeader>
+    <CardTitle>
+      {t(language, 'Monthly Wakala Commission', 'Kamisheni ya Wakala ya Mwezi')}
+    </CardTitle>
+
+    {shouldWarnAboutMonthlyCommission ? (
+      <div className={`mt-3 rounded-2xl border px-4 py-3 text-sm ${
+        isCommissionForceDay
+          ? 'border-red-200 bg-red-50 text-red-700'
+          : 'border-amber-200 bg-amber-50 text-amber-700'
+      }`}>
+        <div>
+          {missingMonthlyCommissionNames.length === MOBILE_PROVIDERS.length + (currentShopHasBankAgency ? BANKS.length : 0)
+            ? t(
+                language,
+                'Please record last month wakala commission if already received.',
+                'Tafadhali rekodi kamisheni ya wakala ya mwezi uliopita kama tayari imepokelewa.'
+              )
+            : `${t(
+                language,
+                'Please record last month commission for',
+                'Tafadhali rekodi kamisheni ya'
+              )} ${missingMonthlyCommissionNames.join(', ')} ${t(
+                language,
+                'if already received.',
+                'ya mwezi uliopita kama tayari imepokelewa.'
+              )}`}
+        </div>
+
+        {confirmedNotReceivedCommissionNames.length > 0 ? (
+          <div className="mt-2 text-xs">
+            {t(
+              language,
+              'Already confirmed not received yet:',
+              'Tayari umethibitisha haijapokelewa bado:'
+            )} {confirmedNotReceivedCommissionNames.join(', ')}
+          </div>
+        ) : null}
+      </div>
+    ) : null}
+    <p className="text-sm text-slate-600">
+      {t(
+        language,
+        'Record commission by network. Each network can have its own received date. The system will calculate totals automatically.',
+        'Rekodi kamisheni kwa kila mtandao. Kila mtandao unaweza kuwa na tarehe yake ya kupokea. Mfumo utajumlisha wenyewe.'
+      )}
+    </p>
+  </CardHeader>
+
+  <CardContent className="space-y-5">
+    <div>
+      <Label>{t(language, 'Commission Month', 'Mwezi wa Kamisheni')}</Label>
+      <Input
+        type="month"
+        value={monthlyCommissionForm.commissionMonth}
+        onChange={(e) =>
+          setMonthlyCommissionForm((prev) => ({
+            ...prev,
+            commissionMonth: e.target.value,
+          }))
+        }
+      />
+      <p className="mt-1 text-xs text-slate-500">
+        {t(
+          language,
+          'This is the business month the commission belongs to.',
+          'Huu ndio mwezi wa biashara ambao kamisheni inahusika nao.'
+        )}
+      </p>
+    </div>
+
+    <details className="rounded-2xl border border-emerald-200 bg-white p-4">
+      <summary className="cursor-pointer text-sm font-semibold text-slate-800">
+        {t(language, 'Mobile Money Commission', 'Kamisheni za Mitandao ya Simu')} — TZS {currency(monthlyMobileCommissionTotal)}
+      </summary>
+
+      <div className="mt-4 space-y-3">
+        {monthlyCommissionForm.mobileCommissions.map((row, index) => (
+          <div key={row.provider} className="grid gap-3 rounded-2xl border border-slate-200 p-3 md:grid-cols-5">
+            <div className="flex items-center text-sm font-semibold text-slate-700">
+              {row.provider}
+            </div>
+
+            <Input
+              type="number"
+              placeholder={t(language, 'Commission amount', 'Kiasi cha kamisheni')}
+              value={row.amount}
+              disabled={row.notReceived}
+              onChange={(e) => updateMonthlyMobileCommission(index, 'amount', e.target.value)}
+            />
+
+            <Input
+  type="date"
+  value={row.receivedDate || todayISO()}
+  disabled={row.notReceived}
+  onChange={(e) => updateMonthlyMobileCommission(index, 'receivedDate', e.target.value)}
+/>
+
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={Boolean(row.notReceived)}
+                onChange={(e) => {
+                  updateMonthlyMobileCommission(index, 'notReceived', e.target.checked);
+                  if (e.target.checked) {
+                    updateMonthlyMobileCommission(index, 'amount', '');
+                  }
+                }}
+              />
+              {t(language, 'Not received yet', 'Haijapokelewa bado')}
+            </label>
+
+            <Input
+              placeholder={t(language, 'Note', 'Maelezo')}
+              value={row.note}
+              onChange={(e) => updateMonthlyMobileCommission(index, 'note', e.target.value)}
+            />
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-4 rounded-2xl bg-emerald-100 px-4 py-3 text-sm font-semibold text-emerald-800">
+        {t(language, 'Mobile money commission total', 'Jumla ya kamisheni za mitandao ya simu')}: TZS {currency(monthlyMobileCommissionTotal)}
+      </div>
+    </details>
+
+    <details className="rounded-2xl border border-blue-200 bg-white p-4">
+      <summary className="cursor-pointer text-sm font-semibold text-slate-800">
+        {t(language, 'Bank Commission', 'Kamisheni za Benki')} — TZS {currency(monthlyBankCommissionTotal)}
+      </summary>
+
+      <p className="mt-3 mb-3 text-xs text-slate-500">
+        {t(
+          language,
+          'Fill this part only for shops with bank agency services.',
+          'Jaza sehemu hii kwa maduka yenye huduma za uwakala wa benki tu.'
+        )}
+      </p>
+
+      <div className="space-y-3">
+        {monthlyCommissionForm.bankCommissions.map((row, index) => (
+          <div key={row.bankName} className="grid gap-3 rounded-2xl border border-slate-200 p-3 md:grid-cols-5">
+            <div className="flex items-center text-sm font-semibold text-slate-700">
+              {row.bankName}
+            </div>
+
+            <Input
+              type="number"
+              placeholder={t(language, 'Commission amount', 'Kiasi cha kamisheni')}
+              value={row.amount}
+              disabled={row.notReceived}
+              onChange={(e) => updateMonthlyBankCommission(index, 'amount', e.target.value)}
+            />
+
+            <Input
+  type="date"
+  value={row.receivedDate || todayISO()}
+  disabled={row.notReceived}
+  onChange={(e) => updateMonthlyBankCommission(index, 'receivedDate', e.target.value)}
+/>
+
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={Boolean(row.notReceived)}
+                onChange={(e) => {
+                  updateMonthlyBankCommission(index, 'notReceived', e.target.checked);
+                  if (e.target.checked) {
+                    updateMonthlyBankCommission(index, 'amount', '');
+                  }
+                }}
+              />
+              {t(language, 'Not received yet', 'Haijapokelewa bado')}
+            </label>
+
+            <Input
+              placeholder={t(language, 'Note', 'Maelezo')}
+              value={row.note}
+              onChange={(e) => updateMonthlyBankCommission(index, 'note', e.target.value)}
+            />
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-4 rounded-2xl bg-blue-100 px-4 py-3 text-sm font-semibold text-blue-800">
+        {t(language, 'Bank commission total', 'Jumla ya kamisheni za benki')}: TZS {currency(monthlyBankCommissionTotal)}
+      </div>
+    </details>
+
+    <div className="grid gap-3 md:grid-cols-3">
+      <div className="rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm font-semibold text-emerald-800">
+        {t(language, 'Mobile total', 'Jumla ya simu')}: TZS {currency(monthlyMobileCommissionTotal)}
+      </div>
+
+      <div className="rounded-2xl border border-blue-200 bg-white px-4 py-3 text-sm font-semibold text-blue-800">
+        {t(language, 'Bank total', 'Jumla ya benki')}: TZS {currency(monthlyBankCommissionTotal)}
+      </div>
+
+      <div className="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-800">
+        {t(language, 'Grand total commission', 'Jumla kuu ya kamisheni')}: TZS {currency(monthlyCommissionGrandTotal)}
+      </div>
+    </div>
+
+    <div>
+      <Label>{t(language, 'Notes', 'Maelezo')}</Label>
+     <Input
+  value={monthlyCommissionForm.notes}
+  onChange={(e) =>
+    setMonthlyCommissionForm((prev) => ({
+      ...prev,
+      notes: e.target.value,
+    }))
+  }
+/>
+    </div>
+
+    <div className="flex flex-wrap gap-2">
+  <Button type="button" onClick={saveMonthlyCommission}>
+    {monthlyCommissionForm.id
+      ? t(language, 'Update Monthly Commission', 'Sasisha Kamisheni ya Mwezi')
+      : t(language, 'Save Monthly Commission', 'Hifadhi Kamisheni ya Mwezi')}
+  </Button>
+
+  {monthlyCommissionForm.id ? (
+    <Button type="button" variant="outline" onClick={resetMonthlyCommissionForm}>
+      {t(language, 'Cancel Edit', 'Acha Kuhariri')}
+    </Button>
+  ) : null}
+</div>
+
+    <div className="text-xs text-slate-500">
+      {t(
+        language,
+        'Record each network separately. The system will calculate mobile total, bank total and grand total automatically.',
+        'Rekodi kila mtandao tofauti. Mfumo utajumlisha kamisheni za simu, kamisheni za benki na jumla kuu wenyewe.'
+      )}
+    </div>
+
+    <div className="rounded-2xl border border-slate-200 bg-white p-4">
+      <div className="mb-3 text-sm font-semibold text-slate-800">
+        {t(language, 'Saved Monthly Commission Records', 'Rekodi za Kamisheni za Mwezi Zilizohifadhiwa')}
+      </div>
+
+      {(data.monthlyWakalaCommissions || []).filter((record) => String(record.shop_id) === String(shop.id)).length === 0 ? (
+        <div className="text-sm text-slate-500">
+          {t(language, 'No monthly commission records saved yet.', 'Hakuna rekodi ya kamisheni ya mwezi iliyohifadhiwa bado.')}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {(data.monthlyWakalaCommissions || [])
+            .filter((record) => String(record.shop_id) === String(shop.id))
+            .slice()
+            .sort((a, b) => String(b.commissionMonth || '').localeCompare(String(a.commissionMonth || '')))
+            .map((record) => (
+              <div key={record.id} className="rounded-2xl border border-slate-100 bg-slate-50 p-3 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+  <div className="font-semibold text-slate-800">
+    {t(language, 'Commission Month', 'Mwezi wa Kamisheni')}: {record.commissionMonth}
+  </div>
+
+  <div className="flex items-center gap-2">
+    {(() => {
+      const mobileRows = record.mobileCommissions || [];
+      const bankRows = currentShopHasBankAgency ? (record.bankCommissions || []) : [];
+      const expectedRows = [...mobileRows, ...bankRows];
+
+      const expectedCount = MOBILE_PROVIDERS.length + (currentShopHasBankAgency ? BANKS.length : 0);
+      const amountCount = expectedRows.filter((row) => Number(row.amount || 0) > 0).length;
+      const notReceivedCount = expectedRows.filter((row) => row.notReceived === true).length;
+
+      if (amountCount >= expectedCount) {
+        return (
+          <div className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
+            {t(language, 'Complete', 'Imekamilika')}
+          </div>
+        );
+      }
+
+      if (amountCount === 0 && notReceivedCount > 0) {
+        return (
+          <div className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
+            {t(language, 'Not received confirmed', 'Imethibitishwa haijapokelewa')}
+          </div>
+        );
+      }
+
+      if (amountCount > 0 && amountCount < expectedCount) {
+        return (
+          <div className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-800">
+            {t(language, 'Partially recorded', 'Imerekodiwa kwa sehemu')}
+          </div>
+        );
+      }
+
+      return (
+        <div className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+          {t(language, 'Saved', 'Imehifadhiwa')}
+        </div>
+      );
+    })()}
+
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      onClick={() => {
+        setMonthlyCommissionForm({
+          id: record.id,
+          commissionMonth: record.commissionMonth || getPreviousMonthValue(),
+          mobileCommissions: MOBILE_PROVIDERS.map((provider) => {
+            const savedRow = (record.mobileCommissions || []).find(
+              (row) => String(row.provider || '') === String(provider)
+            );
+
+            return {
+              provider,
+              amount: savedRow?.amount ? String(savedRow.amount) : '',
+              receivedDate: savedRow?.receivedDate || todayISO(),
+              notReceived: Boolean(savedRow?.notReceived),
+              note: savedRow?.note || '',
+            };
+          }),
+          bankCommissions: BANKS.map((bankName) => {
+            const savedRow = (record.bankCommissions || []).find(
+              (row) => String(row.bankName || '') === String(bankName)
+            );
+
+            return {
+              bankName,
+              amount: savedRow?.amount ? String(savedRow.amount) : '',
+              receivedDate: savedRow?.receivedDate || todayISO(),
+              notReceived: Boolean(savedRow?.notReceived),
+              note: savedRow?.note || '',
+            };
+          }),
+          notes: record.notes || '',
+        });
+      }}
+    >
+      {t(language, 'Edit', 'Hariri')}
+    </Button>
+  </div>
+</div>
+
+                <div className="mt-3 grid gap-2 md:grid-cols-3">
+                  <div className="rounded-xl bg-white px-3 py-2">
+                    {t(language, 'Mobile total', 'Jumla ya simu')}: TZS {currency(record.mobileTotal)}
+                  </div>
+
+                  <div className="rounded-xl bg-white px-3 py-2">
+                    {t(language, 'Bank total', 'Jumla ya benki')}: TZS {currency(record.bankTotal)}
+                  </div>
+
+                  <div className="rounded-xl bg-white px-3 py-2 font-semibold">
+                    {t(language, 'Grand total', 'Jumla kuu')}: TZS {currency(record.grandTotal)}
+                  </div>
+                </div>
+
+                <details className="mt-3 rounded-2xl border border-emerald-100 bg-white p-3">
+                  <summary className="cursor-pointer text-xs font-semibold text-slate-700">
+                    {t(language, 'Mobile money breakdown', 'Mchanganuo wa kamisheni za simu')}
+                  </summary>
+
+                  <div className="mt-3 space-y-2">
+                    {(record.mobileCommissions || []).map((row) => (
+                      <div key={row.provider} className="grid gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs md:grid-cols-4">
+                        <div className="font-semibold text-slate-700">{row.provider}</div>
+
+                        <div>
+                          {t(language, 'Amount', 'Kiasi')}: TZS {currency(row.amount)}
+                        </div>
+
+                        <div>
+                          {row.notReceived
+                            ? t(language, 'Not received yet', 'Haijapokelewa bado')
+                            : `${t(language, 'Received date', 'Tarehe ya kupokea')}: ${row.receivedDate || '-'}`}
+                        </div>
+
+                        <div>
+                          {row.note ? `${t(language, 'Note', 'Maelezo')}: ${row.note}` : '-'}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+
+                <details className="mt-3 rounded-2xl border border-blue-100 bg-white p-3">
+                  <summary className="cursor-pointer text-xs font-semibold text-slate-700">
+                    {t(language, 'Bank commission breakdown', 'Mchanganuo wa kamisheni za benki')}
+                  </summary>
+
+                  <div className="mt-3 space-y-2">
+                    {(record.bankCommissions || []).map((row) => (
+                      <div key={row.bankName} className="grid gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs md:grid-cols-4">
+                        <div className="font-semibold text-slate-700">{row.bankName}</div>
+
+                        <div>
+                          {t(language, 'Amount', 'Kiasi')}: TZS {currency(row.amount)}
+                        </div>
+
+                        <div>
+                          {row.notReceived
+                            ? t(language, 'Not received yet', 'Haijapokelewa bado')
+                            : `${t(language, 'Received date', 'Tarehe ya kupokea')}: ${row.receivedDate || '-'}`}
+                        </div>
+
+                        <div>
+                          {row.note ? `${t(language, 'Note', 'Maelezo')}: ${row.note}` : '-'}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+
+                {record.notes ? (
+                  <div className="mt-2 text-xs text-slate-500">
+                    {t(language, 'Notes', 'Maelezo')}: {record.notes}
+                  </div>
+                ) : null}
+              </div>
+            ))}
+        </div>
+      )}
+    </div>
+  </CardContent>
+</Card>
+
             </CardContent>
           </Card>
 
@@ -7036,6 +8155,10 @@ if (isHydrating) {
   language={language}
   setLanguage={setLanguage}
 />
+
+<div className="mx-4">
+  <CEODecisionCentre data={data} language={language} />
+</div>
   </>
 );
   }
