@@ -428,6 +428,24 @@ const editHouse = (row) => {
 
   setActiveTab('houses');
 };
+
+const startNewMeterReading = (row) => {
+  setMeterForm({
+    id: '',
+    houseNumber: row.houseNumber || '',
+    meterType: row.meterType || 'Water',
+    meterNumber: row.meterNumber || '',
+    readingDate: todayISO(),
+    previousUnits: String(row.currentUnits ?? ''),
+    currentUnits: '',
+    costPerUnit: String(row.costPerUnit ?? WATER_UNIT_PRICE),
+    discount: '',
+    nextReadingDate: '',
+    notes: '',
+  });
+
+  setActiveTab('meters');
+};
   const today = todayISO();
 
   const dueSoon = houses.filter((h) => h.nextPaymentDate && daysBetween(today, h.nextPaymentDate) !== null && daysBetween(today, h.nextPaymentDate) >= 0 && daysBetween(today, h.nextPaymentDate) <= 7);
@@ -797,6 +815,7 @@ const editHouse = (row) => {
     });
     setActiveTab('meters');
   }}
+    onNewMeterReading={startNewMeterReading}
     onDeleteMeter={(row) => {
     const confirmed = window.confirm('Delete this meter record?');
     if (!confirmed) return;
@@ -860,6 +879,7 @@ function ReportsSection({
   onEditHouse,
   onDeleteHouse,
   onEditMeter,
+  onNewMeterReading,
   onDeleteMeter,
   onEditServiceCharge,
   onDeleteServiceCharge,
@@ -998,10 +1018,18 @@ function ReportsSection({
                   <div className="flex gap-2">
                     <button
                       type="button"
+                      className="rounded-lg bg-blue-600 px-3 py-1 text-white"
+                      onClick={() => onNewMeterReading(row)}
+                    >
+                      {t(language, 'New Reading', 'Usomaji Mpya')}
+                    </button>
+
+                    <button
+                      type="button"
                       className="rounded-lg bg-amber-500 px-3 py-1 text-white"
                       onClick={() => onEditMeter(row)}
                     >
-                      Edit
+                      {t(language, 'Edit', 'Hariri')}
                     </button>
 
                     <button
@@ -1009,7 +1037,7 @@ function ReportsSection({
                       className="rounded-lg bg-red-600 px-3 py-1 text-white"
                       onClick={() => onDeleteMeter(row)}
                     >
-                      Delete
+                      {t(language, 'Delete', 'Futa')}
                     </button>
                   </div>
                 </td>

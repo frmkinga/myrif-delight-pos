@@ -145,20 +145,24 @@ let syncedSomething = false;
 
     try {
       if (item.actionType === 'sale_created') {
-        await supabase.from('sales').upsert(
-          [
-            {
-              id: item.payload.id,
-              shop_id: item.payload.shop_id,
-              items: item.payload.items,
-              total: item.payload.total,
-              type: item.payload.type,
-              date: item.payload.date,
-              created_at: item.payload.created_at || new Date().toISOString(),
-            },
-          ],
-          { onConflict: 'id' }
-        );
+        const { error: saleQueueError } = await supabase.from('sales').upsert(
+  [
+    {
+      id: item.payload.id,
+      shop_id: item.payload.shop_id,
+      items: item.payload.items,
+      total: item.payload.total,
+      type: item.payload.type,
+      date: item.payload.date,
+      created_at: item.payload.created_at || new Date().toISOString(),
+    },
+  ],
+  { onConflict: 'id' }
+);
+
+if (saleQueueError) {
+  throw saleQueueError;
+}
 if (Array.isArray(item.payload.products)) {
   const safeProductRows = item.payload.products
     .filter((p) => p.id && p.shop_id && p.name)
@@ -174,10 +178,14 @@ if (Array.isArray(item.payload.products)) {
   created_at: p.created_at || new Date().toISOString(),
 }));
 
-  if (safeProductRows.length) {
-    await supabase
+    if (safeProductRows.length) {
+    const { error: saleProductQueueError } = await supabase
       .from('products')
       .upsert(safeProductRows, { onConflict: 'id' });
+
+    if (saleProductQueueError) {
+      throw saleProductQueueError;
+    }
   }
 }
            } else if (item.actionType === 'purchase_created') {
@@ -245,8 +253,34 @@ if (Array.isArray(item.payload.products)) {
           .upsert([productRow], { onConflict: 'id' });
 
       } else if (item.actionType === 'expense_created') {
+        const payload = item.payload || {};
 
-        await supabase.from('expenses').upsert([item.payload], { onConflict: 'id' });
+        const expenseRow = {
+          id: payload.id,
+          shop_id: payload.shop_id,
+          title: payload.title || payload.description || '',
+          description: payload.description || payload.title || '',
+          amount: Number(payload.amount || 0),
+          category: payload.category || '',
+          date: payload.date || todayISO(),
+          notes: payload.notes || '',
+          created_at: payload.created_at || new Date().toISOString(),
+          auto_recurring: Boolean(payload.auto_recurring || payload.autoRecurring),
+          recurring_key: payload.recurring_key || '',
+          sync_source: payload.sync_source || (payload.autoRecurring ? 'auto_recurring' : 'manual'),
+        };
+
+        if (!expenseRow.id || !expenseRow.shop_id || !expenseRow.title || !expenseRow.date) {
+          throw new Error('Expense sync skipped because id, shop_id, title, or date is missing.');
+        }
+
+        const { error: expenseQueueError } = await supabase
+          .from('expenses')
+          .upsert([expenseRow], { onConflict: 'id' });
+
+        if (expenseQueueError) {
+          throw expenseQueueError;
+        }
               } else if (item.actionType === 'credit_created') {
   await supabase.from('creditSales').upsert([item.payload], { onConflict: 'id' });
 } else if (item.actionType === 'mobile_money_created') {
@@ -287,6 +321,15 @@ if (Array.isArray(item.payload.products)) {
       syncedSomething = true;
     } catch (error) {
       console.error('Sync failed for queue item:', item, error);
+
+      updatedQueue[i] = {
+        ...item,
+        synced: false,
+        status: 'failed',
+        attempts: Number(item.attempts || 0) + 1,
+        lastAttemptAt: Date.now(),
+        lastError: error?.message || String(error || 'Unknown sync error'),
+      };
     }
   }
   writeSyncQueue(updatedQueue);
@@ -1869,6 +1912,9 @@ const autoSaveRecurringExpensesForToday = async () => {
       notes: item.notes || 'Auto-saved fixed daily expense',
       created_at: new Date().toISOString(),
       autoRecurring: true,
+      auto_recurring: true,
+      recurring_key: `recurring-${shop.id}-${today}-${idx}`,
+      sync_source: 'auto_recurring',
     }))
     .filter((item, idx) => Number(item.amount || 0) > 0 && !isRecurringExpenseSavedForDate(item, idx, today));
 
@@ -1877,15 +1923,44 @@ const autoSaveRecurringExpensesForToday = async () => {
     return;
   }
 
+  const cleanExpenseRows = rowsToAutoSave.map((expense) => ({
+    id: expense.id,
+    shop_id: expense.shop_id,
+    title: expense.title || expense.description || '',
+    description: expense.description || expense.title || '',
+    amount: Number(expense.amount || 0),
+    category: expense.category || 'Recurring',
+    date: expense.date || today,
+    notes: expense.notes || 'Auto-saved fixed daily expense',
+    created_at: expense.created_at || new Date().toISOString(),
+    auto_recurring: true,
+    recurring_key: expense.recurring_key || expense.id,
+    sync_source: 'auto_recurring',
+  }));
+
+  if (navigator.onLine) {
+    const { error: autoExpenseError } = await supabase
+      .from('expenses')
+      .upsert(cleanExpenseRows, { onConflict: 'id' });
+
+    if (autoExpenseError) {
+      console.error('Auto recurring expenses direct Supabase save failed:', autoExpenseError);
+
+      rowsToAutoSave.forEach((expense) => {
+        addToSyncQueue('expense_created', expense);
+      });
+    }
+  } else {
+    rowsToAutoSave.forEach((expense) => {
+      addToSyncQueue('expense_created', expense);
+    });
+  }
+
   const nextExpenses = [...(data.expenses || []), ...rowsToAutoSave];
 
   await saveData({
     ...data,
     expenses: nextExpenses,
-  });
-
-  rowsToAutoSave.forEach((expense) => {
-    addToSyncQueue('expense_created', expense);
   });
 
   setExpenseRows([{ ...emptyExpenseRow }]);
@@ -7426,7 +7501,7 @@ useEffect(() => {
   let refreshTimer = null;
   let isRefreshingConfirmedSales = false;
 
-  const loadConfirmedSalesFromSupabaseOnly = async () => {
+  const loadConfirmedDashboardDataFromSupabase = async () => {
     const savedSessionUser = readStorage(STORAGE_SESSION_KEY, null);
 
     const isOwnerUser = String(savedSessionUser?.role || '') === 'owner';
@@ -7455,12 +7530,29 @@ useEffect(() => {
       salesQuery = salesQuery.eq('shop_id', shopId);
     }
 
-    const { data: cloudSales, error } = await salesQuery;
+    const { data: cloudSales, error: salesError } = await salesQuery;
 
-    if (error) throw error;
+    if (salesError) throw salesError;
 
     if (!Array.isArray(cloudSales)) {
       throw new Error('Supabase sales response was not a valid list.');
+    }
+
+    let productsQuery = supabase
+      .from('products')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (!isOwnerUser) {
+      productsQuery = productsQuery.eq('shop_id', shopId);
+    }
+
+    const { data: cloudProducts, error: productsError } = await productsQuery;
+
+    if (productsError) throw productsError;
+
+    if (!Array.isArray(cloudProducts)) {
+      throw new Error('Supabase products response was not a valid list.');
     }
 
     return {
@@ -7470,6 +7562,25 @@ useEffect(() => {
         ...sale,
         confirmed: true,
       })),
+      products: cloudProducts.map((p) =>
+        normalizeProduct({
+          id: p.id,
+          name: p.name,
+          buyPrice: Number(p.buyingprice || p.buyPrice || 0),
+          sellPrice: Number(p.sellingprice || p.sellPrice || 0),
+          stockBaseQty: Number(p.stock || p.stockBaseQty || p.stockQty || 0),
+          stockQty: Number(p.stock || p.stockBaseQty || p.stockQty || 0),
+          shop_id: String(p.shop_id || p.shopid || shopId || '').trim(),
+          baseUnit: p.baseunit || p.baseUnit || 'pc',
+          minStockLevel: Number(p.minstocklevel || p.minStockLevel || 5),
+          expiryDate: p.expirydate || p.expiryDate || '',
+          qrCode: p.qrcode || p.qrCode || '',
+          subUnitsRaw: p.subunitsraw || p.subUnitsRaw || '',
+          archived: Boolean(p.archived),
+          createdAt: p.createdAt || p.created_at || new Date().toISOString(),
+          updatedAt: p.updatedAt || p.updated_at || new Date().toISOString(),
+        })
+      ),
     };
   };
 
@@ -7490,14 +7601,31 @@ useEffect(() => {
 
       await processSyncQueue();
 
-      const stillHasPendingSync = readSyncQueue().some((item) => item?.synced === false);
+      const pendingQueueItems = readSyncQueue().filter((item) => item?.synced === false);
+      const failedQueueItems = pendingQueueItems.filter((item) => item?.status === 'failed');
 
-      if (stillHasPendingSync) {
-        setSyncMessage('Sync pending - dashboard not refreshed yet');
+      if (pendingQueueItems.length) {
+        const failedExpenses = failedQueueItems.filter((item) => item?.actionType === 'expense_created').length;
+        const pendingExpenses = pendingQueueItems.filter((item) => item?.actionType === 'expense_created').length;
+
+        if (failedExpenses > 0) {
+          setSyncMessage(
+            `Sync pending: ${failedExpenses} expense record(s) failed to reach Supabase. The system will keep retrying.`
+          );
+        } else if (pendingExpenses > 0) {
+          setSyncMessage(
+            `Sync pending: ${pendingExpenses} expense record(s) not yet confirmed in Supabase.`
+          );
+        } else {
+          setSyncMessage(
+            `Sync pending: ${pendingQueueItems.length} record(s) not yet confirmed in Supabase.`
+          );
+        }
+
         return;
       }
 
-      const confirmedResult = await loadConfirmedSalesFromSupabaseOnly();
+      const confirmedResult = await loadConfirmedDashboardDataFromSupabase();
 
       setData((prev) => {
         const previousSales = Array.isArray(prev.sales) ? prev.sales : [];
@@ -7506,18 +7634,34 @@ useEffect(() => {
           ? confirmedResult.sales
           : [
               ...previousSales.filter(
-                (sale) => String(sale.shop_id || sale.shopId || sale.shopid || '') !== String(confirmedResult.shopId)
+                (sale) =>
+                  String(sale.shop_id || sale.shopId || sale.shopid || '') !==
+                  String(confirmedResult.shopId)
               ),
               ...confirmedResult.sales,
+            ];
+
+        const previousProducts = Array.isArray(prev.products) ? prev.products : [];
+
+        const nextProducts = confirmedResult.isOwnerUser
+          ? confirmedResult.products
+          : [
+              ...previousProducts.filter(
+                (product) =>
+                  String(product.shop_id || product.shopId || product.shopid || '') !==
+                  String(confirmedResult.shopId)
+              ),
+              ...confirmedResult.products,
             ];
 
         const nextData = {
           ...prev,
           sales: nextSales,
+          products: nextProducts,
         };
 
         writeToDB(DB_DATA_KEY, nextData).catch((dbError) => {
-          console.error('Failed to save confirmed sales to IndexedDB:', dbError);
+          console.error('Failed to save confirmed dashboard data to IndexedDB:', dbError);
         });
 
         return nextData;

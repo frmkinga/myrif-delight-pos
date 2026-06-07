@@ -695,11 +695,14 @@ function buildAnalytics({ data, period, shopFilter, language, customStart, custo
   const allMobileMoneyEntries = Array.isArray(data?.mobileMoneyEntries) ? data.mobileMoneyEntries : [];
   const allMonthlyWakalaCommissions = Array.isArray(data?.monthlyWakalaCommissions) ? data.monthlyWakalaCommissions : [];
   const allGasEntries = Array.isArray(data?.gasEntries) ? data.gasEntries : [];
+const range = getPeriodRange(period, customStart, customEnd);
+const selectedShopId = shopFilter === 'all' ? '' : String(shopFilter);
 
-  const range = getPeriodRange(period, customStart, customEnd);
-  const selectedShopId = shopFilter === 'all' ? '' : String(shopFilter);
+const sameShop = (item) => !selectedShopId || String(item?.shop_id || item?.shopId || '') === selectedShopId;
 
-  const sameShop = (item) => !selectedShopId || String(item?.shop_id || item?.shopId || '') === selectedShopId;
+const analysisShops = selectedShopId
+  ? shops.filter((shop) => String(shop.id) === selectedShopId)
+  : shops;
 
   const products = allProducts.filter(sameShop);
   const sales = allSales.filter((sale) => sameShop(sale) && inRange(sale, range.start, range.end));
@@ -713,7 +716,7 @@ function buildAnalytics({ data, period, shopFilter, language, customStart, custo
   });
 
   const productGroups = {};
-  allProducts.forEach((product) => {
+  products.forEach((product) => {
     const code = getProductCode(product);
     if (!code) return;
 
@@ -1183,8 +1186,8 @@ function buildAnalytics({ data, period, shopFilter, language, customStart, custo
     const profit = activeMoves.reduce((s, m) => s + m.profit, 0);
 
     if (activeMoves.length >= 1 && qty >= 3) {
-      shops.forEach((shop) => {
-        if (!shopsWithProduct.has(String(shop.id))) {
+      analysisShops.forEach((shop) => {
+  if (!shopsWithProduct.has(String(shop.id))) {
           const productName = Array.from(group.names)[0] || group.code;
           addRec({
             type: 'Missing Product Opportunity',
@@ -1273,8 +1276,8 @@ function buildAnalytics({ data, period, shopFilter, language, customStart, custo
     }
   });
 
-  shops.forEach((shop) => {
-    const shopSales = allSales.filter((s) => String(s.shop_id || '') === String(shop.id));
+  analysisShops.forEach((shop) => {
+  const shopSales = allSales.filter((s) => String(s.shop_id || '') === String(shop.id));
     const daysWithSales = new Set(shopSales.map(getDateValue).filter(Boolean));
     const today = toISO(new Date());
     const activeDaysLast14 = Array.from({ length: 14 }, (_, i) => toISO(addDays(new Date(), -i))).filter((d) => daysWithSales.has(d)).length;
@@ -2305,7 +2308,48 @@ function getBusinessPulseExplanation(analytics, language) {
 }
 
 function getMiniKpiExplanation(dataKey, trend, language, currentValue = 0, previousValue = 0) {
-  return buildMiniKpiExplanation(dataKey, trend, language, currentValue, previousValue);
+  const sw = language !== 'en';
+  const current = Number(currentValue || 0);
+  const previous = Number(previousValue || 0);
+  const difference = current - previous;
+  const absDifference = Math.abs(difference);
+
+  const names = {
+    sales: sw ? 'Mauzo' : 'Sales',
+    netProfit: sw ? 'Faida halisi' : 'Net profit',
+    expenses: sw ? 'Matumizi' : 'Expenses',
+    mobileCommission: sw ? 'Kamisheni ya wakala' : 'Wakala commission',
+  };
+
+  const name = names[dataKey] || (sw ? 'Taarifa hii' : 'This item');
+
+  if (!previous && current > 0) {
+    return sw
+      ? `${name} ya kipindi hiki ni TZS ${money(current)}. Kipindi kilichopita hakikuwa na kiasi cha kulinganisha, hivyo hili linaonekana kama ongezeko jipya.`
+      : `${name} for this period is TZS ${money(current)}. The previous period had no comparable amount, so this appears as new growth.`;
+  }
+
+  if (previous > 0 && !current) {
+    return sw
+      ? `${name} imeshuka mpaka TZS 0 kutoka TZS ${money(previous)}. Angalia kama biashara kweli imeshuka au taarifa hazijaingizwa.`
+      : `${name} dropped to TZS 0 from TZS ${money(previous)}. Check whether business really reduced or records were not entered.`;
+  }
+
+  if (difference > 0) {
+    return sw
+      ? `${name} imeongezeka kwa TZS ${money(absDifference)}, kutoka TZS ${money(previous)} hadi TZS ${money(current)}.`
+      : `${name} increased by TZS ${money(absDifference)}, from TZS ${money(previous)} to TZS ${money(current)}.`;
+  }
+
+  if (difference < 0) {
+    return sw
+      ? `${name} imepungua kwa TZS ${money(absDifference)}, kutoka TZS ${money(previous)} hadi TZS ${money(current)}.`
+      : `${name} reduced by TZS ${money(absDifference)}, from TZS ${money(previous)} to TZS ${money(current)}.`;
+  }
+
+  return sw
+    ? `${name} imebaki TZS ${money(current)}, sawa na kipindi kilichopita.`
+    : `${name} remained at TZS ${money(current)}, the same as the previous period.`;
 }
 
 function MiniSparkline({ rows = [], dataKey = 'value', stroke = '#38bdf8' }) {
@@ -2362,8 +2406,44 @@ function MiniKpiCard({ label, value, trend, rows, dataKey, stroke, tone = 'blue'
           {getTrendLabel(trend, language)}
         </span>
       </div>
-      <div className="mt-3 rounded-2xl bg-white/70 p-2 shadow-inner">
-        <MiniSparkline rows={rows} dataKey={dataKey} stroke={stroke} />
+      <div className="mt-3 rounded-2xl bg-white/70 p-3 shadow-inner">
+        <div className="space-y-3">
+          <div>
+            <div className="mb-1 flex items-center justify-between gap-3 text-[11px] font-black text-slate-700">
+              <span>{sw ? 'Kipindi hiki' : 'This period'}</span>
+              <span>TZS {money(currentValue)}</span>
+            </div>
+            <div className="h-3 overflow-hidden rounded-full bg-slate-100">
+              <div
+                className="h-full rounded-full bg-blue-500"
+                style={{
+                  width: `${Math.max(
+                    4,
+                    (Number(currentValue || 0) / Math.max(Number(currentValue || 0), Number(previousValue || 0), 1)) * 100
+                  )}%`,
+                }}
+              />
+            </div>
+          </div>
+
+          <div>
+            <div className="mb-1 flex items-center justify-between gap-3 text-[11px] font-black text-slate-500">
+              <span>{sw ? 'Kipindi kilichopita' : 'Previous period'}</span>
+              <span>TZS {money(previousValue)}</span>
+            </div>
+            <div className="h-3 overflow-hidden rounded-full bg-slate-100">
+              <div
+                className="h-full rounded-full bg-slate-300"
+                style={{
+                  width: `${Math.max(
+                    4,
+                    (Number(previousValue || 0) / Math.max(Number(currentValue || 0), Number(previousValue || 0), 1)) * 100
+                  )}%`,
+                }}
+              />
+            </div>
+          </div>
+        </div>
       </div>
       <p className="mt-2 rounded-2xl bg-white/65 px-3 py-2 text-xs font-semibold leading-5 text-slate-600">
         {getMiniKpiExplanation(dataKey, trend, language, currentValue, previousValue)}
@@ -2382,8 +2462,8 @@ function KpiMiniChartPanel({ analytics, language }) {
 
   return (
     <DropdownPanel
-      title={sw ? 'Kadi za KPI zenye Mwenendo Mdogo' : 'KPI Cards with Mini Trends'}
-      subtitle={sw ? 'Kila kadi inaonyesha namba kuu, mwelekeo wake, na maelezo mafupi ya kusoma mstari mdogo.' : 'Each card shows a key number, its direction, and a short guide on reading the mini trend.'}
+      title={sw ? 'Kadi Muhimu za Ulinganisho' : 'Key Comparison Cards'}
+      subtitle={sw ? 'Kila kadi inaonyesha matokeo ya kipindi hiki dhidi ya kipindi kilichopita ili kuona kilichoongezeka, kilichopungua au kilichotulia.' : 'Each card compares this period with the previous period so you can see what increased, reduced, or remained stable.'}
       badge={sw ? 'Muonekano wa CEO' : 'CEO view'}
       defaultOpen
       tone="blue"
@@ -2450,9 +2530,7 @@ function ProfitWaterfallChart({ analytics, language }) {
             );
           })}
         </div>
-        <p className="mt-4 rounded-2xl bg-slate-950 p-4 text-sm font-semibold leading-6 text-white/80">
-          getWaterfallExplanation(analytics, language, costOfGoods, totalBusinessProfit)
-        </p>
+        {/* Waterfall explanation removed */}
       </div>
     </DropdownPanel>
   );
