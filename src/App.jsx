@@ -74,6 +74,45 @@ const GAS_PRICE_BOOK = {
     bigSell: 55000,
   },
 };
+
+function getWeeklyLoginTheme() {
+  const now = new Date();
+  const startOfYear = new Date(now.getFullYear(), 0, 1);
+  const weekIndex = Math.floor((now - startOfYear) / (7 * 24 * 60 * 60 * 1000));
+
+  const themes = [
+    {
+      page: 'bg-[linear-gradient(135deg,rgba(236,253,245,0.95),rgba(240,253,250,0.92),rgba(248,250,252,0.96))]',
+      overlay: 'bg-[linear-gradient(135deg,rgba(6,78,59,0.58),rgba(20,184,166,0.30),rgba(255,255,255,0.20))]',
+      panel: 'bg-[linear-gradient(135deg,rgba(16,185,129,0.72),rgba(20,184,166,0.48),rgba(240,253,250,0.34))]',
+      badge: 'bg-emerald-600',
+      button: 'bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-700 hover:via-teal-700 hover:to-cyan-700',
+      focusUser: 'focus:border-emerald-400',
+      focusPassword: 'focus:border-teal-400',
+    },
+    {
+      page: 'bg-[linear-gradient(135deg,rgba(240,253,244,0.95),rgba(236,253,245,0.90),rgba(255,255,255,0.96))]',
+      overlay: 'bg-[linear-gradient(135deg,rgba(22,101,52,0.54),rgba(132,204,22,0.24),rgba(255,255,255,0.18))]',
+      panel: 'bg-[linear-gradient(135deg,rgba(34,197,94,0.68),rgba(132,204,22,0.38),rgba(236,253,245,0.30))]',
+      badge: 'bg-green-600',
+      button: 'bg-gradient-to-r from-green-600 via-emerald-600 to-teal-600 hover:from-green-700 hover:via-emerald-700 hover:to-teal-700',
+      focusUser: 'focus:border-green-400',
+      focusPassword: 'focus:border-emerald-400',
+    },
+    {
+      page: 'bg-[linear-gradient(135deg,rgba(248,250,252,0.96),rgba(240,253,250,0.92),rgba(236,253,245,0.95))]',
+      overlay: 'bg-[linear-gradient(135deg,rgba(15,118,110,0.50),rgba(45,212,191,0.26),rgba(255,255,255,0.20))]',
+      panel: 'bg-[linear-gradient(135deg,rgba(13,148,136,0.68),rgba(45,212,191,0.36),rgba(240,253,250,0.30))]',
+      badge: 'bg-teal-600',
+      button: 'bg-gradient-to-r from-teal-600 via-emerald-600 to-lime-600 hover:from-teal-700 hover:via-emerald-700 hover:to-lime-700',
+      focusUser: 'focus:border-teal-400',
+      focusPassword: 'focus:border-emerald-400',
+    },
+  ];
+
+  return themes[weekIndex % themes.length];
+}
+
 const t = (language, en, sw) => (language === 'sw' ? sw : en);
 function readStorage(key, fallback = null) {
 try {
@@ -1140,7 +1179,7 @@ function Login({ onLogin, users, language, setLanguage }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-
+  const loginTheme = getWeeklyLoginTheme();
 
  const submit = async (e) => {
   e.preventDefault();
@@ -1187,11 +1226,11 @@ function Login({ onLogin, users, language, setLanguage }) {
 
   return (
     <AppShell>
-      <div className="min-h-screen bg-[url('/login-bg.png')] bg-cover bg-center">
-        <div className="min-h-screen bg-[linear-gradient(135deg,rgba(15,23,42,0.82),rgba(79,70,229,0.58),rgba(236,72,153,0.45))] px-4 py-6 md:px-8">
+      <div className={`min-h-screen bg-[url('/login-bg.png')] bg-cover bg-center ${loginTheme.page}`}>
+        <div className={`min-h-screen ${loginTheme.overlay} px-4 py-6 md:px-8`}>
           <div className="mx-auto flex min-h-[calc(100vh-3rem)] max-w-6xl items-center justify-center">
             <div className="grid w-full overflow-hidden rounded-[36px] border border-white/20 bg-white/10 shadow-2xl backdrop-blur-xl lg:grid-cols-2">
-              <div className="relative hidden min-h-[620px] flex-col justify-between overflow-hidden bg-[linear-gradient(135deg,rgba(99,102,241,0.88),rgba(236,72,153,0.72),rgba(14,165,233,0.72))] p-8 text-white lg:flex">
+              <div className={`relative hidden min-h-[620px] flex-col justify-between overflow-hidden ${loginTheme.panel} p-8 text-white lg:flex`}>
                 <div className="absolute -left-16 -top-16 h-52 w-52 rounded-full bg-white/15 blur-3xl" />
                 <div className="absolute -bottom-20 right-0 h-72 w-72 rounded-full bg-fuchsia-300/20 blur-3xl" />
 
@@ -1251,7 +1290,7 @@ function Login({ onLogin, users, language, setLanguage }) {
                 <div className="mx-auto w-full max-w-md">
                   <div className="mb-6 flex items-start justify-between gap-4">
                     <div>
-                      <div className="inline-flex rounded-full bg-gradient-to-r from-indigo-600 to-fuchsia-600 px-3 py-1 text-xs font-semibold text-white shadow-lg">
+                      <div className={`inline-flex rounded-full ${loginTheme.badge} px-3 py-1 text-xs font-semibold text-white shadow-lg`}>
                         {t(language, 'Secure Access', 'Kuingia kwa Usalama')}
                       </div>
 
@@ -1288,7 +1327,7 @@ function Login({ onLogin, users, language, setLanguage }) {
                           value={username}
                           onChange={(e) => setUsername(e.target.value)}
                           placeholder={t(language, 'Enter username', 'Weka jina la mtumiaji')}
-                          className="h-12 rounded-2xl border-slate-200 bg-white/90 px-4 text-sm shadow-sm focus:border-indigo-400"
+                          className={`h-12 rounded-2xl border-slate-200 bg-white/90 px-4 text-sm shadow-sm ${loginTheme.focusUser}`}
                         />
                       </div>
 
@@ -1301,7 +1340,7 @@ function Login({ onLogin, users, language, setLanguage }) {
     value={password}
     onChange={(e) => setPassword(e.target.value)}
     placeholder={t(language, 'Enter password', 'Weka nenosiri')}
-    className="h-12 rounded-2xl border-slate-200 bg-white/90 px-4 text-sm shadow-sm focus:border-fuchsia-400"
+    className={`h-12 rounded-2xl border-slate-200 bg-white/90 px-4 text-sm shadow-sm ${loginTheme.focusPassword}`}
   />
 </div>
 
@@ -1314,7 +1353,7 @@ function Login({ onLogin, users, language, setLanguage }) {
 <div className="space-y-3 pt-1">
   <Button
     type="submit"
-    className="h-12 w-full rounded-2xl bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-600 text-sm font-semibold text-white shadow-lg hover:from-indigo-700 hover:via-violet-700 hover:to-fuchsia-700"
+    className={`h-12 w-full rounded-2xl ${loginTheme.button} text-sm font-semibold text-white shadow-lg`}
   >
     {t(language, 'Login', 'Ingia')}
   </Button>
