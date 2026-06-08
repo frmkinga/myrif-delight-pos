@@ -287,9 +287,13 @@ if (Array.isArray(item.payload.products)) {
           throw new Error('Product sync skipped because id, shop_id, or name is missing.');
         }
 
-        await supabase
+        const { error: productQueueError } = await supabase
           .from('products')
           .upsert([productRow], { onConflict: 'id' });
+
+        if (productQueueError) {
+          throw productQueueError;
+        }
 
       } else if (item.actionType === 'expense_created') {
         const payload = item.payload || {};
@@ -3632,27 +3636,55 @@ const prepared = normalizeProduct({
 
   await saveData({ ...data, products: nextProducts });
 
-  rowsToQueue.forEach((productRow) => {
-    addToSyncQueue('product_saved', productRow);
-  });
-
   setNewProductRows([{ ...emptyProductRow }]);
   setProductFormError('');
 
   if (navigator.onLine) {
-    processSyncQueue()
-      .then((syncedSomething) => {
-        if (syncedSomething) {
-          setSyncMessage('Sync complete');
-        } else {
-          setSyncMessage('Product saved locally - sync pending');
+    try {
+      const { error: directProductSaveError } = await supabase
+        .from('products')
+        .upsert(rowsToQueue, { onConflict: 'id' });
+
+      if (directProductSaveError) {
+        throw directProductSaveError;
+      }
+
+      const savedProductIds = new Set(rowsToQueue.map((row) => String(row.id || '')));
+
+      const confirmedProducts = nextProducts.map((product) => {
+        const productId = String(product.id || '');
+
+        if (savedProductIds.has(productId)) {
+          return {
+            ...product,
+            confirmed: true,
+            syncStatus: 'confirmed',
+          };
         }
-      })
-      .catch((syncError) => {
-        console.error('Queued product sync error:', syncError);
-        setSyncMessage('Product saved locally - sync pending');
+
+        return product;
       });
+
+      await saveData({
+        ...data,
+        products: confirmedProducts,
+      });
+
+      setSyncMessage('Product saved and confirmed in Supabase');
+    } catch (directSaveError) {
+      console.error('Direct product save failed. Product will remain queued:', directSaveError);
+
+      rowsToQueue.forEach((productRow) => {
+        addToSyncQueue('product_saved', productRow);
+      });
+
+      setSyncMessage('Product saved locally - sync pending');
+    }
   } else {
+    rowsToQueue.forEach((productRow) => {
+      addToSyncQueue('product_saved', productRow);
+    });
+
     setSyncMessage('Product saved locally - sync pending');
   }
 };
