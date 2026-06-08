@@ -7642,17 +7642,57 @@ useEffect(() => {
             ];
 
         const previousProducts = Array.isArray(prev.products) ? prev.products : [];
-
-        const nextProducts = confirmedResult.isOwnerUser
+        const confirmedProducts = Array.isArray(confirmedResult.products)
           ? confirmedResult.products
-          : [
-              ...previousProducts.filter(
-                (product) =>
-                  String(product.shop_id || product.shopId || product.shopid || '') !==
-                  String(confirmedResult.shopId)
-              ),
-              ...confirmedResult.products,
-            ];
+          : [];
+
+        const currentShopId = String(confirmedResult.shopId || '').trim();
+
+        const previousShopProducts = previousProducts.filter(
+          (product) =>
+            String(product.shop_id || product.shopId || product.shopid || '') ===
+            String(currentShopId)
+        );
+
+        let nextProducts = previousProducts;
+
+        if (confirmedResult.isOwnerUser) {
+          if (confirmedProducts.length > 0) {
+            nextProducts = confirmedProducts;
+          } else if (previousProducts.length > 0) {
+            console.warn(
+              'Supabase returned zero owner products. Keeping existing local products to avoid product disappearance.'
+            );
+            setSyncMessage(
+              'Products refresh returned empty list - keeping saved local products.'
+            );
+            nextProducts = previousProducts;
+          }
+        } else if (confirmedProducts.length > 0) {
+          nextProducts = [
+            ...previousProducts.filter(
+              (product) =>
+                String(product.shop_id || product.shopId || product.shopid || '') !==
+                String(currentShopId)
+            ),
+            ...confirmedProducts,
+          ];
+        } else if (previousShopProducts.length > 0) {
+          console.warn(
+            'Supabase returned zero products for this shop. Keeping existing local products.',
+            currentShopId
+          );
+          setSyncMessage(
+            'Products refresh returned empty list - keeping saved local products.'
+          );
+          nextProducts = previousProducts;
+        } else {
+          console.warn(
+            'No products found locally or from Supabase for this shop.',
+            currentShopId
+          );
+          nextProducts = previousProducts;
+        }
 
         const nextData = {
           ...prev,
@@ -7743,12 +7783,39 @@ useEffect(() => {
           );
 
           if (alreadyHadShopProducts) {
-            console.warn('No products returned from Supabase. Keeping existing local products.');
-            return prev;
+            console.warn(
+              'No products returned from Supabase. Keeping existing local products for shop:',
+              activeShopId
+            );
+
+            const protectedData = {
+              ...prev,
+              products: existingProducts,
+            };
+
+            writeToDB(DB_DATA_KEY, protectedData).catch((dbError) => {
+              console.error('Failed to preserve local products in IndexedDB:', dbError);
+            });
+
+            setSyncMessage(
+              'Products refresh returned empty list - keeping saved local products.'
+            );
+
+            return protectedData;
           }
 
           console.warn('No products returned from Supabase for shop:', activeShopId);
-          return prev;
+
+          const protectedData = {
+            ...prev,
+            products: existingProducts,
+          };
+
+          writeToDB(DB_DATA_KEY, protectedData).catch((dbError) => {
+            console.error('Failed to preserve empty-product fallback in IndexedDB:', dbError);
+          });
+
+          return protectedData;
         }
 
         const pendingSaleProductIds = new Set(

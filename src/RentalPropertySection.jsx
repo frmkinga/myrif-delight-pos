@@ -429,6 +429,25 @@ const editHouse = (row) => {
   setActiveTab('houses');
 };
 
+const startNewRentPayment = (row) => {
+  setHouseForm({
+    id: row.id || '',
+    houseNumber: row.houseNumber || '',
+    tenantName: row.tenantName || '',
+    rentPaidDate: todayISO(),
+    rentStartDate: row.nextPaymentDate || todayISO(),
+    rentEndDate: '',
+    monthlyRentAmount: String(row.monthlyRentAmount || ''),
+    amountPaid: '',
+    rentDurationMonths: '1',
+    paymentType: 'Full',
+    houseStatus: row.houseStatus || 'Occupied',
+    itemsIssued: row.itemsIssued || '',
+  });
+
+  setActiveTab('houses');
+};
+
 const startNewMeterReading = (row) => {
   setMeterForm({
     id: '',
@@ -790,6 +809,7 @@ const startNewMeterReading = (row) => {
     });
     setActiveTab('houses');
   }}
+    onNewRentPayment={startNewRentPayment}
   onDeleteHouse={(row) => {
     const confirmed = window.confirm('Delete this house record?');
     if (!confirmed) return;
@@ -877,6 +897,7 @@ function ReportsSection({
   totalDiscount,
   totalServiceCharge,
   onEditHouse,
+  onNewRentPayment,
   onDeleteHouse,
   onEditMeter,
   onNewMeterReading,
@@ -940,26 +961,34 @@ function ReportsSection({
 
 <td className="py-2 pr-3">
   <div className="flex gap-2">
- <button
-  type="button"
-  className="rounded-lg bg-amber-500 px-3 py-1 text-white"
-  onClick={() => onEditHouse(row)}
->
-  Edit
-</button>
+    <button
+      type="button"
+      className="rounded-lg bg-blue-600 px-3 py-1 text-white"
+      onClick={() => onNewRentPayment(row)}
+    >
+      {t(language, 'New Payment', 'Malipo Mapya')}
+    </button>
 
-   <button
-  type="button"
-  className="rounded-lg bg-red-600 px-3 py-1 text-white"
-  onClick={() => {
-    const confirmed = window.confirm('Delete this house record?');
-    if (!confirmed) return;
+    <button
+      type="button"
+      className="rounded-lg bg-amber-500 px-3 py-1 text-white"
+      onClick={() => onEditHouse(row)}
+    >
+      {t(language, 'Edit', 'Hariri')}
+    </button>
 
-    onDeleteHouse(row);
-  }}
->
-  Delete
-</button>
+    <button
+      type="button"
+      className="rounded-lg bg-red-600 px-3 py-1 text-white"
+      onClick={() => {
+        const confirmed = window.confirm('Delete this house record?');
+        if (!confirmed) return;
+
+        onDeleteHouse(row);
+      }}
+    >
+      {t(language, 'Delete', 'Futa')}
+    </button>
   </div>
 </td>
                    

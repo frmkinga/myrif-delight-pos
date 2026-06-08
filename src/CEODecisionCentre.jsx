@@ -615,8 +615,8 @@ function recText(language, template, vars = {}) {
 
   const templates = {
     belowCost: sw
-      ? `Bei ya ${v('product')} iko chini ya gharama katika ${shop}`
-      : `${v('product')} is selling below cost in ${shop}`,
+      ? `Bei ya kuuzia ${v('product')} ipo chini ya bei ya manunuzi katika ${shop}`
+      : `The selling price of ${v('product')} is below the purchase price in ${shop}`,
     weakMargin: sw
       ? `Faida ya ${v('product')} ni ndogo katika ${shop}`
       : `${v('product')} has weak margin in ${shop}`,
@@ -1694,6 +1694,306 @@ function buildMessage({ totalSales, previousTotalSales, netProfit, previousNetPr
   return message;
 }
 
+function detectAiIntent(question = '') {
+  const q = String(question || '').toLowerCase();
+
+  if (
+    q.includes('duplicate') ||
+    q.includes('duplicates') ||
+    q.includes('jirudia') ||
+    q.includes('zinazojirudia') ||
+    q.includes('majina tofauti') ||
+    q.includes('same product') ||
+    q.includes('repeated product')
+  ) {
+    return 'duplicate_products';
+  }
+
+  if (
+    q.includes('profit drop') ||
+    q.includes('profit reduce') ||
+    q.includes('profit reduced') ||
+    q.includes('faida imeshuka') ||
+    q.includes('faida imepungua') ||
+    q.includes('kwa nini faida') ||
+    q.includes('why profit')
+  ) {
+    return 'profit_drop';
+  }
+
+  if (
+    q.includes('weekly') ||
+    q.includes('week plan') ||
+    q.includes('mpango wa wiki') ||
+    q.includes('wiki hii') ||
+    q.includes('action plan') ||
+    q.includes('hatua za wiki')
+  ) {
+    return 'weekly_plan';
+  }
+
+  if (
+    q.includes('investment') ||
+    q.includes('invest') ||
+    q.includes('uwekezaji') ||
+    q.includes('fursa') ||
+    q.includes('opportunity') ||
+    q.includes('opportunities')
+  ) {
+    return 'investment';
+  }
+
+  if (
+    q.includes('reorder') ||
+    q.includes('restock') ||
+    q.includes('stock') ||
+    q.includes('ongeza stock') ||
+    q.includes('kununua') ||
+    q.includes('buy more') ||
+    q.includes('stop buying') ||
+    q.includes('niache kununua')
+  ) {
+    return 'stock_reorder';
+  }
+
+  if (
+    q.includes('shop') ||
+    q.includes('duka') ||
+    q.includes('maduka') ||
+    q.includes('performance') ||
+    q.includes('mwenendo')
+  ) {
+    return 'shop_performance';
+  }
+
+  return 'general_business';
+}
+
+function normalizeProductNameForDuplicate(name = '') {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/\b(kg|g|gram|grams|ltr|liter|litre|ml|pcs|pc|box|pkt|packet|small|big|kubwa|ndogo)\b/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function buildDuplicateGroups(productRows = []) {
+  const groups = {};
+
+  (productRows || []).forEach((row) => {
+    const normalizedName = normalizeProductNameForDuplicate(row.productName);
+    const shopName = String(row.shopName || '').trim();
+
+    if (!normalizedName || !shopName) return;
+
+    const key = `${shopName.toLowerCase()}__${normalizedName}`;
+
+    if (!groups[key]) {
+      groups[key] = {
+        key,
+        normalizedName,
+        shopName,
+        rows: [],
+      };
+    }
+
+    groups[key].rows.push(row);
+  });
+
+  return Object.values(groups)
+    .filter((group) => group.rows.length > 1)
+    .map((group) => ({
+      ...group,
+      reason: 'Same or very similar product name in the same shop after cleaning size/unit words.',
+    }))
+    .sort((a, b) => b.rows.length - a.rows.length);
+}
+
+function buildAiContextPack({ analytics, visibleRecommendations, intent, language }) {
+  const sw = language !== 'en';
+
+  const recommendationText = (items = [], limit = 20) =>
+    items.slice(0, limit).map((r, idx) => (
+      `${idx + 1}. ${r.title}. ${sw ? 'Duka' : 'Shop'}: ${r.shopName || '-'}; ${sw ? 'Bidhaa' : 'Product'}: ${r.productName || '-'}; ${sw ? 'Ushahidi' : 'Evidence'}: ${r.evidence || '-'}; ${sw ? 'Hatua' : 'Action'}: ${r.action || '-'}; Priority: ${r.priority || '-'}`
+    )).join('\n');
+
+  const productRowsText = (rows = [], limit = 40) =>
+    rows.slice(0, limit).map((row, idx) => (
+      `${idx + 1}. ${row.productName}; ${sw ? 'Duka' : 'Shop'}: ${row.shopName}; stock: ${row.stock}; ${sw ? 'kununua' : 'buy'}: TZS ${money(row.buy)}; ${sw ? 'kuuza' : 'sell'}: TZS ${money(row.sell)}; ${sw ? 'mauzo' : 'sales'}: TZS ${money(row.sales)}; ${sw ? 'faida' : 'profit'}: TZS ${money(row.profit)}; status: ${row.status}; advice: ${row.advice}`
+    )).join('\n');
+
+  const shopText = (rows = [], limit = 15) =>
+    rows.slice(0, limit).map((s, idx) => (
+      `${idx + 1}. ${s.shopName}; ${sw ? 'mauzo' : 'sales'}: TZS ${money(s.sales)}; ${sw ? 'faida halisi' : 'net profit'}: TZS ${money(s.netProfit)}; ${sw ? 'matumizi' : 'expenses'}: TZS ${money(s.expenses)}; ${sw ? 'stock' : 'stock value'}: TZS ${money(s.stockValue)}; margin: ${pct(s.margin)}; status: ${s.status}; strength: ${s.strength}`
+    )).join('\n');
+
+  const movementText = (rows = [], limit = 25) =>
+    rows.slice(0, limit).map((m, idx) => (
+      `${idx + 1}. ${m.productName}; ${sw ? 'Duka' : 'Shop'}: ${m.shopName}; qty: ${m.qty}; ${sw ? 'mauzo' : 'sales'}: TZS ${money(m.sales)}; ${sw ? 'faida' : 'profit'}: TZS ${money(m.profit)}; ${sw ? 'mauzo ya mwisho' : 'last sale'}: ${m.lastSaleDate || '-'}`
+    )).join('\n');
+
+  const productMixText = (rows = [], limit = 10) =>
+    rows.slice(0, limit).map((c, idx) => (
+      `${idx + 1}. ${catLabel(c.category, language)}; qty: ${c.qty}; ${sw ? 'mauzo' : 'sales'}: TZS ${money(c.sales)}; ${sw ? 'faida' : 'profit'}: TZS ${money(c.profit)}; margin: ${pct(c.margin)}`
+    )).join('\n');
+
+  const duplicateGroups = buildDuplicateGroups(analytics.productCommandRows || []);
+
+  const duplicateGroupsText = duplicateGroups.slice(0, 30).map((group, groupIndex) => {
+    const rowsText = group.rows.map((row, rowIndex) => (
+      `   ${rowIndex + 1}. ${row.productName}; ${sw ? 'Duka' : 'Shop'}: ${row.shopName}; stock: ${row.stock}; ${sw ? 'kununua' : 'buy'}: TZS ${money(row.buy)}; ${sw ? 'kuuza' : 'sell'}: TZS ${money(row.sell)}; ${sw ? 'mauzo' : 'sales'}: TZS ${money(row.sales)}; ${sw ? 'faida' : 'profit'}: TZS ${money(row.profit)}; status: ${row.status}`
+    )).join('\n');
+
+    return `${groupIndex + 1}. ${sw ? 'Kundi linaloweza kujirudia' : 'Possible duplicate group'}: ${group.normalizedName}
+${sw ? 'Sababu' : 'Reason'}: ${group.reason}
+${rowsText}`;
+  }).join('\n\n');
+
+  const belowCost = visibleRecommendations.filter((r) => r.type === 'Loss Making Product');
+  const lowMargin = visibleRecommendations.filter((r) => r.type === 'Low Margin Product');
+  const reorder = visibleRecommendations.filter((r) => r.type === 'Reorder Needed');
+  const slow = visibleRecommendations.filter((r) => r.type === 'Do Not Buy');
+  const transfer = visibleRecommendations.filter((r) => r.type === 'Stock Transfer');
+  const expiry = visibleRecommendations.filter((r) => String(r.type || '').toLowerCase().includes('expiry') || String(r.type || '').toLowerCase().includes('expired'));
+  const opportunities = visibleRecommendations.filter((r) => ['Stock Transfer', 'Missing Product Opportunity', 'Investment Opportunity'].includes(r.type));
+
+  const commonHeader = `
+${sw ? 'MUHTASARI WA BIASHARA' : 'BUSINESS SUMMARY'}
+${sw ? 'Kipindi' : 'Period'}: ${analytics.range?.start || '-'} to ${analytics.range?.end || '-'}
+${sw ? 'Mauzo' : 'Sales'}: TZS ${money(analytics.totalSales)}
+${sw ? 'Mauzo ya kipindi kilichopita' : 'Previous sales'}: TZS ${money(analytics.previousTotalSales)}
+${sw ? 'Faida ghafi' : 'Gross profit'}: TZS ${money(analytics.grossProfit)}
+${sw ? 'Faida halisi' : 'Net profit'}: TZS ${money(analytics.netProfit)}
+${sw ? 'Matumizi' : 'Expenses'}: TZS ${money(analytics.totalExpenses)}
+${sw ? 'Thamani ya stock' : 'Stock value'}: TZS ${money(analytics.stockValue)}
+${sw ? 'Madeni ya wateja' : 'Credit outstanding'}: TZS ${money(analytics.creditOutstanding)}
+${sw ? 'Chenji ya mteja' : 'Customer change ledger'}: TZS ${money(analytics.changeOutstanding)}
+${sw ? 'Kamisheni ya wakala/benki' : 'Wakala/bank commission'}: TZS ${money(analytics.mobileCommission)}
+${sw ? 'Faida ya gesi' : 'Gas profit'}: TZS ${money(analytics.gasProfit)}
+`;
+
+  if (intent === 'duplicate_products') {
+    return `${commonHeader}
+
+${sw ? 'LENGO LA SWALI: TAFUTA BIDHAA ZINAZOWEZA KUJIRUDIA' : 'QUESTION FOCUS: POSSIBLE DUPLICATE PRODUCTS'}
+
+${sw
+  ? 'Sheria: AI iruhusiwe kutaja bidhaa zilizopo kwenye makundi hapa chini tu. Ikiwa hakuna kundi, iseme wazi kuwa haijaona duplicate kwenye data iliyotolewa.'
+  : 'Rule: The AI may only mention products listed in the groups below. If there is no group, it must clearly say no duplicate was found in the provided data.'}
+
+${sw ? 'Makundi ya bidhaa yanayoweza kujirudia kutoka kwenye data halisi:' : 'Possible duplicate groups from actual data:'}
+${duplicateGroupsText || (sw ? 'Hakuna kundi la bidhaa zinazojirudia lililopatikana kwenye data iliyotolewa.' : 'No duplicate product group was found in the provided data.')}
+
+${sw ? 'Mapendekezo mengine yanayohusiana na bidhaa:' : 'Other product-related recommendations:'}
+${recommendationText(visibleRecommendations.filter((r) => ['Possible Duplicate Product', 'Loss Making Product', 'Low Margin Product'].includes(r.type)), 20)}
+`;
+  }
+
+  if (intent === 'profit_drop') {
+    return `${commonHeader}
+
+${sw ? 'LENGO LA SWALI: KWA NINI FAIDA IMESHUKA AU IMEKUWA NDOGO' : 'QUESTION FOCUS: WHY PROFIT DROPPED OR REMAINED WEAK'}
+
+${sw ? 'Mwenendo wa maduka:' : 'Shop performance:'}
+${shopText(analytics.shopPerformance, 15)}
+
+${sw ? 'Bidhaa zilizoleta faida kubwa zaidi:' : 'Top profit products:'}
+${movementText(analytics.topProducts, 20)}
+
+${sw ? 'Hatari za bei chini ya manunuzi:' : 'Below-cost risks:'}
+${recommendationText(belowCost, 20)}
+
+${sw ? 'Bidhaa zenye margin ndogo:' : 'Low-margin products:'}
+${recommendationText(lowMargin, 20)}
+`;
+  }
+
+  if (intent === 'weekly_plan') {
+    return `${commonHeader}
+
+${sw ? 'LENGO LA SWALI: MPANGO WA HATUA ZA WIKI' : 'QUESTION FOCUS: WEEKLY ACTION PLAN'}
+
+${sw ? 'Hatari muhimu na vipaumbele:' : 'Important risks and priorities:'}
+${recommendationText(visibleRecommendations, 30)}
+
+${sw ? 'Bidhaa za kuongeza stock:' : 'Reorder items:'}
+${recommendationText(reorder, 20)}
+
+${sw ? 'Bidhaa za kutonunua/stock iliyolala:' : 'Do-not-buy / sleeping stock:'}
+${recommendationText(slow, 20)}
+
+${sw ? 'Fursa za kuhamisha stock:' : 'Stock transfer opportunities:'}
+${recommendationText(transfer, 20)}
+
+${sw ? 'Hatari za expiry:' : 'Expiry risks:'}
+${recommendationText(expiry, 20)}
+`;
+  }
+
+  if (intent === 'investment') {
+    return `${commonHeader}
+
+${sw ? 'LENGO LA SWALI: FURSA ZA UWEKEZAJI' : 'QUESTION FOCUS: INVESTMENT OPPORTUNITIES'}
+
+${sw ? 'Mchanganyiko wa bidhaa kwa mauzo/faida:' : 'Product mix by sales/profit:'}
+${productMixText(analytics.productMix, 12)}
+
+${sw ? 'Bidhaa na fursa zilizotambuliwa:' : 'Opportunity recommendations:'}
+${recommendationText(opportunities, 30)}
+
+${sw ? 'Mwenendo wa maduka:' : 'Shop performance:'}
+${shopText(analytics.shopPerformance, 15)}
+`;
+  }
+
+  if (intent === 'stock_reorder') {
+    return `${commonHeader}
+
+${sw ? 'LENGO LA SWALI: STOCK, KUONGEZA, KUPUNGUZA AU KUACHA KUNUNUA' : 'QUESTION FOCUS: STOCK, REORDER, STOP BUYING'}
+
+${sw ? 'Bidhaa za kuongeza stock:' : 'Reorder items:'}
+${recommendationText(reorder, 25)}
+
+${sw ? 'Bidhaa za kutonunua kwa sasa:' : 'Do-not-buy items:'}
+${recommendationText(slow, 25)}
+
+${sw ? 'Bidhaa zilizo kwenye product command centre:' : 'Product command rows:'}
+${productRowsText(analytics.productCommandRows, 50)}
+`;
+  }
+
+  if (intent === 'shop_performance') {
+    return `${commonHeader}
+
+${sw ? 'LENGO LA SWALI: MWENENDO WA MADUKA' : 'QUESTION FOCUS: SHOP PERFORMANCE'}
+
+${sw ? 'Mwenendo wa kila duka:' : 'Shop performance:'}
+${shopText(analytics.shopPerformance, 20)}
+
+${sw ? 'Maswali ya kuuliza wahudumu:' : 'Questions to ask attendants:'}
+${(analytics.attendantQuestions || []).slice(0, 20).map((q, idx) => `${idx + 1}. ${q.shopName}; ${q.priority}; ${q.question}; ${q.evidence || ''}`).join('\n')}
+`;
+  }
+
+  return `${commonHeader}
+
+${sw ? 'LENGO LA SWALI: UCHAMBUZI WA JUMLA WA BIASHARA' : 'QUESTION FOCUS: GENERAL BUSINESS ANALYSIS'}
+
+${sw ? 'Ujumbe wa mfumo:' : 'System message:'}
+${analytics.businessMessage}
+
+${sw ? 'Mwenendo wa maduka:' : 'Shop performance:'}
+${shopText(analytics.shopPerformance, 15)}
+
+${sw ? 'Mapendekezo muhimu:' : 'Important recommendations:'}
+${recommendationText(visibleRecommendations, 30)}
+
+${sw ? 'Bidhaa zilizoleta faida zaidi:' : 'Top profit products:'}
+${movementText(analytics.topProducts, 15)}
+`;
+}
+
 function getTrendLabel(value, language) {
   const sw = language !== 'en';
   if (value >= 5) return sw ? `Imeongezeka ${Math.abs(value).toFixed(1)}%` : `Up ${Math.abs(value).toFixed(1)}%`;
@@ -2306,7 +2606,6 @@ function getBusinessPulseExplanation(analytics, language) {
     ? `Leo mauzo ni TZS ${money(today.sales)}, faida ni TZS ${money(today.netProfit)} na matumizi ni TZS ${money(today.expenses)}. Jana mauzo yalikuwa TZS ${money(yesterday.sales)} na faida TZS ${money(yesterday.netProfit)}.`
     : `Today sales are TZS ${money(today.sales)}, profit is TZS ${money(today.netProfit)} and expenses are TZS ${money(today.expenses)}. Yesterday sales were TZS ${money(yesterday.sales)} and profit was TZS ${money(yesterday.netProfit)}.`;
 }
-
 function getMiniKpiExplanation(dataKey, trend, language, currentValue = 0, previousValue = 0) {
   const sw = language !== 'en';
   const current = Number(currentValue || 0);
@@ -2321,7 +2620,40 @@ function getMiniKpiExplanation(dataKey, trend, language, currentValue = 0, previ
     mobileCommission: sw ? 'Kamisheni ya wakala' : 'Wakala commission',
   };
 
+  const verbs = {
+    sales: {
+      increased: 'yameongezeka',
+      reduced: 'yamepungua',
+      remained: 'yamebaki',
+      droppedToZero: 'yameshuka mpaka',
+    },
+    expenses: {
+      increased: 'yameongezeka',
+      reduced: 'yamepungua',
+      remained: 'yamebaki',
+      droppedToZero: 'yameshuka mpaka',
+    },
+    netProfit: {
+      increased: 'imeongezeka',
+      reduced: 'imepungua',
+      remained: 'imebaki',
+      droppedToZero: 'imeshuka mpaka',
+    },
+    mobileCommission: {
+      increased: 'imeongezeka',
+      reduced: 'imepungua',
+      remained: 'imebaki',
+      droppedToZero: 'imeshuka mpaka',
+    },
+  };
+
   const name = names[dataKey] || (sw ? 'Taarifa hii' : 'This item');
+  const verb = verbs[dataKey] || {
+    increased: 'imeongezeka',
+    reduced: 'imepungua',
+    remained: 'imebaki',
+    droppedToZero: 'imeshuka mpaka',
+  };
 
   if (!previous && current > 0) {
     return sw
@@ -2331,24 +2663,24 @@ function getMiniKpiExplanation(dataKey, trend, language, currentValue = 0, previ
 
   if (previous > 0 && !current) {
     return sw
-      ? `${name} imeshuka mpaka TZS 0 kutoka TZS ${money(previous)}. Angalia kama biashara kweli imeshuka au taarifa hazijaingizwa.`
+      ? `${name} ${verb.droppedToZero} TZS 0 kutoka TZS ${money(previous)}. Angalia kama biashara kweli imeshuka au taarifa hazijaingizwa.`
       : `${name} dropped to TZS 0 from TZS ${money(previous)}. Check whether business really reduced or records were not entered.`;
   }
 
   if (difference > 0) {
     return sw
-      ? `${name} imeongezeka kwa TZS ${money(absDifference)}, kutoka TZS ${money(previous)} hadi TZS ${money(current)}.`
+      ? `${name} ${verb.increased} kwa TZS ${money(absDifference)}, kutoka TZS ${money(previous)} hadi TZS ${money(current)}.`
       : `${name} increased by TZS ${money(absDifference)}, from TZS ${money(previous)} to TZS ${money(current)}.`;
   }
 
   if (difference < 0) {
     return sw
-      ? `${name} imepungua kwa TZS ${money(absDifference)}, kutoka TZS ${money(previous)} hadi TZS ${money(current)}.`
+      ? `${name} ${verb.reduced} kwa TZS ${money(absDifference)}, kutoka TZS ${money(previous)} hadi TZS ${money(current)}.`
       : `${name} reduced by TZS ${money(absDifference)}, from TZS ${money(previous)} to TZS ${money(current)}.`;
   }
 
   return sw
-    ? `${name} imebaki TZS ${money(current)}, sawa na kipindi kilichopita.`
+    ? `${name} ${verb.remained} TZS ${money(current)}, sawa na kipindi kilichopita.`
     : `${name} remained at TZS ${money(current)}, the same as the previous period.`;
 }
 
@@ -2725,6 +3057,7 @@ export default function CEODecisionCentre({ data, language = 'sw' }) {
   const [aiModel, setAiModel] = React.useState('llama3.2:3b');
   const [aiQuestion, setAiQuestion] = React.useState('');
   const [aiAnswer, setAiAnswer] = React.useState('');
+  const [aiConversation, setAiConversation] = React.useState([]);
   const [aiError, setAiError] = React.useState('');
   const [aiLoading, setAiLoading] = React.useState(false);
 
@@ -2796,68 +3129,143 @@ export default function CEODecisionCentre({ data, language = 'sw' }) {
 
   const setAiQuickQuestion = (type) => {
     const map = {
-      explain: sw ? 'Eleza mwenendo wa biashara na hatua muhimu za kuchukua.' : 'Explain business performance and the most important actions.',
-      profit: sw ? 'Kwa nini faida inaweza kuwa imeshuka au kuwa chini?' : 'Why might profit have reduced or remained weak?',
-      duplicates: sw ? 'Tafuta bidhaa zinazoweza kujirudia au kuandikwa kwa majina tofauti.' : 'Find possible duplicate products or products recorded with different names.',
-      weekly: sw ? 'Pendekeza mpango wa hatua za wiki hii kwa mmiliki.' : 'Suggest this week action plan for the owner.',
-      investment: sw ? 'Tafuta fursa za uwekezaji kutokana na mwenendo wa bidhaa, maduka, gesi na wakala.' : 'Find investment opportunities from products, shops, gas and mobile money trends.',
+      explain: sw
+        ? 'Kwa kutumia taarifa halisi za CEO dashboard, eleza mwenendo wa biashara kwa kipindi nilichochagua. Taja maduka, bidhaa, kiasi cha mauzo, faida, matumizi, stock na hatua muhimu za mmiliki kuchukua.'
+        : 'Using the actual CEO dashboard data, explain the business performance for the selected period. Mention shops, products, sales, profit, expenses, stock and the most important owner actions.',
+
+      profit: sw
+        ? 'Kwa kutumia data iliyopo, eleza kwa nini faida imeshuka au imekuwa ndogo. Taja sababu mahsusi kama mauzo, matumizi, bidhaa zenye margin ndogo, bidhaa zinazouzwa chini ya bei ya manunuzi, duka husika na hatua ya kuchukua.'
+        : 'Using the available data, explain why profit reduced or remained weak. Mention specific causes such as sales, expenses, low-margin products, below-purchase-price products, affected shop and recommended action.',
+
+      duplicates: sw
+        ? 'Tafuta bidhaa zinazoweza kuwa zimejirudia kwenye mfumo. Taja majina ya bidhaa, maduka, bei ya kununua, bei ya kuuza, stock, na kwa nini unadhani zinaweza kuwa duplicate. Usitoe ushauri wa jumla bila kutaja bidhaa.'
+        : 'Find possible duplicate products in the system. Mention product names, shops, buying price, selling price, stock, and why they may be duplicates. Do not give generic advice without naming products.',
+
+      weekly: sw
+        ? 'Tengeneza mpango wa hatua za wiki hii kwa mmiliki kwa kutumia data halisi. Panga hatua kwa umuhimu: hatari kubwa, bidhaa za kuongeza stock, bidhaa za kutonunua, stock ya kuhamisha, expiry risk, na maswali ya kuuliza wahudumu.'
+        : 'Create this week owner action plan using actual data. Rank actions by priority: critical risks, items to restock, items to stop buying, stock transfers, expiry risk, and questions to ask attendants.',
+
+      investment: sw
+        ? 'Tafuta fursa za uwekezaji kwa kutumia data halisi ya bidhaa, maduka, margin, mauzo, faida, gesi na wakala. Taja maeneo mahsusi ya kuongeza mtaji na maeneo ya kuepuka.'
+        : 'Find investment opportunities using actual product, shop, margin, sales, profit, gas and wakala data. Mention specific areas to increase capital and areas to avoid.',
     };
+
     setAiQuestion(map[type] || map.explain);
   };
 
-  const buildAiPrompt = () => {
-    const recs = visibleRecommendations.slice(0, 15).map((r, idx) => `${idx + 1}. ${r.title}. ${sw ? 'Ushahidi' : 'Evidence'}: ${r.evidence}. ${sw ? 'Hatua' : 'Action'}: ${r.action}. Priority: ${r.priority}.`);
-    return `
-You are a local AI business advisor for a multi-shop POS system.
-Respond in ${language === 'en' ? 'English' : 'Kiswahili'}.
-Use only the provided facts. Do not invent missing data.
-Do not recommend automatic changes to stock, prices, names, sales or Supabase records.
-For medicine-related products, mention licensing/legal requirements.
+  const buildAiPrompt = (questionOverride = '') => {
+    const effectiveQuestion = questionOverride || aiQuestion;
+    const intent = detectAiIntent(effectiveQuestion);
+    const contextPack = buildAiContextPack({
+      analytics,
+      visibleRecommendations,
+      intent,
+      language,
+    });
 
+    const conversationText = aiConversation
+      .slice(-6)
+      .map((item, idx) => {
+        const role = item.role === 'assistant' ? 'AI' : 'Owner';
+        return `${idx + 1}. ${role}: ${item.content}`;
+      })
+      .join('\n');
+
+    return `
+You are a local AI business analyst inside this POS CEO Decision Centre.
+
+LANGUAGE RULE:
+Respond only in ${language === 'en' ? 'English' : 'practical Tanzanian Kiswahili'}.
+If responding in Kiswahili, use natural business Kiswahili. Examples:
+- "Mauzo yameongezeka", not "Mauzo imeongezeka".
+- "Matumizi yameongezeka", not "Matumizi imeongezeka".
+- "Bei ya kuuzia iko chini ya bei ya manunuzi", not vague wording.
+
+IMPORTANT BEHAVIOUR RULES:
+1. Use only the business data provided below.
+2. Never mention a product, shop, amount, date, or risk unless it appears in the BUSINESS DATA PACK.
+3. Do not invent examples. Do not use sample products. Do not guess missing products.
+4. If the owner asks for duplicate products and no duplicate group is shown in the data pack, say clearly: "Sijaona bidhaa zinazojirudia kwenye data niliyopewa."
+5. Do not give generic advice such as "you need to analyze the data" because the data has already been provided.
+6. Mention specific shop names, product names, amounts, dates, risks and actions only where available in the data pack.
+7. If the exact data needed is not available in the provided pack, say exactly what is missing.
+5. Do not recommend automatic changes to stock, prices, names, sales or Supabase records.
+6. For medicine-related products, mention that legal/licensing requirements must be considered.
+7. Give practical owner-level advice: what to check first, what to ask attendants, and what action to take.
+8. Keep the response structured and direct. Avoid long theory.
+
+QUESTION INTENT:
+${intent}
+
+SELECTED PERIOD AND SHOP:
 Period: ${period}
 Shop filter: ${shopFilter}
-Sales: TZS ${money(analytics.totalSales)}
-Previous sales: TZS ${money(analytics.previousTotalSales)}
-Gross profit: TZS ${money(analytics.grossProfit)}
-Net profit: TZS ${money(analytics.netProfit)}
-Expenses: TZS ${money(analytics.totalExpenses)}
-Stock value: TZS ${money(analytics.stockValue)}
-Credit outstanding: TZS ${money(analytics.creditOutstanding)}
-Change ledger outstanding: TZS ${money(analytics.changeOutstanding)}
-Mobile commission: TZS ${money(analytics.mobileWakalaCommission || 0)}
-Bank commission: TZS ${money(analytics.bankWakalaCommission || 0)}
-Total Wakala commission: TZS ${money(analytics.mobileCommission)}
-Gas profit: TZS ${money(analytics.gasProfit)}
 
-CEO message:
-${analytics.businessMessage}
+BUSINESS DATA PACK:
+${contextPack}
 
-Data confidence:
-${analytics.dataIssues.length ? analytics.dataIssues.join(' ') : (sw ? 'Hakuna tatizo kubwa lililoonekana.' : 'No major issue detected.')}
+RECENT AI CONVERSATION FOR FOLLOW-UP CONTEXT:
+${conversationText || 'No previous AI conversation in this session.'}
 
-Top active recommendations:
-${recs.join('\n')}
-
-Owner question:
-${aiQuestion || (sw ? 'Eleza mwenendo wa biashara na pendekeza hatua muhimu zaidi.' : 'Explain the business performance and suggest the most important actions.')}
+OWNER QUESTION:
+${effectiveQuestion || (language === 'en' ? 'Explain the business performance and suggest the most important actions.' : 'Eleza mwenendo wa biashara na pendekeza hatua muhimu zaidi.')}
 `;
   };
 
   const askLocalAi = async () => {
+    const ownerQuestion =
+      aiQuestion ||
+      (sw
+        ? 'Eleza mwenendo wa biashara na pendekeza hatua muhimu zaidi.'
+        : 'Explain the business performance and suggest the most important actions.');
+
     setAiLoading(true);
     setAiError('');
     setAiAnswer('');
+
+    const userMessage = {
+      role: 'user',
+      content: ownerQuestion,
+      createdAt: new Date().toISOString(),
+    };
+
+    setAiConversation((prev) => [...prev, userMessage].slice(-10));
+
     try {
       const response = await fetch(aiEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: aiModel, prompt: buildAiPrompt(), stream: false }),
+        body: JSON.stringify({ model: aiModel, prompt: buildAiPrompt(ownerQuestion), stream: false }),
       });
+
       if (!response.ok) throw new Error(`Local AI responded with status ${response.status}`);
+
       const result = await response.json();
-      setAiAnswer(result?.response || result?.message?.content || 'Local AI returned no response.');
+      const answer = result?.response || result?.message?.content || 'Local AI returned no response.';
+
+      setAiAnswer(answer);
+
+      setAiConversation((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: answer,
+          createdAt: new Date().toISOString(),
+        },
+      ].slice(-10));
     } catch (error) {
-      setAiError(`${sw ? 'AI ya ndani haijaunganishwa au imezuiwa. Dashboard bado inafanya kazi bila AI.' : 'Local AI is not connected or blocked. The dashboard still works without AI.'} Details: ${error?.message || 'Unknown error'}`);
+      const errorMessage = `${sw ? 'AI ya ndani haijaunganishwa au imezuiwa. Dashboard bado inafanya kazi bila AI.' : 'Local AI is not connected or blocked. The dashboard still works without AI.'} Details: ${error?.message || 'Unknown error'}`;
+
+      setAiError(errorMessage);
+
+      setAiConversation((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: errorMessage,
+          createdAt: new Date().toISOString(),
+        },
+      ].slice(-10));
     } finally {
       setAiLoading(false);
     }
@@ -3288,8 +3696,62 @@ ${aiQuestion || (sw ? 'Eleza mwenendo wa biashara na pendekeza hatua muhimu zaid
               </div>
               <textarea value={aiQuestion} onChange={(e) => setAiQuestion(e.target.value)} className="mt-3 min-h-[110px] w-full rounded-3xl border border-slate-200 bg-white p-4 text-sm outline-none focus:ring-2 focus:ring-violet-200" placeholder={t('aiPlaceholder')} />
               <button onClick={askLocalAi} disabled={aiLoading} className="mt-3 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black text-white shadow-lg disabled:opacity-60">{aiLoading ? t('askingAi') : t('askAi')}</button>
-              {aiError ? <div className="mt-3 rounded-2xl border border-orange-200 bg-orange-50 p-4 text-sm font-semibold text-orange-700">{aiError}</div> : null}
-              {aiAnswer ? <div className="mt-3 whitespace-pre-wrap rounded-3xl border border-slate-200 bg-white p-5 text-sm leading-7 text-slate-700 shadow-sm">{aiAnswer}</div> : null}
+                         {aiError ? (
+              <div className="mt-3 rounded-2xl border border-orange-200 bg-orange-50 p-4 text-sm font-semibold text-orange-700">
+                {aiError}
+              </div>
+            ) : null}
+
+            {aiConversation.length ? (
+              <div className="mt-4 space-y-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-black text-slate-900">
+                      {sw ? 'Mazungumzo ya AI' : 'AI Conversation'}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {sw
+                        ? 'AI inatumia mazungumzo haya kusaidia maswali ya kufuatilia.'
+                        : 'The AI uses this conversation to support follow-up questions.'}
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAiConversation([]);
+                      setAiAnswer('');
+                      setAiError('');
+                    }}
+                    className="rounded-2xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-200"
+                  >
+                    {sw ? 'Futa mazungumzo' : 'Clear'}
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  {aiConversation.map((item, idx) => {
+                    const isUser = item.role === 'user';
+
+                    return (
+                      <div
+                        key={`${item.createdAt || idx}-${idx}`}
+                        className={`rounded-2xl p-4 text-sm leading-7 ${
+                          isUser
+                            ? 'bg-blue-50 text-blue-950'
+                            : 'bg-slate-50 text-slate-800'
+                        }`}
+                      >
+                        <div className="mb-1 text-xs font-black uppercase tracking-wide opacity-70">
+                          {isUser ? (sw ? 'Swali la Mmiliki' : 'Owner Question') : 'AI'}
+                        </div>
+                        <div className="whitespace-pre-wrap">{item.content}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
             </DropdownPanel>
           ) : null}
         </div>
