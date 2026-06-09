@@ -792,6 +792,34 @@ function normalizeData(parsed = {}) {
   };
 }
 
+function buildShopOnlyData(data, shopId) {
+  const selectedShopId = String(shopId || '').trim();
+
+  if (!selectedShopId) {
+    return normalizeData(data || seedData);
+  }
+
+  const sameShop = (item) =>
+    String(item?.shop_id || item?.shopId || item?.shopid || '') === selectedShopId;
+
+  return normalizeData({
+    ...data,
+    shops: (data.shops || []).filter((shop) => String(shop.id) === selectedShopId),
+    products: (data.products || []).filter(sameShop),
+    sales: (data.sales || []).filter(sameShop),
+    expenses: (data.expenses || []).filter(sameShop),
+    purchases: (data.purchases || []).filter(sameShop),
+    creditSales: (data.creditSales || []).filter(sameShop),
+    changeLedger: (data.changeLedger || []).filter(sameShop),
+    mobileMoneyEntries: (data.mobileMoneyEntries || []).filter(sameShop),
+    monthlyWakalaCommissions: (data.monthlyWakalaCommissions || []).filter(sameShop),
+    gasEntries: (data.gasEntries || []).filter(sameShop),
+    houses: (data.houses || []).filter(sameShop),
+    meters: (data.meters || []).filter(sameShop),
+    serviceCharges: (data.serviceCharges || []).filter(sameShop),
+  });
+}
+
 async function readData({ preferFresh = true } = {}) {
   try {
     const dbData = await readFromDB(DB_DATA_KEY);
@@ -828,7 +856,7 @@ if (session?.user?.id && !isOwnerUser) {
 let salesQuery = supabase
   .from('sales')
   .select('*')
-  .gte('date', daysAgoISO(30))
+  .gte('date', daysAgoISO(2))
   .order('created_at', { ascending: false });
 let purchasesQuery = supabase.from('purchases').select('*');
 let expensesQuery = supabase.from('expenses').select('*');
@@ -1432,6 +1460,70 @@ function getLatestEntryForShop(entries, shopId) {
   return shopEntries[0] || null;
 }
 
+function buildShopDailySalesGoal(data, shopId) {
+  const today = startOfDay(new Date());
+  const todayIso = todayISO(today);
+  const todayDay = today.getDay();
+
+  const shopSales = (data.sales || []).filter(
+    (sale) => String(sale.shop_id || sale.shopId || '') === String(shopId)
+  );
+
+  const todaySales = shopSales
+    .filter((sale) => String(sale.date || sale.created_at || '').slice(0, 10) === todayIso)
+    .reduce((sum, sale) => sum + Number(sale.total || 0), 0);
+
+  const salesByDate = shopSales.reduce((acc, sale) => {
+    const dateValue = String(sale.date || sale.created_at || '').slice(0, 10);
+    if (!dateValue || dateValue === todayIso) return acc;
+
+    acc[dateValue] = (acc[dateValue] || 0) + Number(sale.total || 0);
+    return acc;
+  }, {});
+
+  const sameWeekdayValues = Object.entries(salesByDate)
+    .filter(([dateValue]) => {
+      const d = startOfDay(dateValue);
+      return !Number.isNaN(d.getTime()) && d.getDay() === todayDay;
+    })
+    .sort(([a], [b]) => String(a).localeCompare(String(b)))
+    .map(([, value]) => value)
+    .filter((value) => value > 0)
+    .slice(-4);
+
+  const recentActiveValues = Object.entries(salesByDate)
+    .sort(([a], [b]) => String(a).localeCompare(String(b)))
+    .map(([, value]) => value)
+    .filter((value) => value > 0)
+    .slice(-7);
+
+  const sourceValues = sameWeekdayValues.length >= 2 ? sameWeekdayValues : recentActiveValues;
+
+  if (!sourceValues.length) {
+    return {
+      hasGoal: false,
+      goal: 0,
+      actual: todaySales,
+      progress: 0,
+      remainingAmount: 0,
+      remainingPercent: 100,
+    };
+  }
+
+  const average = sourceValues.reduce((sum, value) => sum + value, 0) / sourceValues.length;
+  const goal = Math.round(average * 1.1);
+  const progress = goal > 0 ? Math.min(100, (todaySales / goal) * 100) : 0;
+
+  return {
+    hasGoal: true,
+    goal,
+    actual: todaySales,
+    progress,
+    remainingAmount: Math.max(0, goal - todaySales),
+    remainingPercent: Math.max(0, 100 - progress),
+  };
+}
+
 function OwnerDashboard({ data, setAppData, openShop, logout, exportBackup, importBackup, ownerPeriod, setOwnerPeriod, language, setLanguage }) {
 const [currentPasswordInput, setCurrentPasswordInput] = useState('');
 const [newPasswordInput, setNewPasswordInput] = useState('');
@@ -1908,7 +2000,44 @@ const totalBusinessProfit = totalProfit + totalGasProfit + totalWakalaCommission
    
 function ShopDashboard({ shop, data, saveData, backToOwner, logout, canBack, language, setLanguage, exportBackup }) {
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [decisionCentreSales, setDecisionCentreSales] = useState([]);
+  const [decisionCentreSalesLoaded, setDecisionCentreSalesLoaded] = useState(false);
   const [quickSearch, setQuickSearch] = useState('');
+  const dailySalesGoal = buildShopDailySalesGoal(data, shop.id);
+  useEffect(() => {
+  if (activeTab !== 'ceo') return;
+  if (decisionCentreSalesLoaded) return;
+  if (!navigator.onLine) return;
+
+  const loadDecisionCentreSales = async () => {
+    try {
+      let query = supabase
+        .from('sales')
+        .select('*')
+        .eq('shop_id', shop.id)
+        .gte('date', daysAgoISO(180))
+        .order('created_at', { ascending: false });
+
+      const { data: longSales, error } = await query;
+
+      if (error) throw error;
+
+      setDecisionCentreSales((longSales || []).map((sale) => ({
+        ...sale,
+        shop_id: String(sale?.shop_id || '').trim(),
+        date: sale?.date || (sale?.created_at ? String(sale.created_at).slice(0, 10) : todayISO()),
+        confirmed: true,
+      })));
+
+      setDecisionCentreSalesLoaded(true);
+    } catch (error) {
+      console.error('Failed to load shop Decision Centre long sales history:', error);
+      setDecisionCentreSalesLoaded(true);
+    }
+  };
+
+  loadDecisionCentreSales();
+}, [activeTab, decisionCentreSalesLoaded, shop.id]);
 const [stockSearch, setStockSearch] = useState('');
   const [scanCode, setScanCode] = useState('');
   const [cart, setCart] = useState([]);
@@ -4983,7 +5112,29 @@ banks: mobileMoneyForm.banks.map((b) => ({
               </p>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
+  {dailySalesGoal.hasGoal ? (
+    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-right shadow-sm">
+      <div className="text-[11px] font-black uppercase tracking-[0.16em] text-emerald-700">
+        {t(language, 'Sales Goal', 'Lengo la Mauzo')}
+      </div>
+      <div className="mt-1 text-sm font-black text-slate-900">
+        TZS {currency(dailySalesGoal.goal)}
+      </div>
+      <div className="mt-1 text-[11px] font-bold text-slate-600">
+        {t(language, 'Actual', 'Mauzo Halisi')}: TZS {currency(dailySalesGoal.actual)} · {t(language, 'Reached', 'Umefikia')}: {dailySalesGoal.progress.toFixed(0)}% · {t(language, 'Remaining', 'Bado')}: {dailySalesGoal.remainingPercent.toFixed(0)}%
+      </div>
+    </div>
+  ) : (
+    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-right shadow-sm">
+      <div className="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">
+        {t(language, 'Sales Goal', 'Lengo la Mauzo')}
+      </div>
+      <div className="mt-1 text-[11px] font-bold text-slate-600">
+        {t(language, 'Not enough history yet.', 'Bado hakuna historia ya kutosha.')}
+      </div>
+    </div>
+  )}
               <select
                 className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm"
                 value={language}
@@ -7481,6 +7632,8 @@ export default function MultiShopPOSFinal() {
   const [language, setLanguage] = useState(DEFAULT_LANGUAGE);
 const [isOnline, setIsOnline] = useState(navigator.onLine);
 const [syncMessage, setSyncMessage] = useState('');
+const [decisionCentreSales, setDecisionCentreSales] = useState([]);
+const [decisionCentreSalesLoaded, setDecisionCentreSalesLoaded] = useState(false);
 const [isHydrating, setIsHydrating] = useState(true);
 const [hasLoadedInitialData, setHasLoadedInitialData] = useState(false);
 
@@ -8381,17 +8534,57 @@ return {
 });
 };
 const logout = async () => {
-  await supabase.auth.signOut();
-
   writeStorage(STORAGE_SESSION_KEY, null);
+  setActiveShopId(null);
 
   setData((prev) => ({
     ...prev,
     currentUser: null,
   }));
 
-  setActiveShopId(null);
+  try {
+    await supabase.auth.signOut();
+  } catch (error) {
+    console.error('Supabase logout failed, but local session was cleared:', error);
+  }
 };
+
+useEffect(() => {
+  const currentUser = data?.currentUser;
+  const userShopId = String(currentUser?.shop_id || currentUser?.shopId || '').trim();
+
+  if (String(currentUser?.role || '') !== 'shop') return;
+  if (!userShopId) return;
+  if (decisionCentreSalesLoaded) return;
+  if (!navigator.onLine) return;
+
+  const loadDecisionCentreSales = async () => {
+    try {
+      const { data: longSales, error } = await supabase
+        .from('sales')
+        .select('*')
+        .eq('shop_id', userShopId)
+        .gte('date', daysAgoISO(180))
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      setDecisionCentreSales((longSales || []).map((sale) => ({
+        ...sale,
+        shop_id: String(sale?.shop_id || '').trim(),
+        date: sale?.date || (sale?.created_at ? String(sale.created_at).slice(0, 10) : todayISO()),
+        confirmed: true,
+      })));
+
+      setDecisionCentreSalesLoaded(true);
+    } catch (error) {
+      console.error('Failed to load Decision Centre long sales history:', error);
+      setDecisionCentreSalesLoaded(true);
+    }
+  };
+
+  loadDecisionCentreSales();
+}, [data?.currentUser, decisionCentreSalesLoaded]);
 if (!hasLoadedInitialData) {
   return (
     <div className="min-h-screen flex items-center justify-center text-sm text-slate-500">
@@ -8446,6 +8639,15 @@ if (isHydrating) {
   }
 
   const shop = data.shops.find((s) => s.id === selectedShopId) || data.shops[0];
+const baseShopDecisionData = buildShopOnlyData(data, selectedShopId);
+
+const shopDecisionData = decisionCentreSales.length
+  ? {
+      ...baseShopDecisionData,
+      sales: decisionCentreSales,
+    }
+  : baseShopDecisionData;
+
 return (
   <>
     <div
@@ -8467,6 +8669,16 @@ return (
       setLanguage={setLanguage}
       exportBackup={exportBackup}
     />
+
+    <div className="mx-4 mt-6">
+      <CEODecisionCentre
+        data={shopDecisionData}
+        language={language}
+        scope="shop"
+        lockedShopId={selectedShopId}
+        titleOverride={t(language, 'Shop Decision Centre', 'Kituo cha Maamuzi ya Duka')}
+      />
+    </div>
   </>
 );
 }
