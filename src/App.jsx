@@ -31,6 +31,10 @@ const STORAGE_META_KEY = 'rafikiai_storage_meta';
 const STORAGE_SYNC_QUEUE_KEY = 'rafikiai_sync_queue';
 const STORAGE_LAST_SYNC_KEY = 'rafikiai_last_sync';
 const STORAGE_SESSION_KEY = 'rafikiai_current_user';
+const STORAGE_CART_DRAFTS_KEY = 'rafikiai_cart_drafts_v1';
+const STORAGE_LAST_ACTIVITY_KEY = 'rafikiai_last_activity_v1';
+const STORAGE_LOCK_ON_RETURN_KEY = 'rafikiai_lock_on_return_v1';
+const POS_AUTO_LOCK_MINUTES = 15;
 const DB_NAME = 'rafikiai_pos_db';
 const DB_VERSION = 1;
 const DB_STORE = 'pos_data';
@@ -114,6 +118,16 @@ function getWeeklyLoginTheme() {
 }
 
 const t = (language, en, sw) => (language === 'sw' ? sw : en);
+const salesTargetAnimationStyle = `
+@keyframes salesTargetMove {
+  0% {
+    transform: translateX(100%);
+  }
+  100% {
+    transform: translateX(-100%);
+  }
+}
+`;
 function readStorage(key, fallback = null) {
 try {
 const raw = localStorage.getItem(key);
@@ -125,6 +139,72 @@ return fallback;
 }
 function readSyncQueue() {
   return readStorage(STORAGE_SYNC_QUEUE_KEY, []);
+}
+
+function readCartDrafts() {
+  return readStorage(STORAGE_CART_DRAFTS_KEY, {});
+}
+
+function getCartDraft(shopId) {
+  const drafts = readCartDrafts();
+  return drafts[String(shopId || '')] || null;
+}
+
+function saveCartDraft(shopId, cart) {
+  const selectedShopId = String(shopId || '').trim();
+  if (!selectedShopId) return;
+
+  const drafts = readCartDrafts();
+  const safeCart = Array.isArray(cart) ? cart : [];
+
+  if (!safeCart.length) {
+    delete drafts[selectedShopId];
+  } else {
+    drafts[selectedShopId] = {
+      shopId: selectedShopId,
+      cart: safeCart,
+      savedAt: new Date().toISOString(),
+    };
+  }
+
+  writeStorage(STORAGE_CART_DRAFTS_KEY, drafts);
+}
+
+function clearCartDraft(shopId) {
+  const selectedShopId = String(shopId || '').trim();
+  if (!selectedShopId) return;
+
+  const drafts = readCartDrafts();
+  delete drafts[selectedShopId];
+  writeStorage(STORAGE_CART_DRAFTS_KEY, drafts);
+}
+
+function updateLastActivityTime() {
+  writeStorage(STORAGE_LAST_ACTIVITY_KEY, Date.now());
+}
+
+function getLastActivityTime() {
+  return Number(readStorage(STORAGE_LAST_ACTIVITY_KEY, Date.now()) || Date.now());
+}
+
+function shouldAutoLockPos() {
+  const lastActivity = getLastActivityTime();
+  const now = Date.now();
+  const lockAfterMs = POS_AUTO_LOCK_MINUTES * 60 * 1000;
+
+  return now - lastActivity > lockAfterMs;
+}
+
+function markLockOnReturn() {
+  writeStorage(STORAGE_LOCK_ON_RETURN_KEY, true);
+}
+
+function clearLockOnReturn() {
+  writeStorage(STORAGE_LOCK_ON_RETURN_KEY, false);
+}
+
+function shouldLockOnReturn() {
+  return Boolean(readStorage(STORAGE_LOCK_ON_RETURN_KEY, false));
 }
 
 function debugSyncQueue() {
@@ -448,9 +528,20 @@ const formatMoneyInput = (value) => {
   return decimal !== undefined ? `${formattedWhole}.${decimal.slice(0, 2)}` : formattedWhole;
 };
 
+const roundStockQty = (value, decimals = 2) => {
+  const factor = 10 ** decimals;
+  return Math.round((Number(value || 0) + Number.EPSILON) * factor) / factor;
+};
+
 const formatQty = (value) => {
-  const num = Number(value || 0);
+  const num = roundStockQty(value, 2);
   return Number.isInteger(num) ? String(num) : new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(num);
+};
+
+const roundToCashStep = (value, step = 50) => {
+  const amount = Number(value || 0);
+  if (!amount || amount <= 0) return 0;
+  return Math.ceil(amount / step) * step;
 };
 
 const buildStandardProductCode = (name, unit = '') => {
@@ -589,7 +680,7 @@ function makeSubUnits(unit, sellPrice, raw = '0.5,0.25') {
     id: `${unit}-${idx}-${qty}`,
     label: `${formatQty(qty)}${unit}`,
     qty,
-    sellPrice: Math.round(Number(sellPrice || 0) * qty),
+    sellPrice: roundToCashStep(Number(sellPrice || 0) * qty),
   }));
   return [...base, ...subs];
 }
@@ -820,7 +911,7 @@ function buildShopOnlyData(data, shopId) {
   });
 }
 
-async function readData({ preferFresh = true } = {}) {
+async function readData({ preferFresh = true, salesMode = 'today' } = {}) {
   try {
     const dbData = await readFromDB(DB_DATA_KEY);
 
@@ -1469,9 +1560,15 @@ function buildShopDailySalesGoal(data, shopId) {
     (sale) => String(sale.shop_id || sale.shopId || '') === String(shopId)
   );
 
-  const todaySales = shopSales
-    .filter((sale) => String(sale.date || sale.created_at || '').slice(0, 10) === todayIso)
-    .reduce((sum, sale) => sum + Number(sale.total || 0), 0);
+  const yesterdayIso = todayISO(addDays(today, -1));
+
+const todaySales = shopSales
+  .filter((sale) => String(sale.date || sale.created_at || '').slice(0, 10) === todayIso)
+  .reduce((sum, sale) => sum + Number(sale.total || 0), 0);
+
+const yesterdaySales = shopSales
+  .filter((sale) => String(sale.date || sale.created_at || '').slice(0, 10) === yesterdayIso)
+  .reduce((sum, sale) => sum + Number(sale.total || 0), 0);
 
   const salesByDate = shopSales.reduce((acc, sale) => {
     const dateValue = String(sale.date || sale.created_at || '').slice(0, 10);
@@ -1497,30 +1594,203 @@ function buildShopDailySalesGoal(data, shopId) {
     .filter((value) => value > 0)
     .slice(-7);
 
-  const sourceValues = sameWeekdayValues.length >= 2 ? sameWeekdayValues : recentActiveValues;
+  const salesDateEntries = Object.entries(salesByDate)
+    .filter(([, value]) => Number(value || 0) > 0)
+    .sort(([a], [b]) => String(a).localeCompare(String(b)));
 
-  if (!sourceValues.length) {
+  const averageOf = (values) => {
+    const safeValues = values.filter((value) => Number(value || 0) > 0);
+    if (!safeValues.length) return 0;
+    return safeValues.reduce((sum, value) => sum + Number(value || 0), 0) / safeValues.length;
+  };
+
+  const valuesFromLastDays = (days) => {
+    const startDate = todayISO(addDays(today, -Number(days || 0) + 1));
+
+    return salesDateEntries
+      .filter(([dateValue]) => String(dateValue) >= startDate && String(dateValue) < todayIso)
+      .map(([, value]) => Number(value || 0))
+      .filter((value) => value > 0);
+  };
+
+  const sameWeekdayAverage = averageOf(sameWeekdayValues);
+  const recentActiveAverage = averageOf(recentActiveValues);
+  const last30Average = averageOf(valuesFromLastDays(30));
+  const last90Average = averageOf(valuesFromLastDays(90));
+  const last180Average = averageOf(valuesFromLastDays(180));
+
+  const targetSources = [
+    { value: sameWeekdayAverage, weight: 40 },
+    { value: recentActiveAverage, weight: 25 },
+    { value: last30Average, weight: 20 },
+    { value: last90Average || last180Average, weight: 15 },
+  ].filter((item) => item.value > 0);
+
+  if (!targetSources.length) {
+    return {
+  hasGoal: false,
+  goal: 0,
+  actual: todaySales,
+  yesterdaySales,
+  progress: 0,
+  remainingAmount: 0,
+  remainingPercent: 100,
+};
+  }
+
+  const weightedTotal = targetSources.reduce((sum, item) => sum + item.value * item.weight, 0);
+  const weightTotal = targetSources.reduce((sum, item) => sum + item.weight, 0);
+  const baseTarget = weightTotal > 0 ? weightedTotal / weightTotal : 0;
+  const goal = Math.round(baseTarget * 1.05);
+  const progress = goal > 0 ? (todaySales / goal) * 100 : 0;
+  const cappedProgress = Math.min(100, progress);
+  const exceededAmount = Math.max(0, todaySales - goal);
+  const exceededPercent = Math.max(0, progress - 100);
+
+  return {
+  hasGoal: true,
+  goal,
+  actual: todaySales,
+  yesterdaySales,
+  progress,
+  cappedProgress,
+  exceededAmount,
+  exceededPercent,
+  remainingAmount: Math.max(0, goal - todaySales),
+  remainingPercent: Math.max(0, 100 - progress),
+};
+}
+
+function buildShopMonthlySalesTarget(data, shopId) {
+  const today = startOfDay(new Date());
+  const year = today.getFullYear();
+  const month = today.getMonth();
+
+  const monthStart = new Date(year, month, 1);
+  const monthEnd = new Date(year, month + 1, 0);
+  const monthStartIso = todayISO(monthStart);
+  const todayIso = todayISO(today);
+
+  const daysInMonth = monthEnd.getDate();
+
+  const shopSales = (data.sales || []).filter(
+    (sale) => String(sale.shop_id || sale.shopId || '') === String(shopId)
+  );
+
+  const monthToDateSales = shopSales
+    .filter((sale) => {
+      const dateValue = String(sale.date || sale.created_at || '').slice(0, 10);
+      return dateValue >= monthStartIso && dateValue <= todayIso;
+    })
+    .reduce((sum, sale) => sum + Number(sale.total || 0), 0);
+
+  const salesByDate = shopSales.reduce((acc, sale) => {
+    const dateValue = String(sale.date || sale.created_at || '').slice(0, 10);
+    if (!dateValue || dateValue >= monthStartIso) return acc;
+
+    acc[dateValue] = (acc[dateValue] || 0) + Number(sale.total || 0);
+    return acc;
+  }, {});
+
+  const salesDateEntries = Object.entries(salesByDate)
+    .filter(([, value]) => Number(value || 0) > 0)
+    .sort(([a], [b]) => String(a).localeCompare(String(b)));
+
+  const averageOf = (values) => {
+    const safeValues = values.filter((value) => Number(value || 0) > 0);
+    if (!safeValues.length) return 0;
+    return safeValues.reduce((sum, value) => sum + Number(value || 0), 0) / safeValues.length;
+  };
+
+  const valuesFromLastDaysBeforeMonth = (days) => {
+    const startDate = todayISO(addDays(monthStart, -Number(days || 0)));
+
+    return salesDateEntries
+      .filter(([dateValue]) => String(dateValue) >= startDate && String(dateValue) < monthStartIso)
+      .map(([, value]) => Number(value || 0))
+      .filter((value) => value > 0);
+  };
+
+  const recentActiveValues = salesDateEntries
+    .map(([, value]) => Number(value || 0))
+    .filter((value) => value > 0)
+    .slice(-14);
+
+  const recentActiveAverage = averageOf(recentActiveValues);
+  const last30Average = averageOf(valuesFromLastDaysBeforeMonth(30));
+  const last90Average = averageOf(valuesFromLastDaysBeforeMonth(90));
+  const last180Average = averageOf(valuesFromLastDaysBeforeMonth(180));
+
+  const monthDailyTargets = Array.from({ length: daysInMonth }, (_, index) => {
+    const targetDate = new Date(year, month, index + 1);
+    const targetDay = targetDate.getDay();
+
+    const sameWeekdayValues = salesDateEntries
+      .filter(([dateValue]) => {
+        const d = startOfDay(dateValue);
+        return !Number.isNaN(d.getTime()) && d.getDay() === targetDay;
+      })
+      .map(([, value]) => Number(value || 0))
+      .filter((value) => value > 0)
+      .slice(-6);
+
+    const sameWeekdayAverage = averageOf(sameWeekdayValues);
+
+    const targetSources = [
+      { value: sameWeekdayAverage, weight: 40 },
+      { value: recentActiveAverage, weight: 25 },
+      { value: last30Average, weight: 20 },
+      { value: last90Average || last180Average, weight: 15 },
+    ].filter((item) => item.value > 0);
+
+    if (!targetSources.length) return 0;
+
+    const weightedTotal = targetSources.reduce((sum, item) => sum + item.value * item.weight, 0);
+    const weightTotal = targetSources.reduce((sum, item) => sum + item.weight, 0);
+    const baseTarget = weightTotal > 0 ? weightedTotal / weightTotal : 0;
+
+    return Math.round(baseTarget * 1.05);
+  });
+
+  const monthlyGoal = monthDailyTargets.reduce((sum, value) => sum + Number(value || 0), 0);
+
+  if (!monthlyGoal) {
     return {
       hasGoal: false,
       goal: 0,
-      actual: todaySales,
+      actual: monthToDateSales,
       progress: 0,
       remainingAmount: 0,
-      remainingPercent: 100,
+      exceededAmount: 0,
+      rewardAmount: 0,
+      monthStart: monthStartIso,
+      monthEnd: todayISO(monthEnd),
+      daysInMonth,
     };
   }
 
-  const average = sourceValues.reduce((sum, value) => sum + value, 0) / sourceValues.length;
-  const goal = Math.round(average * 1.1);
-  const progress = goal > 0 ? Math.min(100, (todaySales / goal) * 100) : 0;
+  const progress = (monthToDateSales / monthlyGoal) * 100;
+  const remainingAmount = Math.max(0, monthlyGoal - monthToDateSales);
+  const exceededAmount = Math.max(0, monthToDateSales - monthlyGoal);
+
+  const rewardAmount = progress >= 100
+    ? Math.round(10000 * (progress / 100))
+    : 0;
 
   return {
     hasGoal: true,
-    goal,
-    actual: todaySales,
+    goal: monthlyGoal,
+    actual: monthToDateSales,
     progress,
-    remainingAmount: Math.max(0, goal - todaySales),
+    cappedProgress: Math.min(100, progress),
+    remainingAmount,
     remainingPercent: Math.max(0, 100 - progress),
+    exceededAmount,
+    exceededPercent: Math.max(0, progress - 100),
+    rewardAmount,
+    monthStart: monthStartIso,
+    monthEnd: todayISO(monthEnd),
+    daysInMonth,
   };
 }
 
@@ -1745,9 +2015,37 @@ const totalBankWakalaCommission = monthlyCommissionRecordsForOwnerPeriod.reduce(
 const totalWakalaCommission = totalMobileWakalaCommission + totalBankWakalaCommission;
 
 const totalBusinessProfit = totalProfit + totalGasProfit + totalWakalaCommission;
-  const latestPerShop = data.shops.map((shop) => getLatestEntryForShop(data.mobileMoneyEntries, shop.id)).filter(Boolean);
-  const totalMobileCapital = latestPerShop.reduce((a, entry) => a + getMobileCapital(entry), 0);
-  const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(entry), 0);
+
+const ownerMonthlyTargets = data.shops.map((shop) => ({
+  shop,
+  target: buildShopMonthlySalesTarget(data, shop.id),
+}));
+
+const ownerMonthlyGoal = ownerMonthlyTargets.reduce(
+  (sum, row) => sum + Number(row.target.goal || 0),
+  0
+);
+
+const ownerMonthlyActual = ownerMonthlyTargets.reduce(
+  (sum, row) => sum + Number(row.target.actual || 0),
+  0
+);
+
+const ownerMonthlyProgress = ownerMonthlyGoal > 0
+  ? (ownerMonthlyActual / ownerMonthlyGoal) * 100
+  : 0;
+
+const ownerMonthlyRemainingAmount = Math.max(0, ownerMonthlyGoal - ownerMonthlyActual);
+const ownerMonthlyExceededAmount = Math.max(0, ownerMonthlyActual - ownerMonthlyGoal);
+
+const ownerMonthlyRewardAmount = ownerMonthlyTargets.reduce(
+  (sum, row) => sum + Number(row.target.rewardAmount || 0),
+  0
+);
+
+const latestPerShop = data.shops.map((shop) => getLatestEntryForShop(data.mobileMoneyEntries, shop.id)).filter(Boolean);
+const totalMobileCapital = latestPerShop.reduce((a, entry) => a + getMobileCapital(entry), 0);
+const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(entry), 0);
 
   const ownerPeriodLabel = {
     today: t(language, 'Today', 'Leo'),
@@ -1881,6 +2179,73 @@ const totalBusinessProfit = totalProfit + totalGasProfit + totalWakalaCommission
   </CardContent>
 </Card>
             
+{ownerMonthlyGoal > 0 ? (
+  <div className="mt-6 rounded-[30px] border border-emerald-100 bg-gradient-to-r from-emerald-50 via-white to-lime-50 p-5 shadow-lg">
+    <div className="flex flex-wrap items-start justify-between gap-4">
+      <div>
+        <div className="text-sm font-black uppercase tracking-[0.18em] text-emerald-700">
+          {t(language, 'All Shops Monthly Target', 'Lengo la Mwezi la Maduka Yote')}
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <div className="rounded-3xl bg-white px-4 py-3 shadow-sm ring-1 ring-emerald-100">
+            <div className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">
+              {t(language, 'Sales so far', 'Mauzo hadi sasa')}
+            </div>
+            <div className="mt-1 text-2xl font-black text-slate-900">
+              TZS {currency(ownerMonthlyActual)}
+            </div>
+          </div>
+
+          <div className="rounded-3xl bg-white px-4 py-3 shadow-sm ring-1 ring-emerald-100">
+            <div className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">
+              {t(language, 'Monthly target', 'Lengo la mwezi')}
+            </div>
+            <div className="mt-1 text-2xl font-black text-slate-900">
+              TZS {currency(ownerMonthlyGoal)}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-3 text-sm font-bold text-slate-700">
+          {t(language, 'Reached', 'Umefikia')}: {ownerMonthlyProgress.toFixed(0)}%
+        </div>
+
+        <div className="mt-1 text-sm font-bold text-slate-700">
+          {ownerMonthlyExceededAmount > 0
+            ? `${t(language, 'Exceeded target by', 'Umezidi lengo kwa')}: TZS ${currency(ownerMonthlyExceededAmount)}`
+            : `${t(language, 'Remaining to target', 'Bado kufikia lengo')}: TZS ${currency(ownerMonthlyRemainingAmount)}`}
+        </div>
+      </div>
+
+      <div className="rounded-3xl bg-white px-5 py-4 text-right shadow-sm ring-1 ring-emerald-100">
+        <div className="text-xs font-black uppercase tracking-[0.16em] text-emerald-700">
+          {t(language, 'Total Current Reward', 'Jumla ya Zawadi ya Sasa')}
+        </div>
+
+        <div className="mt-2 text-2xl font-black text-emerald-700">
+          TZS {currency(ownerMonthlyRewardAmount)}
+        </div>
+
+        <div className="mt-1 max-w-[260px] text-xs font-semibold leading-5 text-slate-600">
+          {t(
+            language,
+            'This is the total reward from shops that have reached their monthly targets.',
+            'Hii ni jumla ya zawadi kutoka maduka yaliyofikisha malengo ya mwezi.'
+          )}
+        </div>
+      </div>
+    </div>
+
+    <div className="mt-4 h-3 overflow-hidden rounded-full bg-emerald-100">
+      <div
+        className="h-full rounded-full bg-emerald-600 transition-all"
+        style={{ width: `${Math.min(100, ownerMonthlyProgress)}%` }}
+      />
+    </div>
+  </div>
+) : null}
+
 <div className="mt-6 grid gap-4 lg:grid-cols-3 text-base">
         {data.shops.map((shop) => {
           const shopSales = filterByPreset(
@@ -2004,6 +2369,8 @@ function ShopDashboard({ shop, data, saveData, backToOwner, logout, canBack, lan
   const [decisionCentreSalesLoaded, setDecisionCentreSalesLoaded] = useState(false);
   const [quickSearch, setQuickSearch] = useState('');
   const dailySalesGoal = buildShopDailySalesGoal(data, shop.id);
+  const monthlySalesGoal = buildShopMonthlySalesTarget(data, shop.id);
+
   useEffect(() => {
   if (activeTab !== 'ceo') return;
   if (decisionCentreSalesLoaded) return;
@@ -2041,6 +2408,61 @@ function ShopDashboard({ shop, data, saveData, backToOwner, logout, canBack, lan
 const [stockSearch, setStockSearch] = useState('');
   const [scanCode, setScanCode] = useState('');
   const [cart, setCart] = useState([]);
+  const [pendingCartDraft, setPendingCartDraft] = useState(null);
+  const [cartDraftDecisionRequired, setCartDraftDecisionRequired] = useState(false);
+  const [confirmDeleteCartDraft, setConfirmDeleteCartDraft] = useState(false);
+  const [cartDraftChecked, setCartDraftChecked] = useState(false);
+
+  useEffect(() => {
+    setCartDraftChecked(false);
+
+    const draft = getCartDraft(shop.id);
+
+    if (draft?.cart?.length) {
+      setPendingCartDraft(draft);
+      setCartDraftDecisionRequired(true);
+      setConfirmDeleteCartDraft(false);
+      setCart([]);
+    } else {
+      setPendingCartDraft(null);
+      setCartDraftDecisionRequired(false);
+      setConfirmDeleteCartDraft(false);
+    }
+
+    setCartDraftChecked(true);
+  }, [shop.id]);
+
+  useEffect(() => {
+    if (!cartDraftChecked) return;
+    if (cartDraftDecisionRequired) return;
+    saveCartDraft(shop.id, cart);
+  }, [shop.id, cart, cartDraftChecked, cartDraftDecisionRequired]);
+
+  const continueCartDraft = () => {
+    const draftCart = Array.isArray(pendingCartDraft?.cart) ? pendingCartDraft.cart : [];
+
+    setCart(draftCart);
+    setPendingCartDraft(null);
+    setCartDraftDecisionRequired(false);
+    setConfirmDeleteCartDraft(false);
+  };
+
+  const requestDeleteCartDraft = () => {
+    setConfirmDeleteCartDraft(true);
+  };
+
+  const cancelDeleteCartDraft = () => {
+    setConfirmDeleteCartDraft(false);
+  };
+
+  const confirmDeleteCartDraftNow = () => {
+    clearCartDraft(shop.id);
+    setCart([]);
+    setPendingCartDraft(null);
+    setCartDraftDecisionRequired(false);
+    setConfirmDeleteCartDraft(false);
+  };
+
   const [newProductRows, setNewProductRows] = useState([{ ...emptyProductRow }]);
   const [purchaseRows, setPurchaseRows] = useState([{ ...emptyPurchaseRow }]);
   const recurringExpenseDefaults = RECURRING_EXPENSES_BY_SHOP[shop.id] || [];
@@ -2900,6 +3322,19 @@ return {
   totalSalesAmount,
 };
 }, [filteredSales, products, stockSearch]);
+const shopPeriodLabel = {
+  today: t(language, 'Today', 'Leo'),
+  yesterday: t(language, 'Yesterday', 'Jana'),
+  week: t(language, 'This week to date', 'Wiki hii hadi leo'),
+  lastweek: t(language, 'Last week', 'Wiki iliyopita'),
+  month: t(language, 'This month to date', 'Mwezi huu hadi leo'),
+  lastmonth: t(language, 'Last month', 'Mwezi uliopita'),
+  '3months': t(language, 'Last 3 months', 'Miezi 3 iliyopita'),
+  '6months': t(language, 'Last 6 months', 'Miezi 6 iliyopita'),
+  year: t(language, 'This year', 'Mwaka huu'),
+  date: t(language, 'Selected dates', 'Tarehe ulizochagua'),
+}[reportPreset] || t(language, 'Selected period', 'Kipindi ulichochagua');
+
 const todayProfit = salesReportRows.totalProfit - todayExpenses; 
 const todayRetailProfit = salesReportRows.totalProfit - todayExpenses;
 const totalBusinessProfit =
@@ -3248,9 +3683,12 @@ saleLock.current = false;
     if (idx >= 0) {
       nextProducts[idx] = {
         ...normalizeProduct(nextProducts[idx]),
-        stockBaseQty: Math.max(
-          0,
-          Number(nextProducts[idx].stockBaseQty || 0) - Number(item.quantity || 0)
+        stockBaseQty: roundStockQty(
+          Math.max(
+            0,
+            Number(nextProducts[idx].stockBaseQty || 0) - Number(item.quantity || 0)
+          ),
+          2
         ),
       };
     }
@@ -3392,6 +3830,7 @@ console.log('SALE DATE TEST', {
 
   console.log('Sending sale to Supabase:', saleRecord);
 
+  clearCartDraft(shop.id);
   setCart([]);
   setSaleError('');
 } catch (err) {
@@ -5122,7 +5561,40 @@ banks: mobileMoneyForm.banks.map((b) => ({
         TZS {currency(dailySalesGoal.goal)}
       </div>
       <div className="mt-1 text-[11px] font-bold text-slate-600">
-        {t(language, 'Actual', 'Mauzo Halisi')}: TZS {currency(dailySalesGoal.actual)} · {t(language, 'Reached', 'Umefikia')}: {dailySalesGoal.progress.toFixed(0)}% · {t(language, 'Remaining', 'Bado')}: {dailySalesGoal.remainingPercent.toFixed(0)}%
+        {t(language, 'Actual', 'Mauzo Halisi')}: TZS {currency(dailySalesGoal.actual)} · {t(language, 'Reached', 'Umefikia')}: {dailySalesGoal.progress.toFixed(0)}% ·{' '}
+        {dailySalesGoal.exceededAmount > 0
+          ? `${t(language, 'Exceeded target by', 'Umezidi lengo kwa')}: TZS ${currency(dailySalesGoal.exceededAmount)}`
+          : `${t(language, 'Remaining', 'Bado')}: ${dailySalesGoal.remainingPercent.toFixed(0)}%`}
+      </div>
+
+      <div className="mt-2 max-w-[320px] overflow-hidden rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1.5 shadow-sm">
+        <style>
+          {`
+            @keyframes salesTargetMove {
+              0% {
+                transform: translateX(100%);
+              }
+              100% {
+                transform: translateX(-100%);
+              }
+            }
+          `}
+        </style>
+
+        <div
+          className="whitespace-nowrap text-[11px] font-bold text-emerald-800"
+          style={{
+            display: 'inline-block',
+            minWidth: '100%',
+            animation: 'salesTargetMove 14s linear infinite',
+          }}
+        >
+          {t(
+            language,
+            `Yesterday you sold TZS ${currency(dailySalesGoal.yesterdaySales)}. Today's sales target is TZS ${currency(dailySalesGoal.goal)}.`,
+            `Jana uliuza TZS ${currency(dailySalesGoal.yesterdaySales)}. Mauzo yako ya leo yanatakiwa kuwa TZS ${currency(dailySalesGoal.goal)}.`
+          )}
+        </div>
       </div>
     </div>
   ) : (
@@ -5173,6 +5645,83 @@ banks: mobileMoneyForm.banks.map((b) => ({
         </div>
       </div>
 
+      {cartDraftDecisionRequired ? (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/60 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-[32px] border border-white/70 bg-white p-6 shadow-2xl">
+            <div className="rounded-3xl bg-amber-50 p-4 ring-1 ring-amber-100">
+              <div className="text-lg font-black text-slate-900">
+                {t(language, 'Unfinished sale found', 'Kuna mauzo hayajakamilika')}
+              </div>
+
+              <div className="mt-2 text-sm font-semibold leading-6 text-slate-700">
+                {t(
+                  language,
+                  'This shop has an unfinished cart. You must choose whether to continue or delete it before using the system.',
+                  'Duka hili lina mauzo ambayo hayajakamilika. Lazima uchague kuendelea nayo au kuyafuta kabla ya kutumia mfumo.'
+                )}
+              </div>
+
+              <div className="mt-3 rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm">
+                {t(language, 'Products in cart', 'Bidhaa kwenye cart')}: {pendingCartDraft?.cart?.length || 0}
+              </div>
+            </div>
+
+            {confirmDeleteCartDraft ? (
+              <div className="mt-5 rounded-3xl border border-red-200 bg-red-50 p-4">
+                <div className="text-sm font-black text-red-700">
+                  {t(language, 'Confirm delete', 'Thibitisha kufuta')}
+                </div>
+
+                <div className="mt-2 text-sm font-semibold leading-6 text-red-700">
+                  {t(
+                    language,
+                    'Are you sure you want to delete this unfinished sale? This cannot be recovered.',
+                    'Una uhakika unataka kufuta mauzo haya ambayo hayajakamilika? Hayataweza kurudishwa.'
+                  )}
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <Button
+                    type="button"
+                    className="bg-red-600 text-white hover:bg-red-700"
+                    onClick={confirmDeleteCartDraftNow}
+                  >
+                    {t(language, 'Yes, delete', 'Ndiyo, futa')}
+                  </Button>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={cancelDeleteCartDraft}
+                  >
+                    {t(language, 'Cancel', 'Ghairi')}
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-5 flex flex-wrap gap-3">
+                <Button
+                  type="button"
+                  className="bg-emerald-600 text-white hover:bg-emerald-700"
+                  onClick={continueCartDraft}
+                >
+                  {t(language, 'Continue', 'Endelea')}
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+                  onClick={requestDeleteCartDraft}
+                >
+                  {t(language, 'Delete', 'Futa')}
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
+
       <div className="mb-6 rounded-[30px] bg-[linear-gradient(135deg,rgba(255,255,255,0.88),rgba(248,250,255,0.94),rgba(255,244,250,0.94))] p-2 shadow-lg ring-1 ring-slate-200/70">
   <TabsList>
     {[
@@ -5203,21 +5752,21 @@ banks: mobileMoneyForm.banks.map((b) => ({
      <TabsContent value="dashboard" activeValue={activeTab}>
   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
     <StatCard
-  title={t(language, 'Today Sales', 'Mauzo ya Leo')}
+  title={`${t(language, 'Sales', 'Mauzo')} - ${shopPeriodLabel}`}
   value={`TZS ${currency(todaySales)}`}
   icon={ShoppingCart}
   color="bg-orange-300"
 />
 
 <StatCard
-  title={t(language, 'Today Expenses', 'Matumizi ya Leo')}
+  title={`${t(language, 'Expenses', 'Matumizi')} - ${shopPeriodLabel}`}
   value={`TZS ${currency(todayExpenses)}`}
   icon={AlertTriangle}
   color="bg-red-300"
 />
 
 <StatCard
-  title={t(language, 'Today Profit', 'Faida ya Leo')}
+  title={`${t(language, 'Profit', 'Faida')} - ${shopPeriodLabel}`}
   value={`TZS ${currency(todayProfit)}`}
   icon={Wallet}
   color="bg-green-300"
@@ -5273,6 +5822,84 @@ banks: mobileMoneyForm.banks.map((b) => ({
   color="bg-blue-300"
 />
 </div>
+
+{monthlySalesGoal.hasGoal ? (
+  <div className="mt-4 rounded-[28px] border border-emerald-100 bg-gradient-to-r from-emerald-50 via-white to-lime-50 p-5 shadow-md">
+    <div className="flex flex-wrap items-start justify-between gap-4">
+      <div>
+        <div className="text-sm font-black uppercase tracking-[0.18em] text-emerald-700">
+          {t(language, 'Monthly Target', 'Lengo la Mwezi')}
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <div className="rounded-3xl bg-white px-4 py-3 shadow-sm ring-1 ring-emerald-100">
+            <div className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">
+              {t(language, 'Sales so far', 'Mauzo hadi sasa')}
+            </div>
+            <div className="mt-1 text-2xl font-black text-slate-900">
+              TZS {currency(monthlySalesGoal.actual)}
+            </div>
+          </div>
+
+          <div className="rounded-3xl bg-white px-4 py-3 shadow-sm ring-1 ring-emerald-100">
+            <div className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">
+              {t(language, 'Monthly target', 'Lengo la mwezi')}
+            </div>
+            <div className="mt-1 text-2xl font-black text-slate-900">
+              TZS {currency(monthlySalesGoal.goal)}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-3 text-sm font-bold text-slate-700">
+          {t(language, 'Reached', 'Umefikia')}: {monthlySalesGoal.progress.toFixed(0)}%
+        </div>
+
+        <div className="mt-1 text-sm font-bold text-slate-700">
+          {monthlySalesGoal.exceededAmount > 0
+            ? `${t(language, 'Exceeded target by', 'Umezidi lengo kwa')}: TZS ${currency(monthlySalesGoal.exceededAmount)}`
+            : `${t(language, 'Remaining to target', 'Bado kufikia lengo')}: TZS ${currency(monthlySalesGoal.remainingAmount)}`}
+        </div>
+
+        <div className="mt-1 text-xs font-semibold text-slate-500">
+          {monthlySalesGoal.monthStart} - {monthlySalesGoal.monthEnd}
+        </div>
+      </div>
+
+      <div className="rounded-3xl bg-white px-5 py-4 text-right shadow-sm ring-1 ring-emerald-100">
+        <div className="text-xs font-black uppercase tracking-[0.16em] text-emerald-700">
+          {t(language, 'Current Reward', 'Zawadi ya Sasa')}
+        </div>
+
+        <div className="mt-2 text-2xl font-black text-emerald-700">
+          TZS {currency(monthlySalesGoal.rewardAmount)}
+        </div>
+
+        <div className="mt-1 max-w-[240px] text-xs font-semibold leading-5 text-slate-600">
+          {monthlySalesGoal.rewardAmount > 0
+            ? t(
+                language,
+                'Reward grows as monthly performance increases.',
+                'Zawadi inaongezeka kadri mauzo ya mwezi yanavyoongezeka.'
+              )
+            : t(
+                language,
+                'Reach 100% of monthly target to start earning reward.',
+                'Fikisha 100% ya lengo la mwezi ili kuanza kupata zawadi.'
+              )}
+        </div>
+      </div>
+    </div>
+
+    <div className="mt-4 h-3 overflow-hidden rounded-full bg-emerald-100">
+      <div
+        className="h-full rounded-full bg-emerald-600 transition-all"
+        style={{ width: `${monthlySalesGoal.cappedProgress}%` }}
+      />
+    </div>
+  </div>
+) : null}
+
   <Card className="mt-6 border-white/50 bg-[linear-gradient(135deg,rgba(255,255,255,0.92),rgba(248,250,255,0.96),rgba(255,244,250,0.96))] shadow-lg backdrop-blur-md">
     <CardHeader>
       <CardTitle>{t(language, 'Business Profit Breakdown', 'Muhtasari wa Faida za Biashara')}</CardTitle>
@@ -7720,6 +8347,74 @@ useEffect(() => {
 }, []);
 
 useEffect(() => {
+  if (!data?.currentUser) return;
+
+  updateLastActivityTime();
+  clearLockOnReturn();
+
+  const lockPosLocally = () => {
+    if (!shouldAutoLockPos()) return;
+
+    writeStorage(STORAGE_SESSION_KEY, null);
+    clearLockOnReturn();
+
+    setActiveShopId(null);
+    setSyncMessage(
+      t(
+        language,
+        'Session locked. Please login again.',
+        'Mfumo umejifunga. Tafadhali ingia tena.'
+      )
+    );
+
+    setData((prev) => ({
+      ...prev,
+      currentUser: null,
+    }));
+  };
+
+  const markActivity = () => {
+    if (shouldAutoLockPos()) {
+      lockPosLocally();
+      return;
+    }
+
+    updateLastActivityTime();
+  };
+
+  const activityEvents = ['click', 'keydown', 'touchstart', 'mousemove'];
+
+  activityEvents.forEach((eventName) => {
+    window.addEventListener(eventName, markActivity, { passive: true });
+  });
+
+  const visibilityHandler = () => {
+    if (document.visibilityState === 'visible') {
+      lockPosLocally();
+    }
+  };
+
+  const focusHandler = () => {
+    lockPosLocally();
+  };
+
+  window.addEventListener('focus', focusHandler);
+  document.addEventListener('visibilitychange', visibilityHandler);
+
+  const lockTimer = window.setInterval(lockPosLocally, 30000);
+
+  return () => {
+    activityEvents.forEach((eventName) => {
+      window.removeEventListener(eventName, markActivity);
+    });
+
+    window.removeEventListener('focus', focusHandler);
+    document.removeEventListener('visibilitychange', visibilityHandler);
+    window.clearInterval(lockTimer);
+  };
+}, [data?.currentUser, language]);
+
+useEffect(() => {
   debugSyncQueue();
 
   let refreshTimer = null;
@@ -7745,10 +8440,20 @@ useEffect(() => {
     }
 
     let salesQuery = supabase
-      .from('sales')
-      .select('*')
-      .gte('date', daysAgoISO(30))
-      .order('created_at', { ascending: false });
+  .from('sales')
+  .select('*')
+  .order('created_at', { ascending: false });
+
+if (salesMode === 'year') {
+  const yearStart = new Date(new Date().getFullYear(), 0, 1);
+  salesQuery = salesQuery.gte('date', todayISO(yearStart));
+} else if (salesMode === 'sixMonths') {
+  salesQuery = salesQuery.gte('date', daysAgoISO(180));
+} else if (salesMode === 'month') {
+  salesQuery = salesQuery.gte('date', daysAgoISO(30));
+} else {
+  salesQuery = salesQuery.eq('date', todayISO());
+}
 
     if (!isOwnerUser) {
       salesQuery = salesQuery.eq('shop_id', shopId);
@@ -8458,6 +9163,80 @@ const handleLogin = async (user) => {
     expenses: loaded.expenses || prev.expenses || [],
     currentUser: sessionUser,
   }));
+
+  if (navigator.onLine) {
+    const applyBackgroundData = (loadedData) => {
+      setData((prev) => ({
+        ...prev,
+        ...loadedData,
+        currentUser: sessionUser,
+        users: loadedData.users?.length ? loadedData.users : prev.users,
+        products: (loadedData.products?.length ? loadedData.products : prev.products || []).map((p) => {
+          const existing = (prev.products || []).find((x) => String(x.id) === String(p.id));
+
+          return existing?.archived
+            ? { ...normalizeProduct(p), archived: true }
+            : normalizeProduct(p);
+        }),
+      }));
+    };
+
+    const loadBackgroundLayers = async () => {
+      try {
+        setSyncMessage(
+          t(
+            language,
+            'POS opened. Loading 30 days history in background...',
+            'POS imefunguka. Inapakia historia ya siku 30 kwa nyuma...'
+          )
+        );
+
+        const monthLoaded = await readData({ preferFresh: true, salesMode: 'month' });
+        applyBackgroundData(monthLoaded);
+
+        setSyncMessage(
+          t(
+            language,
+            '30 days loaded. Loading 180 days history...',
+            'Siku 30 zimepakiwa. Inapakia historia ya siku 180...'
+          )
+        );
+
+        const sixMonthsLoaded = await readData({ preferFresh: true, salesMode: 'sixMonths' });
+        applyBackgroundData(sixMonthsLoaded);
+
+        setSyncMessage(
+          t(
+            language,
+            '180 days loaded. Loading full year history...',
+            'Siku 180 zimepakiwa. Inapakia historia ya mwaka mzima...'
+          )
+        );
+
+        const yearLoaded = await readData({ preferFresh: true, salesMode: 'year' });
+        applyBackgroundData(yearLoaded);
+
+        setSyncMessage(
+          t(
+            language,
+            'Full business history loaded.',
+            'Historia kamili ya biashara imepakiwa.'
+          )
+        );
+      } catch (error) {
+        console.error('Background layered history loading failed:', error);
+        setSyncMessage(
+          t(
+            language,
+            'POS is ready. More history will load when connection improves.',
+            'POS iko tayari. Historia zaidi itapakiwa mtandao ukiimarika.'
+          )
+        );
+      }
+    };
+
+    loadBackgroundLayers();
+  }
 };
 
 const openShopDashboard = async (shopId) => {

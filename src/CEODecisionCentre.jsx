@@ -341,6 +341,32 @@ function num(value) {
   return Number(value || 0);
 }
 
+function roundQty(value, decimals = 2) {
+  const factor = 10 ** decimals;
+  return Math.round((Number(value || 0) + Number.EPSILON) * factor) / factor;
+}
+
+function qtyText(value) {
+  const rounded = roundQty(value, 2);
+  return Number.isInteger(rounded)
+    ? String(rounded)
+    : new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(rounded);
+}
+
+function unitText(unit) {
+  const cleanUnit = String(unit || 'pc').trim().toLowerCase();
+
+  if (cleanUnit === 'kg') return 'kg';
+  if (cleanUnit === 'ltr' || cleanUnit === 'liter' || cleanUnit === 'litre') return 'ltr';
+  if (cleanUnit === 'pc' || cleanUnit === 'pcs' || cleanUnit === 'piece') return 'pc';
+
+  return cleanUnit || 'pc';
+}
+
+function qtyWithUnit(value, unit) {
+  return `${qtyText(value)}${unitText(unit)}`;
+}
+
 function pct(value) {
   if (!Number.isFinite(Number(value))) return '0.0%';
   return `${Number(value || 0).toFixed(1)}%`;
@@ -541,6 +567,8 @@ function detectCategory(name) {
   return 'General Products';
 }
 
+const WARNING_HISTORY_STORAGE_KEY = 'ceo_warning_lifecycle_history_v1';
+
 function readActions() {
   try {
     return JSON.parse(localStorage.getItem(ACTION_STORAGE_KEY) || '{}');
@@ -553,14 +581,41 @@ function writeActions(actions) {
   localStorage.setItem(ACTION_STORAGE_KEY, JSON.stringify(actions || {}));
 }
 
+function readWarningHistory() {
+  try {
+    const rows = JSON.parse(localStorage.getItem(WARNING_HISTORY_STORAGE_KEY) || '[]');
+    return Array.isArray(rows) ? rows : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeWarningHistory(rows) {
+  localStorage.setItem(WARNING_HISTORY_STORAGE_KEY, JSON.stringify(Array.isArray(rows) ? rows : []));
+}
+
+function addWarningHistoryEntry(entry) {
+  const history = readWarningHistory();
+
+  const nextEntry = {
+    id: `warning-history-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    createdAt: new Date().toISOString(),
+    ...entry,
+  };
+
+  writeWarningHistory([nextEntry, ...history].slice(0, 500));
+
+  return nextEntry;
+}
+
 function actionHidden(action) {
   if (!action) return false;
 
-  // Once the owner has acted on an item, the same issue should not keep repeating in other views.
-  // Done and Planned are treated as owner action already recorded.
+  // Once the owner/shop user has acted on an item, the same issue should not keep repeating in other views.
+  // Done and Planned are treated as action already recorded.
   if (['Done', 'Planned'].includes(action.status)) return true;
 
-  // Snoozed and Not Relevant are hidden only for the snooze period.
+  // Snoozed, Not Relevant and Ignored are hidden only for the snooze period.
   if (['Snoozed', 'Not Relevant', 'Ignored'].includes(action.status)) {
     if (!action.snoozeUntil) return false;
     return action.snoozeUntil >= toISO(new Date());
@@ -686,7 +741,9 @@ function describeSourceShop(source, language) {
 
 function buildAnalytics({ data, period, shopFilter, language, customStart, customEnd }) {
   const shops = Array.isArray(data?.shops) ? data.shops : [];
-  const allProducts = Array.isArray(data?.products) ? data.products : [];
+  const allProducts = Array.isArray(data?.products)
+    ? data.products.filter((product) => !product?.archived)
+    : [];
   const allSales = Array.isArray(data?.sales) ? data.sales : [];
   const allExpenses = Array.isArray(data?.expenses) ? data.expenses : [];
   const allPurchases = Array.isArray(data?.purchases) ? data.purchases : [];
@@ -1160,6 +1217,7 @@ const movementList = Object.values(movement).sort((a, b) => b.profit - a.profit)
       const stock = shopInfo.stock;
       const sold = num(cur?.qty);
       const prevSold = num(prev?.qty);
+      const unit = shopInfo.products?.[0]?.baseUnit || shopInfo.products?.[0]?.baseunit || 'pc';
       const avgDaily = sold / Math.max(1, range.days);
       const daysLeft = avgDaily ? stock / avgDaily : null;
       const productName = Array.from(shopInfo.productNames)[0] || Array.from(group.names)[0] || group.code;
@@ -1205,8 +1263,8 @@ const movementList = Object.values(movement).sort((a, b) => b.profit - a.profit)
           shopName: shopInfo.shopName,
           title: recText(language, 'stockout', { product: productName, shop: shopInfo.shopName }),
           evidence: language === 'en'
-            ? `Previous period sold ${prevSold} units. Stock iliyopo is zero.`
-            : `Kipindi kilichopita ziliuzwa ${prevSold}. stock ya sasa ni sifuri.`,
+            ? `Previous period sold ${qtyText(prevSold)} units. Available stock is zero.`
+            : `Kipindi kilichopita ziliuzwa ${qtyText(prevSold)}. Stock ya sasa ni sifuri.`,
           action: language === 'en'
             ? 'Restock or transfer from another shop before concluding that demand has reduced.'
             : 'Ongeza stock au hamisha kutoka duka jingine kabla ya kuamua kuwa uhitaji umepungua.',
@@ -1226,8 +1284,8 @@ const movementList = Object.values(movement).sort((a, b) => b.profit - a.profit)
           shopName: shopInfo.shopName,
           title: recText(language, 'reorder', { product: productName, shop: shopInfo.shopName }),
           evidence: language === 'en'
-            ? `Available stock ${stock}; sold ${sold} units within ${range.days} day${range.days === 1 ? '' : 's'} (${range.start} to ${range.end}); estimated days left ${daysLeft.toFixed(1)}.`
-            : `Stock iliyopo ${stock}; zimeuzwa ${sold} ndani ya siku ${range.days} (${range.start} mpaka ${range.end}); inakadiriwa kubaki siku ${daysLeft.toFixed(1)}.`,
+            ? `Available stock ${qtyWithUnit(stock, unit)}; sold ${qtyWithUnit(sold, unit)} within ${range.days} day${range.days === 1 ? '' : 's'} (${range.start} to ${range.end}); estimated days left ${daysLeft.toFixed(1)}.`
+            : `Stock iliyopo ${qtyWithUnit(stock, unit)}; zimeuzwa ${qtyWithUnit(sold, unit)} ndani ya siku ${range.days} (${range.start} mpaka ${range.end}); inakadiriwa kubaki siku ${daysLeft.toFixed(1)}.`,
           action: language === 'en' ? 'Reorder or transfer from a slower shop.' : 'Ongeza stock au hamisha kutoka duka ambalo bidhaa hiyo haizunguki vizuri.',
           question: language === 'en' ? `Confirm whether ${productName} has already been ordered.` : `Muulize mhudumu kama ${productName} tayari imeagizwa.`,
         });
@@ -1280,8 +1338,8 @@ if (
     shopName: shopInfo.shopName,
     title: recText(language, 'doNotBuy', { product: productName, shop: shopInfo.shopName }),
     evidence: language === 'en'
-      ? `Current stock is ${stock}, but there is not enough sales history to confirm normal movement.`
-      : `Stock iliyopo ni ${stock}, lakini bado hakuna historia ya kutosha kuthibitisha mwenendo wake wa kawaida.`,
+      ? `Current stock is ${qtyText(stock)}, but there is not enough sales history to confirm normal movement.`
+      : `Stock iliyopo ni ${qtyText(stock)}, lakini bado hakuna historia ya kutosha kuthibitisha mwenendo wake wa kawaida.`,
     action: language === 'en'
       ? 'Avoid buying more until there is clearer demand.'
       : 'Usiongeze bidhaa hii kwa sasa mpaka kuwe na uhakika wa uhitaji wake.',
@@ -3186,58 +3244,9 @@ return (
         </div>
       </div>
 
-      {dailyTarget.hasTarget ? (
-        <div className="mb-4 rounded-[28px] border border-emerald-200 bg-white p-4 shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div>
-              <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">
-                {sw ? 'Lengo la Mauzo ya Leo' : 'Today Sales Goal'}
-              </p>
-
-              <h4 className="mt-1 text-2xl font-black text-slate-950">
-                TZS {money(dailyTarget.target)}
-              </h4>
-
-              <p className="mt-1 text-sm font-semibold text-slate-600">
-                {sw
-                  ? `Umeuza TZS ${money(dailyTarget.todaySales)}. Imebaki TZS ${money(dailyTarget.remaining)} kufikia lengo.`
-                  : `You have sold TZS ${money(dailyTarget.todaySales)}. Remaining TZS ${money(dailyTarget.remaining)} to reach the goal.`}
-              </p>
-            </div>
-
-            <div className="min-w-[180px]">
-              <div className="mb-2 flex items-center justify-between text-xs font-black text-slate-500">
-                <span>{sw ? 'Umefikia' : 'Progress'}</span>
-                <span>{targetProgress.toFixed(0)}%</span>
-              </div>
-
-              <div className="h-3 overflow-hidden rounded-full bg-slate-100">
-                <div
-                  className="h-full rounded-full bg-emerald-600"
-                  style={{ width: `${Math.min(100, targetProgress)}%` }}
-                />
-              </div>
-
-              <p className="mt-2 text-xs font-semibold text-slate-500">
-                {dailyTarget.source === 'same-weekday'
-                  ? (sw ? 'Limehesabiwa kwa kuangalia mauzo ya siku kama ya leo zilizopita.' : 'Calculated from previous similar weekdays.')
-                  : (sw ? 'Limehesabiwa kwa kuangalia mauzo ya siku za karibuni.' : 'Calculated from recent active sales days.')}
-              </p>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="mb-4 rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm">
-          <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">
-            {sw ? 'Lengo la Mauzo ya Leo' : 'Today Sales Goal'}
-          </p>
-          <p className="mt-2 text-sm font-semibold text-slate-600">
-            {sw
-              ? 'Bado hakuna historia ya kutosha kuweka lengo sahihi la mauzo.'
-              : 'There is not enough history yet to set a reliable sales goal.'}
-          </p>
-        </div>
-      )}
+      {/* Target card removed from Decision Centre to avoid duplication.
+          Targets are displayed in Shop Dashboard and Owner Dashboard.
+          dailyTarget remains available internally for future advice logic. */}
 
       <div className="grid gap-4 xl:grid-cols-3">
         <div className="rounded-[26px] border border-rose-100 bg-white/90 p-4 shadow-sm">
@@ -3568,6 +3577,12 @@ const initialShopFilter = isShopScope && lockedShopId ? String(lockedShopId) : '
       .sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
   }, [actions]);
 
+  const warningHistory = React.useMemo(() => {
+    return readWarningHistory()
+      .filter((item) => item && item.recommendationId)
+      .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+  }, [actions, analytics.recommendations]);
+
   const handleDecision = (rec, status) => {
     let note = actions[rec.id]?.note || '';
 
@@ -3583,26 +3598,51 @@ const initialShopFilter = isShopScope && lockedShopId ? String(lockedShopId) : '
     const snoozeUntil = ['Snoozed', 'Not Relevant'].includes(status) ? toISO(addDays(new Date(), DEFAULT_SNOOZE_DAYS)) : '';
     const implemented = status === 'Done';
 
+    const actionRecord = {
+      recommendationId: rec.id,
+      type: rec.type,
+      productCode: rec.productCode,
+      productName: rec.productName,
+      shopName: rec.shopName,
+      shopId: rec.shopId || '',
+      challenge: rec.title,
+      evidence: rec.evidence,
+      suggestedAction: rec.action,
+      status,
+      note,
+      implemented,
+      snoozeUntil,
+      updatedAt: new Date().toISOString(),
+    };
+
     const next = {
       ...actions,
-      [rec.id]: {
-        recommendationId: rec.id,
-        type: rec.type,
-        productCode: rec.productCode,
-        productName: rec.productName,
-        shopName: rec.shopName,
-        challenge: rec.title,
-        evidence: rec.evidence,
-        suggestedAction: rec.action,
-        status,
-        note,
-        implemented,
-        snoozeUntil,
-        updatedAt: new Date().toISOString(),
-      },
+      [rec.id]: actionRecord,
     };
+
     setActions(next);
     writeActions(next);
+
+    addWarningHistoryEntry({
+      recommendationId: rec.id,
+      eventType: 'ACTION_RECORDED',
+      type: rec.type,
+      productCode: rec.productCode || '',
+      productName: rec.productName || '',
+      shopId: rec.shopId || '',
+      shopName: rec.shopName || '',
+      challenge: rec.title || '',
+      evidence: rec.evidence || '',
+      suggestedAction: rec.action || '',
+      status,
+      note,
+      implemented,
+      snoozeUntil,
+      message:
+        language === 'en'
+          ? `Action recorded: ${status}`
+          : `Hatua imehifadhiwa: ${status}`,
+    });
   };
 
   const setAiQuickQuestion = (type) => {
@@ -3835,14 +3875,6 @@ ${effectiveQuestion || (language === 'en' ? 'Explain the business performance an
         </div>
 
         <div className="space-y-5 p-5">
-  <DecisionAdvisorPanel
-  recommendations={safeVisibleRecommendations}
-  analytics={analytics}
-  language={language}
-  isShopScope={isShopScope}
-  onDecision={handleDecision}
-/>
-
   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
     <ExecutiveMetric label={t('totalSales')} value={`TZS ${money(analytics.totalSales)}`} hint={getTrendLabel(salesTrend, language)} trend={salesTrend} gradient="from-blue-500 to-cyan-400" icon="↗" />
     <ExecutiveMetric label={t('netProfit')} value={`TZS ${money(analytics.netProfit)}`} hint={getTrendLabel(profitTrend, language)} trend={profitTrend} gradient="from-emerald-500 to-teal-400" icon="✓" />
@@ -3875,6 +3907,14 @@ ${effectiveQuestion || (language === 'en' ? 'Explain the business performance an
                 <SoftTile label={t('creditOutstanding')} value={`TZS ${money(analytics.creditOutstanding)}`} className="bg-white/80" />
                 <SoftTile label={t('changeLedger')} value={`TZS ${money(analytics.changeOutstanding)}`} className="bg-white/80" />
               </div>
+
+              <DecisionAdvisorPanel
+                recommendations={safeVisibleRecommendations}
+                analytics={analytics}
+                language={language}
+                isShopScope={isShopScope}
+                onDecision={handleDecision}
+              />
 
               <DropdownPanel title={sw ? 'Mambo ya Haraka kwa Mmiliki' : 'Owner Quick Priorities'} subtitle={sw ? 'Haya ni mambo machache muhimu zaidi, si kila taarifa ya mfumo.' : 'Only the most important current items are shown here.'} badge={`${visibleRecommendations.slice(0, 5).length} ${sw ? 'vitu' : 'items'}`} defaultOpen tone="amber">
                 <div className="grid gap-4 lg:grid-cols-2">
@@ -4149,7 +4189,28 @@ ${effectiveQuestion || (language === 'en' ? 'Explain the business performance an
 
           {viewMode === 'action' ? (
             <>
-              <DropdownPanel title={t('auditTrail')} subtitle={t('actionPlanNote')} badge={`${auditTrail.length} ${sw ? 'hatua' : 'actions'}`} defaultOpen tone="slate">
+          {warningHistory.some((item) => item?.eventType === 'AUTO_RESOLVED') ? (
+            <div className="mb-4 rounded-[26px] border border-emerald-200 bg-emerald-50 p-4 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-black text-emerald-800">
+                    {sw ? 'Kuna tahadhari zilizotatuliwa' : 'Some warnings have been resolved'}
+                  </p>
+                  <p className="mt-1 text-xs font-semibold leading-5 text-emerald-700">
+                    {sw
+                      ? 'Mfumo umeona baadhi ya changamoto hazionekani tena kwenye taarifa za sasa. Angalia Historia ya Tahadhari kwa maelezo.'
+                      : 'The system detected that some issues no longer appear in the current data. Check Warning History for details.'}
+                  </p>
+                </div>
+
+                <div className="rounded-full bg-white px-4 py-2 text-xs font-black text-emerald-700 shadow-sm">
+                  {sw ? 'Hili limetatuliwa' : 'Resolved'}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          <DropdownPanel title={t('auditTrail')} subtitle={t('actionPlanNote')} badge={`${auditTrail.length} ${sw ? 'hatua' : 'actions'}`} defaultOpen={viewMode === 'action'} tone="slate">
                 <CompactTable
                   rows={auditTrail.slice(0, 80)}
                   emptyText={t('noAuditTrail')}
@@ -4162,7 +4223,60 @@ ${effectiveQuestion || (language === 'en' ? 'Explain the business performance an
                 />
               </DropdownPanel>
 
-              <DropdownPanel title={sw ? 'Mapendekezo Yanayosubiri Uamuzi' : 'Recommendations Awaiting Decision'} subtitle={sw ? 'Chagua Imefanyika, Imepangwa, Ficha siku 7 au Haihitajiki.' : 'Mark as done, planned, snoozed or not relevant.'} badge={`${safeVisibleRecommendations.length} ${sw ? 'ushauri' : 'insights'}`} defaultOpen tone="amber">
+                          <DropdownPanel
+                title={sw ? 'Historia ya Tahadhari' : 'Warning History'}
+                subtitle={
+                  sw
+                    ? 'Inaonyesha tahadhari zilizorekodiwa, zilizofichwa, na zilizotatuliwa ndani ya mfumo.'
+                    : 'Shows recorded, hidden, and resolved warnings inside the system.'
+                }
+                badge={`${warningHistory.length} ${sw ? 'rekodi' : 'records'}`}
+                defaultOpen={warningHistory.length > 0}
+                tone="emerald"
+              >
+                <CompactTable
+                  rows={warningHistory.slice(0, 120)}
+                  emptyText={sw ? 'Hakuna historia ya tahadhari bado.' : 'No warning history yet.'}
+                  columns={[
+                    {
+                      key: 'createdAt',
+                      label: sw ? 'Tarehe' : 'Date',
+                      render: (row) => String(row.createdAt || '').slice(0, 10),
+                    },
+                    {
+                      key: 'eventType',
+                      label: sw ? 'Tukio' : 'Event',
+                      render: (row) =>
+                        row.eventType === 'AUTO_RESOLVED'
+                          ? (sw ? 'Limetatuliwa' : 'Resolved')
+                          : (sw ? 'Hatua Imehifadhiwa' : 'Action Recorded'),
+                    },
+                    {
+                      key: 'shopName',
+                      label: t('shopLabel'),
+                    },
+                    {
+                      key: 'challenge',
+                      label: t('challenge'),
+                    },
+                    {
+                      key: 'message',
+                      label: sw ? 'Ujumbe' : 'Message',
+                    },
+                    {
+                      key: 'status',
+                      label: t('status'),
+                      render: (row) => (
+                        <span className={`rounded-full px-3 py-1 text-xs font-black ${statusBadge(row.status)}`}>
+                          {row.status}
+                        </span>
+                      ),
+                    },
+                  ]}
+                />
+              </DropdownPanel>
+
+              <DropdownPanel title={sw ? 'Mapendekezo Yanayosubiri Uamuzi' : 'Recommendations Awaiting Decision'} subtitle={sw ? 'Chagua Imefanyika, Imepangwa, Ficha siku 7 au Haihitajiki.' : 'Mark as done, planned, snoozed or not relevant.'} badge={`${visibleRecommendations.length} ${sw ? 'mapendekezo' : 'recommendations'}`} defaultOpen tone="amber">
                 <div className="grid gap-4 lg:grid-cols-2">
                   {visibleRecommendations.slice(0, 12).map((rec) => (
                     <RecommendationCard key={rec.id} rec={rec} actionRecord={actions[rec.id]} onDecision={handleDecision} language={language} />
