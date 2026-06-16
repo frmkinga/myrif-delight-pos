@@ -947,8 +947,18 @@ if (session?.user?.id && !isOwnerUser) {
 let salesQuery = supabase
   .from('sales')
   .select('*')
-  .gte('date', daysAgoISO(2))
   .order('created_at', { ascending: false });
+
+if (salesMode === 'year') {
+  const yearStart = new Date(new Date().getFullYear(), 0, 1);
+  salesQuery = salesQuery.gte('date', todayISO(yearStart));
+} else if (salesMode === 'sixMonths') {
+  salesQuery = salesQuery.gte('date', daysAgoISO(180));
+} else if (salesMode === 'month') {
+  salesQuery = salesQuery.gte('date', daysAgoISO(30));
+} else {
+  salesQuery = salesQuery.eq('date', todayISO());
+}
 let purchasesQuery = supabase.from('purchases').select('*');
 let expensesQuery = supabase.from('expenses').select('*');
 let creditQuery = supabase.from('creditSales').select('*');
@@ -2365,46 +2375,46 @@ const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(e
    
 function ShopDashboard({ shop, data, saveData, backToOwner, logout, canBack, language, setLanguage, exportBackup }) {
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [decisionCentreSales, setDecisionCentreSales] = useState([]);
-  const [decisionCentreSalesLoaded, setDecisionCentreSalesLoaded] = useState(false);
   const [quickSearch, setQuickSearch] = useState('');
-  const dailySalesGoal = buildShopDailySalesGoal(data, shop.id);
   const monthlySalesGoal = buildShopMonthlySalesTarget(data, shop.id);
 
-  useEffect(() => {
-  if (activeTab !== 'ceo') return;
-  if (decisionCentreSalesLoaded) return;
-  if (!navigator.onLine) return;
+  const today = startOfDay(new Date());
+  const todayIso = todayISO(today);
+  const yesterdayIso = todayISO(addDays(today, -1));
 
-  const loadDecisionCentreSales = async () => {
-    try {
-      let query = supabase
-        .from('sales')
-        .select('*')
-        .eq('shop_id', shop.id)
-        .gte('date', daysAgoISO(180))
-        .order('created_at', { ascending: false });
+  const shopSalesForGoal = (data.sales || []).filter(
+    (sale) => String(sale.shop_id || sale.shopId || '') === String(shop.id)
+  );
 
-      const { data: longSales, error } = await query;
+  const todaySalesForGoal = shopSalesForGoal
+    .filter((sale) => String(sale.date || sale.created_at || '').slice(0, 10) === todayIso)
+    .reduce((sum, sale) => sum + Number(sale.total || 0), 0);
 
-      if (error) throw error;
+  const yesterdaySalesForGoal = shopSalesForGoal
+    .filter((sale) => String(sale.date || sale.created_at || '').slice(0, 10) === yesterdayIso)
+    .reduce((sum, sale) => sum + Number(sale.total || 0), 0);
 
-      setDecisionCentreSales((longSales || []).map((sale) => ({
-        ...sale,
-        shop_id: String(sale?.shop_id || '').trim(),
-        date: sale?.date || (sale?.created_at ? String(sale.created_at).slice(0, 10) : todayISO()),
-        confirmed: true,
-      })));
+  const dailyGoalFromMonthly = monthlySalesGoal.hasGoal && monthlySalesGoal.daysInMonth
+    ? Math.round(Number(monthlySalesGoal.goal || 0) / Number(monthlySalesGoal.daysInMonth || 1))
+    : 0;
 
-      setDecisionCentreSalesLoaded(true);
-    } catch (error) {
-      console.error('Failed to load shop Decision Centre long sales history:', error);
-      setDecisionCentreSalesLoaded(true);
-    }
+  const dailyProgressFromMonthly = dailyGoalFromMonthly > 0
+    ? (todaySalesForGoal / dailyGoalFromMonthly) * 100
+    : 0;
+
+  const dailySalesGoal = {
+    hasGoal: dailyGoalFromMonthly > 0,
+    goal: dailyGoalFromMonthly,
+    actual: todaySalesForGoal,
+    yesterdaySales: yesterdaySalesForGoal,
+    progress: dailyProgressFromMonthly,
+    cappedProgress: Math.min(100, dailyProgressFromMonthly),
+    exceededAmount: Math.max(0, todaySalesForGoal - dailyGoalFromMonthly),
+    exceededPercent: Math.max(0, dailyProgressFromMonthly - 100),
+    remainingAmount: Math.max(0, dailyGoalFromMonthly - todaySalesForGoal),
+    remainingPercent: Math.max(0, 100 - dailyProgressFromMonthly),
   };
 
-  loadDecisionCentreSales();
-}, [activeTab, decisionCentreSalesLoaded, shop.id]);
 const [stockSearch, setStockSearch] = useState('');
   const [scanCode, setScanCode] = useState('');
   const [cart, setCart] = useState([]);
@@ -8269,7 +8279,11 @@ useEffect(() => {
 
   (async () => {
     try {
-      const savedSessionUser = readStorage(STORAGE_SESSION_KEY, null);
+      // Security rule:
+      // On fresh app opening/refresh, do not restore a previously logged-in user.
+      // Business data remains saved, but the user must login again.
+      writeStorage(STORAGE_SESSION_KEY, null);
+      clearLockOnReturn();
 
       let localData = null;
 
@@ -8281,57 +8295,33 @@ useEffect(() => {
 
       const initial = normalizeData(localData || seedData);
 
-      const restoredCurrentUser =
-        savedSessionUser || initial.currentUser || null;
-
       const nextData = {
         ...initial,
-        currentUser: restoredCurrentUser,
+        currentUser: null,
       };
 
       if (cancelled) return;
 
       setData(nextData);
-
-      if (restoredCurrentUser?.role === 'shop') {
-        setActiveShopId(
-          restoredCurrentUser.shop_id ||
-            restoredCurrentUser.shopId ||
-            restoredCurrentUser.shopid ||
-            null
-        );
-      } else {
-        setActiveShopId(null);
-      }
-
+      setActiveShopId(null);
       setIsOnline(navigator.onLine);
 
-      if (navigator.onLine) {
-        setSyncMessage('POS opened from saved local data');
-      } else {
-        setSyncMessage('You are offline - using saved local data');
-      }
+      setSyncMessage(
+        navigator.onLine
+          ? 'POS locked. Please login to continue.'
+          : 'You are offline. Please login to continue with saved local data.'
+      );
     } catch (error) {
       console.error('Local POS startup failed:', error);
-
-      const savedSessionUser = readStorage(STORAGE_SESSION_KEY, null);
 
       if (!cancelled) {
         setData({
           ...normalizeData(seedData),
-          currentUser: savedSessionUser || null,
+          currentUser: null,
         });
 
-        if (savedSessionUser?.role === 'shop') {
-          setActiveShopId(
-            savedSessionUser.shop_id ||
-              savedSessionUser.shopId ||
-              savedSessionUser.shopid ||
-              null
-          );
-        } else {
-          setActiveShopId(null);
-        }
+        setActiveShopId(null);
+        writeStorage(STORAGE_SESSION_KEY, null);
       }
     } finally {
       if (!cancelled) {
@@ -8349,12 +8339,7 @@ useEffect(() => {
 useEffect(() => {
   if (!data?.currentUser) return;
 
-  updateLastActivityTime();
-  clearLockOnReturn();
-
   const lockPosLocally = () => {
-    if (!shouldAutoLockPos()) return;
-
     writeStorage(STORAGE_SESSION_KEY, null);
     clearLockOnReturn();
 
@@ -8373,12 +8358,21 @@ useEffect(() => {
     }));
   };
 
-  const markActivity = () => {
+  const lockIfExpired = () => {
     if (shouldAutoLockPos()) {
       lockPosLocally();
-      return;
+      return true;
     }
 
+    return false;
+  };
+
+  // When a fresh valid login happens, start counting inactivity from now.
+  updateLastActivityTime();
+  clearLockOnReturn();
+
+  const markActivity = () => {
+    if (lockIfExpired()) return;
     updateLastActivityTime();
   };
 
@@ -8389,19 +8383,30 @@ useEffect(() => {
   });
 
   const visibilityHandler = () => {
+    if (document.visibilityState === 'hidden') {
+      markLockOnReturn();
+      return;
+    }
+
     if (document.visibilityState === 'visible') {
-      lockPosLocally();
+      if (shouldLockOnReturn()) {
+        clearLockOnReturn();
+        lockIfExpired();
+      }
     }
   };
 
   const focusHandler = () => {
-    lockPosLocally();
+    if (shouldLockOnReturn()) {
+      clearLockOnReturn();
+      lockIfExpired();
+    }
   };
 
   window.addEventListener('focus', focusHandler);
   document.addEventListener('visibilitychange', visibilityHandler);
 
-  const lockTimer = window.setInterval(lockPosLocally, 30000);
+  const lockTimer = window.setInterval(lockIfExpired, 30000);
 
   return () => {
     activityEvents.forEach((eventName) => {
@@ -9165,20 +9170,70 @@ const handleLogin = async (user) => {
   }));
 
   if (navigator.onLine) {
-    const applyBackgroundData = (loadedData) => {
-      setData((prev) => ({
-        ...prev,
-        ...loadedData,
-        currentUser: sessionUser,
-        users: loadedData.users?.length ? loadedData.users : prev.users,
-        products: (loadedData.products?.length ? loadedData.products : prev.products || []).map((p) => {
-          const existing = (prev.products || []).find((x) => String(x.id) === String(p.id));
+    const mergeRowsById = (existingRows = [], incomingRows = []) => {
+      const merged = new Map();
 
-          return existing?.archived
-            ? { ...normalizeProduct(p), archived: true }
-            : normalizeProduct(p);
-        }),
-      }));
+      (Array.isArray(existingRows) ? existingRows : []).forEach((row) => {
+        const key = String(row?.id || '').trim();
+
+        if (key) {
+          merged.set(key, row);
+        }
+      });
+
+      (Array.isArray(incomingRows) ? incomingRows : []).forEach((row) => {
+        const key = String(row?.id || '').trim();
+
+        if (key) {
+          merged.set(key, {
+            ...(merged.get(key) || {}),
+            ...row,
+          });
+        }
+      });
+
+      return Array.from(merged.values());
+    };
+
+    const applyBackgroundData = (loadedData) => {
+      setData((prev) => {
+        const mergedSales = mergeRowsById(prev.sales || [], loadedData.sales || []);
+        const mergedPurchases = mergeRowsById(prev.purchases || [], loadedData.purchases || []);
+        const mergedExpenses = mergeRowsById(prev.expenses || [], loadedData.expenses || []);
+        const mergedCreditSales = mergeRowsById(prev.creditSales || [], loadedData.creditSales || []);
+        const mergedChangeLedger = mergeRowsById(prev.changeLedger || [], loadedData.changeLedger || []);
+        const mergedMobileMoneyEntries = mergeRowsById(prev.mobileMoneyEntries || [], loadedData.mobileMoneyEntries || []);
+        const mergedMonthlyWakalaCommissions = mergeRowsById(prev.monthlyWakalaCommissions || [], loadedData.monthlyWakalaCommissions || []);
+        const mergedGasEntries = mergeRowsById(prev.gasEntries || [], loadedData.gasEntries || []);
+        const mergedHouses = mergeRowsById(prev.houses || [], loadedData.houses || []);
+        const mergedMeters = mergeRowsById(prev.meters || [], loadedData.meters || []);
+        const mergedServiceCharges = mergeRowsById(prev.serviceCharges || [], loadedData.serviceCharges || []);
+
+        return {
+          ...prev,
+          ...loadedData,
+          currentUser: sessionUser,
+          users: loadedData.users?.length ? loadedData.users : prev.users,
+          products: (loadedData.products?.length ? loadedData.products : prev.products || []).map((p) => {
+            const existing = (prev.products || []).find((x) => String(x.id) === String(p.id));
+
+            return existing?.archived
+              ? { ...normalizeProduct(p), archived: true }
+              : normalizeProduct(p);
+          }),
+          sales: mergedSales,
+          purchases: mergedPurchases,
+          expenses: mergedExpenses,
+          creditSales: mergedCreditSales,
+          changeLedger: mergedChangeLedger,
+          mobileMoneyEntries: mergedMobileMoneyEntries,
+          monthlyWakalaCommissions: mergedMonthlyWakalaCommissions,
+          gasEntries: mergedGasEntries,
+          houses: mergedHouses,
+          meters: mergedMeters,
+          serviceCharges: mergedServiceCharges,
+        };
+      });
     };
 
     const loadBackgroundLayers = async () => {
@@ -9418,14 +9473,7 @@ if (isHydrating) {
   }
 
   const shop = data.shops.find((s) => s.id === selectedShopId) || data.shops[0];
-const baseShopDecisionData = buildShopOnlyData(data, selectedShopId);
-
-const shopDecisionData = decisionCentreSales.length
-  ? {
-      ...baseShopDecisionData,
-      sales: decisionCentreSales,
-    }
-  : baseShopDecisionData;
+const shopDecisionData = buildShopOnlyData(data, selectedShopId);
 
 return (
   <>

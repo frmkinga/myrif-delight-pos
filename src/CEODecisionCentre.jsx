@@ -259,7 +259,7 @@ addNote: 'Andika maelezo mafupi',
     allStatuses: 'Hali zote',
     riskStatus: 'Hatari',
     goodStatus: 'Nzuri',
-    watchStatus: 'Angalia',
+    watchStatus: 'Ya kuangalia',
     dangerStatus: 'Hatari',
     critical: 'Muhimu Sana',
     high: 'Juu',
@@ -835,6 +835,9 @@ const analysisShops = selectedShopId
             shopName: getShopName(shops, shopId),
             productName,
             category: product ? detectCategory(productName) : detectCategory(productName),
+            unit: unitText(product?.baseUnit || product?.baseunit || product?.unit || item?.baseUnit || item?.baseunit || item?.unit || 'pc'),
+            stock: product ? getProductStock(product) : 0,
+            stockValue: product ? getProductStock(product) * getProductBuyPrice(product) : 0,
             qty: 0,
             sales: 0,
             profit: 0,
@@ -1074,71 +1077,128 @@ const movementList = Object.values(movement).sort((a, b) => b.profit - a.profit)
   function buildDailySalesTarget() {
     const today = startOfDay(new Date());
     const todayIso = toISO(today);
-    const todayDay = today.getDay();
+    const year = today.getFullYear();
+    const month = today.getMonth();
 
-    const sameWeekdaySales = allSales
-      .filter((sale) => {
-        const dateValue = getDateValue(sale);
-        if (!dateValue || dateValue === todayIso) return false;
+    const monthStart = new Date(year, month, 1);
+    const monthEnd = new Date(year, month + 1, 0);
+    const monthStartIso = toISO(monthStart);
+    const daysInMonth = monthEnd.getDate();
 
-        const saleDate = startOfDay(dateValue);
-        if (Number.isNaN(saleDate.getTime())) return false;
+    const saleShopId = (sale) => String(sale?.shop_id || sale?.shopId || '');
+    const saleDate = (sale) => getDateValue(sale);
 
-        return saleDate.getDay() === todayDay;
-      })
-      .reduce((acc, sale) => {
-        const dateValue = getDateValue(sale);
-        acc[dateValue] = (acc[dateValue] || 0) + num(sale.total || 0);
+    function averageOf(values) {
+      const safeValues = values.filter((value) => Number(value || 0) > 0);
+      if (!safeValues.length) return 0;
+      return safeValues.reduce((sum, value) => sum + Number(value || 0), 0) / safeValues.length;
+    }
+
+    function calculateShopMonthlyTarget(shopId) {
+      const shopSales = allSales.filter((sale) => saleShopId(sale) === String(shopId));
+
+      const salesByDate = shopSales.reduce((acc, sale) => {
+        const dateValue = saleDate(sale);
+
+        if (!dateValue || dateValue >= monthStartIso) return acc;
+
+        acc[dateValue] = (acc[dateValue] || 0) + Number(sale.total || 0);
         return acc;
       }, {});
 
-    const sameWeekdayValues = Object.values(sameWeekdaySales)
-      .filter((value) => value > 0)
-      .slice(-4);
+      const salesDateEntries = Object.entries(salesByDate)
+        .filter(([, value]) => Number(value || 0) > 0)
+        .sort(([a], [b]) => String(a).localeCompare(String(b)));
 
-    const lastActiveDays = allSales
-      .filter((sale) => {
-        const dateValue = getDateValue(sale);
-        return dateValue && dateValue !== todayIso;
-      })
-      .reduce((acc, sale) => {
-        const dateValue = getDateValue(sale);
-        acc[dateValue] = (acc[dateValue] || 0) + num(sale.total || 0);
-        return acc;
-      }, {});
+      const valuesFromLastDaysBeforeMonth = (days) => {
+        const startDate = toISO(addDays(monthStart, -Number(days || 0)));
 
-    const lastActiveValues = Object.entries(lastActiveDays)
-      .sort(([a], [b]) => String(a).localeCompare(String(b)))
-      .map(([, value]) => value)
-      .filter((value) => value > 0)
-      .slice(-7);
+        return salesDateEntries
+          .filter(([dateValue]) => String(dateValue) >= startDate && String(dateValue) < monthStartIso)
+          .map(([, value]) => Number(value || 0))
+          .filter((value) => value > 0);
+      };
 
-    const sourceValues = sameWeekdayValues.length >= 2 ? sameWeekdayValues : lastActiveValues;
+      const recentActiveValues = salesDateEntries
+        .map(([, value]) => Number(value || 0))
+        .filter((value) => value > 0)
+        .slice(-14);
 
-    if (!sourceValues.length) {
+      const recentActiveAverage = averageOf(recentActiveValues);
+      const last30Average = averageOf(valuesFromLastDaysBeforeMonth(30));
+      const last90Average = averageOf(valuesFromLastDaysBeforeMonth(90));
+      const last180Average = averageOf(valuesFromLastDaysBeforeMonth(180));
+
+      const monthDailyTargets = Array.from({ length: daysInMonth }, (_, index) => {
+        const targetDate = new Date(year, month, index + 1);
+        const targetDay = targetDate.getDay();
+
+        const sameWeekdayValues = salesDateEntries
+          .filter(([dateValue]) => {
+            const d = startOfDay(dateValue);
+            return !Number.isNaN(d.getTime()) && d.getDay() === targetDay;
+          })
+          .map(([, value]) => Number(value || 0))
+          .filter((value) => value > 0)
+          .slice(-4);
+
+        const sameWeekdayAverage = averageOf(sameWeekdayValues);
+
+        const targetSources = [
+          { value: sameWeekdayAverage, weight: 40 },
+          { value: recentActiveAverage, weight: 25 },
+          { value: last30Average, weight: 20 },
+          { value: last90Average || last180Average, weight: 15 },
+        ].filter((item) => item.value > 0);
+
+        if (!targetSources.length) return 0;
+
+        const weightedTotal = targetSources.reduce((sum, item) => sum + item.value * item.weight, 0);
+        const weightTotal = targetSources.reduce((sum, item) => sum + item.weight, 0);
+        const baseTarget = weightTotal > 0 ? weightedTotal / weightTotal : 0;
+
+        return Math.round(baseTarget * 1.05);
+      });
+
+      const monthlyTarget = monthDailyTargets.reduce((sum, value) => sum + Number(value || 0), 0);
+
+      const todaySales = shopSales
+        .filter((sale) => saleDate(sale) === todayIso)
+        .reduce((sum, sale) => sum + Number(sale.total || 0), 0);
+
       return {
-        hasTarget: false,
-        target: 0,
-        todaySales: pulse.today.sales || 0,
-        progress: 0,
-        remaining: 0,
-        source: 'none',
+        shopId,
+        monthlyTarget,
+        dailyTarget: daysInMonth > 0 ? Math.round(monthlyTarget / daysInMonth) : 0,
+        todaySales,
+        daysInMonth,
       };
     }
 
-    const average = sourceValues.reduce((sum, value) => sum + value, 0) / sourceValues.length;
-    const target = Math.round(average * 1.1);
-    const todaySales = pulse.today.sales || 0;
+    const shopIdsForTarget = selectedShopId
+      ? [selectedShopId]
+      : analysisShops.map((shop) => String(shop.id)).filter(Boolean);
+
+    const shopTargets = shopIdsForTarget.map(calculateShopMonthlyTarget);
+
+    const target = shopTargets.reduce((sum, row) => sum + Number(row.dailyTarget || 0), 0);
+    const todaySales = shopTargets.reduce((sum, row) => sum + Number(row.todaySales || 0), 0);
+
     const remaining = Math.max(0, target - todaySales);
-    const progress = target > 0 ? Math.min(100, (todaySales / target) * 100) : 0;
+    const exceeded = Math.max(0, todaySales - target);
+    const actualProgress = target > 0 ? (todaySales / target) * 100 : 0;
+    const progress = Math.min(100, actualProgress);
 
     return {
-      hasTarget: true,
+      hasTarget: target > 0,
       target,
       todaySales,
       progress,
+      actualProgress,
       remaining,
-      source: sameWeekdayValues.length >= 2 ? 'same-weekday' : 'recent-days',
+      exceeded,
+      source: selectedShopId ? 'monthly-target-shop' : 'monthly-target-shops-sum',
+      shopTargets,
     };
   }
 
@@ -1274,7 +1334,33 @@ const movementList = Object.values(movement).sort((a, b) => b.profit - a.profit)
         });
       }
 
-      if (stock > 0 && sold > 0 && daysLeft !== null && daysLeft <= 7) {
+      const rhythmForReorder = getProductMovementRhythm(group.code, shopInfo.shopId);
+      const reorderLastSaleDate = allMovement[key]?.lastSaleDate || '';
+      const reorderDaysSinceLastSale = daysSinceDate(reorderLastSaleDate);
+
+      const reorderFreshnessDays = Math.max(1, Math.min(14, Math.ceil(range.days / 2)));
+      const reorderMinimumSold = range.days > 7 ? 2 : 1;
+
+      const hasRecentReorderDemand =
+        sold >= reorderMinimumSold &&
+        reorderLastSaleDate &&
+        reorderDaysSinceLastSale !== null &&
+        reorderDaysSinceLastSale <= reorderFreshnessDays;
+
+      const hasHistoricalReorderRhythm =
+        rhythmForReorder.hasEnoughHistory &&
+        rhythmForReorder.averageDaysBetweenSales !== null &&
+        reorderDaysSinceLastSale !== null &&
+        reorderDaysSinceLastSale <= Math.max(3, rhythmForReorder.averageDaysBetweenSales * 2);
+
+      if (
+        stock > 0 &&
+        sold > 0 &&
+        daysLeft !== null &&
+        daysLeft <= 7 &&
+        hasRecentReorderDemand &&
+        hasHistoricalReorderRhythm
+      ) {
         addRec({
           type: 'Reorder Needed',
           priority: daysLeft <= 3 ? 'Critical' : 'High',
@@ -1284,10 +1370,14 @@ const movementList = Object.values(movement).sort((a, b) => b.profit - a.profit)
           shopName: shopInfo.shopName,
           title: recText(language, 'reorder', { product: productName, shop: shopInfo.shopName }),
           evidence: language === 'en'
-            ? `Available stock ${qtyWithUnit(stock, unit)}; sold ${qtyWithUnit(sold, unit)} within ${range.days} day${range.days === 1 ? '' : 's'} (${range.start} to ${range.end}); estimated days left ${daysLeft.toFixed(1)}.`
-            : `Stock iliyopo ${qtyWithUnit(stock, unit)}; zimeuzwa ${qtyWithUnit(sold, unit)} ndani ya siku ${range.days} (${range.start} mpaka ${range.end}); inakadiriwa kubaki siku ${daysLeft.toFixed(1)}.`,
-          action: language === 'en' ? 'Reorder or transfer from a slower shop.' : 'Ongeza stock au hamisha kutoka duka ambalo bidhaa hiyo haizunguki vizuri.',
-          question: language === 'en' ? `Confirm whether ${productName} has already been ordered.` : `Muulize mhudumu kama ${productName} tayari imeagizwa.`,
+            ? `Available stock ${qtyWithUnit(stock, unit)}; sold ${qtyWithUnit(sold, unit)} within ${range.days} day${range.days === 1 ? '' : 's'} (${range.start} to ${range.end}); last sale was ${reorderLastSaleDate || 'not found'}${reorderDaysSinceLastSale !== null ? ` (${reorderDaysSinceLastSale} day(s) ago)` : ''}; normal rhythm is about every ${rhythmForReorder.averageDaysBetweenSales} day(s); estimated days left ${daysLeft.toFixed(1)}.`
+            : `Stock iliyopo ${qtyWithUnit(stock, unit)}; zimeuzwa ${qtyWithUnit(sold, unit)} ndani ya siku ${range.days} (${range.start} mpaka ${range.end}); mauzo ya mwisho yalikuwa ${reorderLastSaleDate || 'hayajaonekana'}${reorderDaysSinceLastSale !== null ? `, siku ${reorderDaysSinceLastSale} zilizopita` : ''}; kawaida huuzwa takribani kila siku ${rhythmForReorder.averageDaysBetweenSales}; inakadiriwa kubaki siku ${daysLeft.toFixed(1)}.`,
+          action: language === 'en'
+            ? 'Reorder because current stock is low and recent/history sales confirm active demand.'
+            : 'Ongeza stock kwa sababu stock iliyopo ni ndogo na historia ya mauzo inaonyesha bado ina uhitaji.',
+          question: language === 'en'
+            ? `Confirm whether ${productName} has already been ordered.`
+            : `Muulize mhudumu kama ${productName} tayari imeagizwa.`,
         });
       }
 
@@ -1361,7 +1451,26 @@ if (
         const sourceSold = num(movement[`${group.code}__${source.shopId}`]?.qty);
         const destSold = num(movement[`${group.code}__${dest.shopId}`]?.qty);
 
-        if (source.stock >= 5 && destSold > sourceSold && dest.stock <= Math.max(2, destSold)) {
+        const destLastSaleDate = allMovement[`${group.code}__${dest.shopId}`]?.lastSaleDate || '';
+        const destDaysSinceLastSale = daysSinceDate(destLastSaleDate);
+        const sourceLastSaleDate = allMovement[`${group.code}__${source.shopId}`]?.lastSaleDate || '';
+        const sourceDaysSinceLastSale = daysSinceDate(sourceLastSaleDate);
+
+        const demandFreshnessDays = Math.max(1, Math.min(14, Math.ceil(range.days / 2)));
+        const minimumDemandQty = range.days > 7 ? 2 : 1;
+
+        const hasClearDestinationDemand =
+          destSold >= minimumDemandQty &&
+          destLastSaleDate &&
+          destDaysSinceLastSale !== null &&
+          destDaysSinceLastSale <= demandFreshnessDays;
+
+        if (
+          source.stock >= 5 &&
+          destSold > sourceSold &&
+          dest.stock <= Math.max(2, destSold) &&
+          hasClearDestinationDemand
+        ) {
           const productName = Array.from(group.names)[0] || group.code;
           const suggestedQty = Math.max(1, Math.min(Math.floor(source.stock / 2), Math.ceil(destSold - sourceSold)));
 
@@ -1374,18 +1483,8 @@ if (
             toShopId: dest.shopId,
             title: recText(language, 'transfer', { product: productName, from: source.shopName, to: dest.shopName }),
             evidence: language === 'en'
-              ? `${dest.shopName} sold ${destSold} while ${source.shopName} sold ${sourceSold}. Source stock is ${source.stock}; destination stock is ${dest.stock}. ${describeSourceShop({
-                  shopName: source.shopName,
-                  stock: source.stock,
-                  currentSold: sourceSold,
-                  daysSinceLastSale: daysSinceDate(allMovement[`${group.code}__${source.shopId}`]?.lastSaleDate || ''),
-                }, language)}`
-              : `${formatShopForText(dest.shopName, language)}: mauzo ${destSold}. ${formatShopForText(source.shopName, language)}: mauzo ${sourceSold}. Stock ya chanzo ni ${source.stock}; stock ya duka linalohitaji ni ${dest.stock}. ${describeSourceShop({
-                  shopName: source.shopName,
-                  stock: source.stock,
-                  currentSold: sourceSold,
-                  daysSinceLastSale: daysSinceDate(allMovement[`${group.code}__${source.shopId}`]?.lastSaleDate || ''),
-                }, language)}`,
+              ? `Destination: ${dest.shopName} sold ${destSold} in the selected period; last sale was ${destLastSaleDate || 'not found'}${destDaysSinceLastSale !== null ? ` (${destDaysSinceLastSale} day(s) ago)` : ''}; current stock is ${dest.stock}. Source: ${source.shopName} has stock ${source.stock}, sold ${sourceSold} in the selected period; last sale was ${sourceLastSaleDate || 'not found'}${sourceDaysSinceLastSale !== null ? ` (${sourceDaysSinceLastSale} day(s) ago)` : ''}.`
+              : `Duka linalohitaji: ${formatShopForText(dest.shopName, language)} limeuza ${destSold} katika kipindi ulichochagua; mauzo ya mwisho yalikuwa ${destLastSaleDate || 'hayajaonekana'}${destDaysSinceLastSale !== null ? `, siku ${destDaysSinceLastSale} zilizopita` : ''}; stock iliyopo ni ${dest.stock}. Duka linaloweza kutoa: ${formatShopForText(source.shopName, language)} lina stock ${source.stock}, limeuza ${sourceSold} katika kipindi hiki; mauzo ya mwisho yalikuwa ${sourceLastSaleDate || 'hayajaonekana'}${sourceDaysSinceLastSale !== null ? `, siku ${sourceDaysSinceLastSale} zilizopita` : ''}.`,
             action: language === 'en' ? `Consider transferring about ${suggestedQty} units.` : `Fikiria kuhamisha takribani ${suggestedQty}.`,
             question: language === 'en' ? `Confirm whether transfer from ${source.shopName} to ${dest.shopName} is practical.` : `Muulize mhudumu kama kuhamisha kutoka ${source.shopName} kwenda ${dest.shopName} kunawezekana.`,
           });
@@ -1475,19 +1574,35 @@ if (
             ? `Expires in ${daysLeft} days. Stock iliyopo is ${stock}.`
             : `Imebaki siku ${daysLeft} ku-expire. Stock iliyopo ni ${stock}.`,
         action: language === 'en'
-          ? stock > 0
-            ? 'Sell, discount, promote or transfer before expiry. Do not reorder this item until current stock is cleared.'
-            : 'No stock remains, so only confirm that records are correct.'
-          : stock > 0
-            ? 'Iuze, ipunguzie bei, itangaze au ihamishe kabla ya expiry. Usinunue tena mpaka stock iliyopo iishe.'
-            : 'Stock imeisha; thibitisha tu kama rekodi ziko sahihi.',
+          ? daysLeft < 0
+            ? stock > 0
+              ? 'First confirm whether the expiry date was recorded correctly. If the product has truly expired, stop selling it, separate it from normal stock, and arrange disposal/removal.'
+              : 'No stock remains, so confirm that the expiry record is correct and close the issue.'
+            : stock > 0
+              ? 'Sell, discount, promote or transfer before expiry. Do not reorder this item until current stock is cleared.'
+              : 'No stock remains, so only confirm that records are correct.'
+          : daysLeft < 0
+            ? stock > 0
+              ? 'Kwanza thibitisha kama tarehe ya mwisho wa matumizi iliwekwa sahihi. Kama bidhaa imeisha muda wake kweli, usiiuze tena; itenge na bidhaa nyingine, kisha iharibu.'
+              : 'Stock imeisha; thibitisha kama rekodi ya expiry iko sahihi na funga suala hili.'
+            : stock > 0
+              ? 'Iuze, ipunguzie bei, itangaze au ihamishe kabla ya kuisha muda wa matumizi. Usinunue tena mpaka stock iliyopo iishe.'
+              : 'Stock imeisha; thibitisha tu kama rekodi ziko sahihi.',
         question: language === 'en'
-          ? stock > 0
-            ? `Ask why ${name} still has ${stock} in stock near expiry, whether demand reduced, and whether it can be transferred or discounted.`
-            : `Confirm whether ${name} is actually finished and whether the expiry record should be closed.`
-          : stock > 0
-            ? `Uliza kwa nini ${name} bado ina stock ${stock} karibu na expiry, kama mauzo yamepungua, na kama inaweza kuhamishwa au kupunguziwa bei.`
-            : `Muulize mhudumu kama ${name} kweli imeisha na kama rekodi ya expiry ifungwe.`,
+          ? daysLeft < 0
+            ? stock > 0
+              ? `Ask the attendant to confirm whether ${name} has truly expired or whether the expiry date was recorded wrongly. If it has expired, remove it from sale and arrange disposal.`
+              : `Confirm whether ${name} is actually finished and whether the expiry record should be closed.`
+            : stock > 0
+              ? `Ask why ${name} still has ${stock} in stock near expiry, whether demand reduced, and whether it can be transferred or discounted.`
+              : `Confirm whether ${name} is actually finished and whether the expiry record should be closed.`
+          : daysLeft < 0
+            ? stock > 0
+              ? `Muulize mhudumu athibitishe kama ${name} imeisha muda wake kweli au tarehe ya expiry iliwekwa kimakosa. Kama imeisha muda wake, iondolewe kwenye mauzo na ipangiwe disposal.`
+              : `Muulize mhudumu kama ${name} kweli imeisha na kama rekodi ya expiry ifungwe.`
+            : stock > 0
+              ? `Uliza kwa nini ${name} bado ina stock ${stock} karibu na expiry, kama mauzo yamepungua, na kama inaweza kuhamishwa au kupunguziwa bei.`
+              : `Muulize mhudumu kama ${name} kweli imeisha na kama rekodi ya expiry ifungwe.`,
       });
     }
   });
@@ -1853,11 +1968,31 @@ function buildCapitalEfficiency({ productGroups, movement, language }) {
         const moves = Object.values(movement).filter(
           (m) => m.code === group.code && String(m.shopId) === String(shopInfo.shopId)
         );
-        const sales = moves.reduce((s, m) => s + m.sales, 0);
-        const profit = moves.reduce((s, m) => s + m.profit, 0);
-        const stockValue = shopInfo.stockValue;
-        const efficiency = stockValue ? profit / stockValue : profit > 0 ? 999 : 0;
+
+        const qty = moves.reduce((s, m) => s + Number(m.qty || 0), 0);
+        const sales = moves.reduce((s, m) => s + Number(m.sales || 0), 0);
+        const profit = moves.reduce((s, m) => s + Number(m.profit || 0), 0);
+        const transactions = moves.reduce((s, m) => s + Number(m.transactions || 0), 0);
+        const lastSaleDate = moves
+          .map((m) => m.lastSaleDate || '')
+          .filter(Boolean)
+          .sort()
+          .slice(-1)[0] || '-';
+
+        const stock = Number(shopInfo.stock || 0);
+        const stockValue = Number(shopInfo.stockValue || 0);
+        const efficiency = stockValue ? profit / stockValue : 0;
         const productName = Array.from(shopInfo.productNames)[0] || Array.from(group.names)[0] || group.code;
+        const firstProduct = shopInfo.products?.[0] || {};
+        const unit = unitText(firstProduct.baseUnit || firstProduct.baseunit || firstProduct.unit || 'pc');
+        const stockedDate =
+          firstProduct.createdAt ||
+          firstProduct.created_at ||
+          firstProduct.date ||
+          firstProduct.purchaseDate ||
+          firstProduct.purchasedate ||
+          '-';
+
         let label = language === 'en' ? 'Monitor' : 'Fuatilia';
 
         if (profit > 0 && efficiency >= 0.2) {
@@ -1871,16 +2006,34 @@ function buildCapitalEfficiency({ productGroups, movement, language }) {
         return {
           productName,
           shopName: shopInfo.shopName,
-          stock: shopInfo.stock,
-          sales,
-          profit,
-          stockValue,
+          unit,
+          stock: roundQty(stock, 2),
+          qty: roundQty(qty, 2),
+          qtySold: roundQty(qty, 2),
+          sales: Math.round(Number(sales || 0)),
+          profit: Math.round(Number(profit || 0)),
+          transactions,
+          margin: sales > 0 ? roundQty((profit / sales) * 100, 1) : 0,
+          stockValue: Math.round(Number(stockValue || 0)),
           efficiency,
           label,
+          stockedDate,
+          lastSaleDate,
         };
       });
     })
-    .sort((a, b) => b.efficiency - a.efficiency)
+    .filter((item) => Number(item.stock || 0) > 0 && Number(item.stockValue || 0) > 0)
+    .sort((a, b) => {
+      const aWeakDemand = Number(a.transactions || 0) <= 1 ? 1 : 0;
+      const bWeakDemand = Number(b.transactions || 0) <= 1 ? 1 : 0;
+
+      if (aWeakDemand !== bWeakDemand) return bWeakDemand - aWeakDemand;
+
+      const aPressure = Number(a.stockValue || 0) - Number(a.profit || 0);
+      const bPressure = Number(b.stockValue || 0) - Number(b.profit || 0);
+
+      return bPressure - aPressure;
+    })
     .slice(0, 20);
 }
 
@@ -2211,11 +2364,49 @@ ${movementText(analytics.topProducts, 15)}
 `;
 }
 
-function getTrendLabel(value, language) {
+function getTrendLabel(value, language, dataKey = '') {
   const sw = language !== 'en';
-  if (value >= 5) return sw ? `Imeongezeka ${Math.abs(value).toFixed(1)}%` : `Up ${Math.abs(value).toFixed(1)}%`;
-  if (value <= -5) return sw ? `Imepungua ${Math.abs(value).toFixed(1)}%` : `Down ${Math.abs(value).toFixed(1)}%`;
-  return sw ? 'Imetulia' : 'Stable';
+  const safeValue = Number(value || 0);
+  const absValue = Math.abs(safeValue).toFixed(1);
+
+  if (!sw) {
+    if (safeValue >= 5) return `Increased ${safeValue.toFixed(1)}%`;
+    if (safeValue <= -5) return `Reduced ${absValue}%`;
+    return 'Stable';
+  }
+
+  const wordingByKey = {
+    sales: {
+      increased: 'Mauzo yameongezeka',
+      reduced: 'Mauzo yamepungua',
+      stable: 'Mauzo yametulia',
+    },
+    expenses: {
+      increased: 'Matumizi yameongezeka',
+      reduced: 'Matumizi yamepungua',
+      stable: 'Matumizi yametulia',
+    },
+    netProfit: {
+      increased: 'Faida imeongezeka',
+      reduced: 'Faida imepungua',
+      stable: 'Faida imetulia',
+    },
+    mobileCommission: {
+      increased: 'Kamisheni imeongezeka',
+      reduced: 'Kamisheni imepungua',
+      stable: 'Kamisheni imetulia',
+    },
+  };
+
+  const wording = wordingByKey[dataKey] || {
+    increased: 'Imeongezeka',
+    reduced: 'Imepungua',
+    stable: 'Imetulia',
+  };
+
+  if (safeValue >= 5) return `${wording.increased} ${safeValue.toFixed(1)}%`;
+  if (safeValue <= -5) return `${wording.reduced} ${absValue}%`;
+  return wording.stable;
 }
 
 function trendClass(value) {
@@ -2237,26 +2428,180 @@ function statusTone(status) {
   return 'bg-rose-50 text-rose-700 ring-rose-200';
 }
 
-function ExecutiveMetric({ label, value, hint, trend, gradient = 'from-slate-700 to-slate-500', icon = '●' }) {
+function ExecutiveMetric({ label, value, hint, trend, gradient = 'from-emerald-500 to-green-400', icon = '●' }) {
   return (
-    <div className="relative overflow-hidden rounded-[28px] border border-white/60 bg-white/80 p-4 shadow-lg shadow-slate-200/70 backdrop-blur-md">
-      <div className={`absolute -right-8 -top-8 h-24 w-24 rounded-full bg-gradient-to-br ${gradient} opacity-15`} />
-      <div className="relative flex items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{label}</p>
-          <p className="mt-2 text-2xl font-black tracking-tight text-slate-950">{value}</p>
-          {hint ? <p className="mt-1 text-xs leading-5 text-slate-500">{hint}</p> : null}
-        </div>
-        <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br ${gradient} text-lg font-black text-white shadow-md`}>
+    <div
+      className="group relative overflow-hidden rounded-[22px] border border-slate-100 bg-white p-4 shadow-sm shadow-slate-200/70 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
+      style={{ fontFamily: '"Century Gothic", CenturyGothic, Arial, sans-serif' }}
+    >
+      <div className="flex items-start gap-3">
+        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br ${gradient} text-sm font-semibold text-white shadow-sm`}>
           {icon}
         </div>
-      </div>
-      {trend !== undefined ? (
-        <div className={`relative mt-4 inline-flex rounded-full px-3 py-1 text-xs font-bold ring-1 ${trendClass(trend)}`}>
-          {trend >= 0 ? '+' : ''}{trend.toFixed(1)}%
+
+        <div className="min-w-0 flex-1">
+          <p className="line-clamp-2 text-[10px] font-semibold leading-4 text-slate-600">
+            {label}
+          </p>
+
+          <p className="mt-2 break-words text-[15px] font-bold leading-[1.2] tracking-tight text-slate-950">
+            {value}
+          </p>
+
+          <div className="mt-3 flex items-center gap-2">
+            {trend !== undefined ? (
+              <span className={`inline-flex shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold ring-1 ${trendClass(trend)}`}>
+                {trend >= 0 ? '↑ ' : '↓ '}{Math.abs(trend).toFixed(1)}%
+              </span>
+            ) : null}
+
+            {hint ? (
+              <span className="min-w-0 truncate text-[9px] font-medium text-slate-500">
+                {hint}
+              </span>
+            ) : null}
+          </div>
         </div>
-      ) : null}
+      </div>
     </div>
+  );
+}
+
+function OwnerSummaryPanel({ analytics, visibleRecommendations = [], language, salesTrend = 0, profitTrend = 0 }) {
+  const sw = language !== 'en';
+  const dailyTarget = analytics?.dailySalesTarget || {};
+  const targetProgress = Math.min(100, Math.max(0, Number(dailyTarget.progress || 0)));
+
+  const criticalAlerts = (visibleRecommendations || [])
+    .filter((rec) => ['Critical', 'High'].includes(rec.priority))
+    .slice(0, 3);
+
+  const summaryRows = [
+    {
+      icon: '🛍️',
+      label: sw ? 'Jumla ya Mauzo' : 'Total Sales',
+      value: `TZS ${money(analytics.totalSales)}`,
+      badge: `${salesTrend >= 0 ? '+' : ''}${Number(salesTrend || 0).toFixed(1)}%`,
+    },
+    {
+      icon: '🟢',
+      label: sw ? 'Faida Halisi' : 'Net Profit',
+      value: `TZS ${money(analytics.netProfit)}`,
+      badge: `${profitTrend >= 0 ? '+' : ''}${Number(profitTrend || 0).toFixed(1)}%`,
+    },
+    {
+      icon: '📊',
+      label: sw ? 'Margin ya Faida' : 'Profit Margin',
+      value: pct(profitMargin(analytics.netProfit, analytics.totalSales)),
+      badge: sw ? 'Margin' : 'Margin',
+    },
+    {
+      icon: '👤',
+      label: sw ? 'Madeni ya Wateja' : 'Credit Outstanding',
+      value: `TZS ${money(analytics.creditOutstanding)}`,
+      badge: sw ? 'Angalia' : 'Watch',
+    },
+    {
+      icon: '🔥',
+      label: sw ? 'Faida ya Gesi' : 'Gas Profit',
+      value: `TZS ${money(analytics.gasProfit)}`,
+      badge: sw ? 'Gesi' : 'Gas',
+    },
+  ];
+
+  return (
+    <aside
+      className="xl:sticky xl:top-4 self-start rounded-[30px] border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-green-50 p-4 shadow-lg shadow-emerald-100/70"
+      style={{ fontFamily: '"Century Gothic", CenturyGothic, Arial, sans-serif' }}
+    >
+      <div className="mb-4">
+        <h3 className="text-lg font-bold tracking-tight text-slate-950">
+          {sw ? 'Muhtasari wa Mmiliki' : 'Owner Summary'}
+        </h3>
+      </div>
+
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        {summaryRows.map((row) => (
+          <div key={row.label} className="rounded-[22px] border border-emerald-50 bg-white/90 px-4 py-4 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-base">
+                {row.icon}
+              </span>
+
+              <span className="shrink-0 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700 ring-1 ring-emerald-100">
+                {row.badge}
+              </span>
+            </div>
+
+            <p className="mt-3 line-clamp-2 text-[11px] font-bold leading-4 text-slate-500">
+              {row.label}
+            </p>
+
+            <p className="mt-1 break-words text-sm font-bold leading-tight text-slate-950">
+              {row.value}
+            </p>
+          </div>
+        ))}
+
+        <div className="rounded-[22px] border border-emerald-100 bg-emerald-50/70 p-4 shadow-sm">
+          <div className="flex items-center justify-between text-xs font-black text-emerald-800">
+            <span>{sw ? 'Lengo la Mauzo' : 'Sales Target'}</span>
+            <span>{Number(dailyTarget.actualProgress ?? dailyTarget.progress ?? 0).toFixed(0)}%</span>
+          </div>
+
+          <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-white">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-green-400"
+              style={{ width: `${targetProgress}%` }}
+            />
+          </div>
+
+          <div className="mt-3 text-[11px] font-semibold leading-5 text-emerald-700">
+            {sw ? (
+              dailyTarget.exceeded > 0
+                ? `Leo: TZS ${money(dailyTarget.todaySales || 0)} | Lengo: TZS ${money(dailyTarget.target || 0)} | Umezidi kwa TZS ${money(dailyTarget.exceeded || 0)}`
+                : `Leo: TZS ${money(dailyTarget.todaySales || 0)} | Lengo: TZS ${money(dailyTarget.target || 0)} | Bado TZS ${money(dailyTarget.remaining || 0)}`
+            ) : (
+              dailyTarget.exceeded > 0
+                ? `Today: TZS ${money(dailyTarget.todaySales || 0)} | Target: TZS ${money(dailyTarget.target || 0)} | Exceeded by TZS ${money(dailyTarget.exceeded || 0)}`
+                : `Today: TZS ${money(dailyTarget.todaySales || 0)} | Target: TZS ${money(dailyTarget.target || 0)} | Remaining TZS ${money(dailyTarget.remaining || 0)}`
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <div className="mb-2 flex items-center justify-between">
+          <h4 className="text-sm font-black text-slate-900">
+            {sw ? 'Tahadhari Muhimu' : 'Critical Alerts'}
+          </h4>
+
+          <span className="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-black text-rose-700">
+            {criticalAlerts.length}
+          </span>
+        </div>
+
+        <div className="space-y-2">
+          {criticalAlerts.length ? (
+            criticalAlerts.map((rec) => (
+              <div
+                key={rec.id}
+                className="rounded-2xl border border-rose-100 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-800"
+              >
+                <div className="line-clamp-1">{rec.title}</div>
+                <div className="mt-1 text-[11px] text-rose-600">
+                  {rec.priority}
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="rounded-2xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">
+              {sw ? 'Hakuna tahadhari kubwa kwa sasa.' : 'No major alert for now.'}
+            </div>
+          )}
+        </div>
+      </div>
+    </aside>
   );
 }
 
@@ -2269,14 +2614,83 @@ function SoftTile({ label, value, className = '', strong = false }) {
   );
 }
 
+function CeoSidebar({ viewMode, setViewMode, language, isShopScope = false }) {
+  const sw = language !== 'en';
+
+  const navItems = [
+    { id: 'summary', icon: '⌂', label: sw ? 'Muhtasari' : 'Summary' },
+    { id: 'products', icon: '▣', label: sw ? 'Bidhaa' : 'Products' },
+    { id: 'risk', icon: '⚠', label: sw ? 'Hatari' : 'Risks' },
+    { id: 'opportunity', icon: '✦', label: sw ? 'Fursa' : 'Opportunities' },
+    { id: 'action', icon: '☑', label: sw ? 'Hatua' : 'Actions' },
+    { id: 'ai', icon: 'AI', label: sw ? 'AI Advisor' : 'AI Advisor' },
+  ];
+
+  return (
+    <aside className="hidden min-h-[calc(100vh-2rem)] w-[250px] shrink-0 border-r border-slate-100 bg-white px-4 py-5 shadow-sm shadow-slate-200/70 lg:block">
+      <div className="mb-8 flex items-center gap-3">
+        <div className="flex h-12 w-12 items-center justify-center rounded-3xl bg-emerald-50 text-2xl text-emerald-700 ring-1 ring-emerald-100">
+          🛍
+        </div>
+        <div>
+          <div className="text-xl font-black text-emerald-800">
+            {isShopScope ? (sw ? 'Kituo cha Duka' : 'Shop Centre') : (sw ? 'Yumbani Multi Shop pos' : 'Yumbani Multipos')}
+          </div>
+          <div className="text-xs font-semibold text-slate-400">
+            Smart Retail
+          </div>
+        </div>
+      </div>
+
+      <nav className="space-y-2">
+        {navItems.map((item) => {
+          const active = viewMode === item.id;
+
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setViewMode(item.id)}
+              className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-bold transition ${
+                active
+                  ? 'bg-emerald-50 text-emerald-800 shadow-sm ring-1 ring-emerald-100'
+                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+              }`}
+            >
+              <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-white text-base shadow-sm">
+                {item.icon}
+              </span>
+              <span>{item.label}</span>
+            </button>
+          );
+        })}
+      </nav>
+
+      <div className="mt-8 border-t border-slate-100 pt-5">
+        <div className="rounded-[24px] border border-emerald-100 bg-emerald-50/70 p-4">
+          <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.14em] text-emerald-800">
+            <span>●</span>
+            <span>{sw ? 'Ushauri tu' : 'Advisory'}</span>
+          </div>
+          <div className="mt-3 text-xs font-medium leading-5 text-emerald-700">
+            {sw
+              ? 'Dashboard hii ni kwa uchambuzi na hatua za kufuatilia. Haibadilishi mauzo wala stock.'
+              : 'This dashboard is for analysis and follow-up actions. It does not change sales or stock.'}
+          </div>
+        </div>
+      </div>
+    </aside>
+  );
+}
+
 function SelectControl({ label, value, onChange, children }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-white/75">{label}</span>
+      <span className="mb-1 block text-xs font-black uppercase tracking-wide text-slate-500">{label}</span>
       <select
         value={value}
         onChange={onChange}
-        className="w-full rounded-2xl border border-white/25 bg-white/95 px-3 py-2 text-sm font-semibold text-slate-800 shadow-sm outline-none focus:ring-2 focus:ring-white/70"
+        className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800 shadow-sm outline-none transition focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
       >
         {children}
       </select>
@@ -2286,27 +2700,27 @@ function SelectControl({ label, value, onChange, children }) {
 
 function DropdownPanel({ title, subtitle, badge, children, defaultOpen = false, tone = 'slate' }) {
   const toneMap = {
-    slate: 'from-slate-50 to-white',
-    blue: 'from-blue-50 to-white',
-    emerald: 'from-emerald-50 to-white',
-    amber: 'from-amber-50 to-white',
-    rose: 'from-rose-50 to-white',
-    violet: 'from-violet-50 to-white',
+    slate: 'from-white to-slate-50',
+    blue: 'from-white to-blue-50',
+    emerald: 'from-white to-emerald-50',
+    amber: 'from-white to-amber-50',
+    rose: 'from-white to-rose-50',
+    violet: 'from-white to-violet-50',
   };
 
   return (
-    <details open={defaultOpen} className={`group rounded-[30px] border border-white/70 bg-gradient-to-br ${toneMap[tone] || toneMap.slate} shadow-lg shadow-slate-200/70`}>
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-5">
-        <div>
+    <details open={defaultOpen} className={`group overflow-hidden rounded-[26px] border border-slate-100 bg-gradient-to-br ${toneMap[tone] || toneMap.slate} shadow-sm shadow-slate-200/70`}>
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4">
+        <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-lg font-black text-slate-950">{title}</h3>
-            {badge ? <span className="rounded-full bg-white/80 px-3 py-1 text-xs font-bold text-slate-600 shadow-sm">{badge}</span> : null}
+            <h3 className="truncate text-lg font-black text-slate-950">{title}</h3>
+            {badge ? <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-600 ring-1 ring-slate-100">{badge}</span> : null}
           </div>
-          {subtitle ? <p className="mt-1 text-sm text-slate-500">{subtitle}</p> : null}
+          {subtitle ? <p className="mt-1 line-clamp-2 text-sm font-medium text-slate-500">{subtitle}</p> : null}
         </div>
-        <div className="rounded-2xl bg-white px-3 py-2 text-sm font-black text-slate-700 shadow-sm transition group-open:rotate-180">⌄</div>
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-sm font-black text-slate-700 shadow-sm ring-1 ring-slate-100 transition group-open:rotate-180">⌄</div>
       </summary>
-      <div className="border-t border-white/70 p-5 pt-4">{children}</div>
+      <div className="border-t border-slate-100 bg-white/55 p-5 pt-4">{children}</div>
     </details>
   );
 }
@@ -2434,16 +2848,16 @@ function CompactTable({ rows, columns, emptyText }) {
 
 function ChartCard({ title, subtitle, explanation, children, className = '' }) {
   return (
-    <div className={`rounded-[28px] border border-white/70 bg-white/85 p-4 shadow-lg shadow-slate-200/60 backdrop-blur-md ${className}`}>
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div>
-          <h4 className="text-sm font-black uppercase tracking-wide text-slate-900">{title}</h4>
-          {subtitle ? <p className="mt-1 text-xs leading-5 text-slate-500">{subtitle}</p> : null}
+    <div className={`rounded-[24px] border border-slate-100 bg-white p-5 shadow-sm shadow-slate-200/70 ${className}`}>
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h4 className="truncate text-sm font-black uppercase tracking-wide text-slate-900">{title}</h4>
+          {subtitle ? <p className="mt-1 line-clamp-2 text-xs font-semibold leading-5 text-slate-500">{subtitle}</p> : null}
         </div>
       </div>
       {children}
       {explanation ? (
-        <p className="mt-3 rounded-2xl bg-slate-50 px-4 py-3 text-xs font-semibold leading-5 text-slate-600">
+        <p className="mt-4 rounded-2xl bg-slate-50 px-4 py-3 text-xs font-semibold leading-5 text-slate-600">
           {explanation}
         </p>
       ) : null}
@@ -2952,7 +3366,7 @@ function MiniKpiCard({ label, value, trend, rows, dataKey, stroke, tone = 'blue'
           <p className="mt-2 text-2xl font-black tracking-tight text-slate-950">{value}</p>
         </div>
         <span className={`rounded-full px-3 py-1 text-xs font-black ring-1 ${trendClass(trend)}`}>
-          {getTrendLabel(trend, language)}
+          {getTrendLabel(trend, language, dataKey)}
         </span>
       </div>
       <div className="mt-3 rounded-2xl bg-white/70 p-3 shadow-inner">
@@ -3134,27 +3548,36 @@ function ShopScorecardPanel({ analytics, visibleRecommendations, language }) {
           const bar = tone === 'emerald' ? 'from-emerald-400 to-teal-500' : tone === 'amber' ? 'from-amber-300 to-orange-400' : 'from-rose-400 to-red-500';
 
           return (
-            <div key={shop.shopId} className="rounded-[28px] border border-white/70 bg-white/85 p-5 shadow-lg shadow-slate-200/60">
+            <div
+              key={shop.shopId}
+              className="relative overflow-hidden rounded-[24px] border border-emerald-100 bg-gradient-to-br from-white via-emerald-50/40 to-green-50 p-5 shadow-sm shadow-emerald-100/70"
+              style={{ fontFamily: '"Century Gothic", CenturyGothic, Arial, sans-serif' }}
+            >
+              <div className="pointer-events-none absolute -right-10 -top-10 h-28 w-28 rounded-full bg-emerald-100/40 blur-2xl" />
+              <div className="relative">
               <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h4 className="text-xl font-black text-slate-950">{shop.shopName}</h4>
-                  <p className="mt-1 text-xs font-semibold text-slate-500">{sw ? 'Nguvu kuu' : 'Main strength'}: {shop.strength}</p>
+                <div className="min-w-0">
+                  <h4 className="text-lg font-bold text-slate-950">{shop.shopName}</h4>
+                  <p className="mt-1 text-xs font-medium text-slate-500">{sw ? 'Nguvu kuu' : 'Main strength'}: {shop.strength}</p>
                 </div>
-                <span className={`rounded-full px-3 py-1 text-xs font-black ring-1 ${statusTone(shop.status)}`}>{shop.status}</span>
+                <span className={`rounded-full px-3 py-1 text-xs font-bold ring-1 ${statusTone(shop.status)}`}>{shop.status}</span>
               </div>
 
               <div className="mt-5">
                 <div className="flex items-end justify-between gap-3">
                   <div>
-                    <p className="text-xs font-black uppercase tracking-wide text-slate-500">{sw ? 'Alama ya duka' : 'Shop score'}</p>
-                    <p className="mt-1 text-4xl font-black text-slate-950">{shop.score}<span className="text-lg text-slate-400">/100</span></p>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{sw ? 'Alama ya duka' : 'Shop score'}</p>
+                    <p className="mt-1 text-3xl font-bold leading-none text-slate-950">
+                      {shop.score}
+                      <span className="ml-1 text-base font-semibold text-slate-400">/100</span>
+                    </p>
                   </div>
-                  <div className="text-right text-xs font-bold text-slate-500">
+                  <div className="text-right text-[11px] font-medium leading-5 text-slate-500">
                     <div>{sw ? 'Margin' : 'Margin'}: {pct(shop.margin)}</div>
                     <div>{sw ? 'Matumizi/Gross' : 'Expense pressure'}: {pct(shop.expensePressure)}</div>
                   </div>
                 </div>
-                <div className="mt-4 h-4 overflow-hidden rounded-full bg-slate-100 shadow-inner">
+                <div className="mt-4 h-3 overflow-hidden rounded-full bg-slate-100">
                   <div className={`h-full rounded-full bg-gradient-to-r ${bar}`} style={{ width: `${shop.score}%` }} />
                 </div>
               </div>
@@ -3165,13 +3588,14 @@ function ShopScorecardPanel({ analytics, visibleRecommendations, language }) {
               </div>
 
               <div className="mt-4 flex flex-wrap gap-2">
-                <span className="rounded-full bg-rose-50 px-3 py-1 text-xs font-black text-rose-700">{shop.critical} {sw ? 'hatari kubwa' : 'critical'}</span>
-                <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-black text-amber-700">{shop.high} {sw ? 'vipaumbele juu' : 'high priority'}</span>
+                <span className="rounded-full bg-rose-50 px-3 py-1 text-xs font-bold text-rose-700">{shop.critical} {sw ? 'hatari kubwa' : 'critical'}</span>
+                <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700">{shop.high} {sw ? 'vipaumbele juu' : 'high priority'}</span>
               </div>
 
-              <p className="mt-4 rounded-2xl bg-slate-50 px-3 py-2 text-xs font-semibold leading-5 text-slate-600">
+              <p className="mt-4 rounded-2xl bg-white/75 px-3 py-2 text-xs font-medium leading-5 text-slate-600 ring-1 ring-emerald-50">
                 {getShopScoreMeaning(shop, language)}
               </p>
+              </div>
             </div>
           );
         })}
@@ -3527,6 +3951,9 @@ const initialShopFilter = isShopScope && lockedShopId ? String(lockedShopId) : '
   const [customStart, setCustomStart] = React.useState(toISO(addDays(new Date(), -29)));
   const [customEnd, setCustomEnd] = React.useState(toISO(new Date()));
   const [viewMode, setViewMode] = React.useState('summary');
+  const [summaryView, setSummaryView] = React.useState('owner-summary');
+  const [opportunityView, setOpportunityView] = React.useState('stock-transfer');
+  const [riskView, setRiskView] = React.useState('reorder-needed');
   const [shopFilter, setShopFilter] = React.useState(initialShopFilter);
   const [actions, setActions] = React.useState(() => readActions());
   const [productSearch, setProductSearch] = React.useState('');
@@ -3558,10 +3985,29 @@ const initialShopFilter = isShopScope && lockedShopId ? String(lockedShopId) : '
 
   const criticalRecommendations = safeVisibleRecommendations.filter((rec) => rec.priority === 'Critical');
   const highRecommendations = safeVisibleRecommendations.filter((rec) => rec.priority === 'High');
+    const reorderNeededRecommendations = safeVisibleRecommendations.filter(
+    (rec) => rec.type === 'Reorder Needed'
+  );
+
+  const expiredStockRecommendations = safeVisibleRecommendations.filter(
+    (rec) => rec.type === 'Expired Stock'
+  );
+
+  const nearExpiryStockRecommendations = safeVisibleRecommendations.filter(
+    (rec) => rec.type === 'Expiry Risk'
+  );
 
   const opportunityRecommendations = isOwnerScope
     ? safeVisibleRecommendations.filter((rec) => ownerOnlyRecommendationTypes.includes(rec.type))
     : [];
+
+  const stockTransferRecommendations = opportunityRecommendations.filter(
+    (rec) => rec.type === 'Stock Transfer'
+  );
+
+  const investmentOpportunityRecommendations = opportunityRecommendations.filter(
+    (rec) => rec.type === 'Investment Opportunity'
+  );
 
   const productRows = React.useMemo(() => {
     const query = productSearch.trim().toLowerCase();
@@ -3797,32 +4243,35 @@ ${effectiveQuestion || (language === 'en' ? 'Explain the business performance an
   const maxShopProfit = Math.max(...analytics.shopPerformance.map((s) => Math.max(0, s.netProfit)), 1);
   const healthStatus = criticalRecommendations.length ? (sw ? 'Hatari zinahitaji uamuzi' : 'Critical action needed') : highRecommendations.length ? (sw ? 'Inahitaji uangalizi' : 'Needs attention') : (sw ? 'Inaonekana vizuri' : 'Looks healthy');
 
-  const showSummary = viewMode === 'summary' || viewMode === 'grid';
-  const showRisks = viewMode === 'summary' || viewMode === 'risk' || viewMode === 'action';
-  const showProducts = viewMode === 'products' || viewMode === 'table';
+  const showSummary = viewMode === 'summary';
+  const showRisks = viewMode === 'risk';
+  const showProducts = viewMode === 'products';
   const showAi = viewMode === 'ai';
 
   return (
-    <div className="mt-6 rounded-[36px] bg-gradient-to-br from-slate-50 via-blue-50 to-emerald-50 p-4 shadow-2xl shadow-slate-200/80">
-      <div className="overflow-hidden rounded-[32px] border border-white/70 bg-white/55 backdrop-blur-xl">
-        <div className="relative overflow-hidden bg-gradient-to-br from-slate-800 via-indigo-800 to-sky-800 p-6 text-white">
-          <div className="absolute -right-16 -top-16 h-52 w-52 rounded-full bg-fuchsia-500/30 blur-3xl" />
-          <div className="absolute bottom-0 left-1/3 h-40 w-40 rounded-full bg-cyan-400/20 blur-3xl" />
-          <div className="relative grid gap-5 lg:grid-cols-[1.2fr_1fr] lg:items-end">
+    <div className="mt-6 overflow-hidden rounded-[28px] border border-slate-100 bg-white shadow-xl shadow-slate-200/70">
+      <div className="flex min-h-[720px]">
+        <CeoSidebar
+          viewMode={viewMode}
+          setViewMode={setViewMode}
+          language={language}
+          isShopScope={Boolean(data?.shops?.length === 1)}
+        />
+
+        <main className="min-w-0 flex-1 bg-gradient-to-br from-slate-50 via-white to-emerald-50/50">
+          <div className="overflow-hidden border-white/70 bg-white/55 backdrop-blur-xl">
+        <div className="border-b border-slate-100 bg-white px-6 py-5">
+          <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
             <div>
-              <div className="inline-flex rounded-full bg-white/10 px-4 py-2 text-xs font-black uppercase tracking-wide text-cyan-100 ring-1 ring-white/15">
-                {sw ? 'Dashboard ya maamuzi ya mmiliki' : 'Owner decision dashboard'}
-              </div>
-              <h2 className="mt-4 text-3xl font-black tracking-tight md:text-4xl">{t('title')}</h2>
-              <p className="mt-3 max-w-3xl text-sm leading-6 text-white/70">{analytics.businessMessage}</p>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <span className="rounded-full bg-white px-4 py-2 text-xs font-black text-slate-950">{healthStatus}</span>
-                <span className="rounded-full bg-rose-500/15 px-4 py-2 text-xs font-black text-rose-100 ring-1 ring-rose-300/20">{criticalRecommendations.length} {sw ? 'hatari kubwa' : 'critical risks'}</span>
-                <span className="rounded-full bg-amber-500/15 px-4 py-2 text-xs font-black text-amber-100 ring-1 ring-amber-300/20">{visibleRecommendations.length} {sw ? 'ushauri hai' : 'active insights'}</span>
-              </div>
+              <h2 className="text-3xl font-black tracking-tight text-emerald-950 md:text-4xl">
+                {t('title')}
+              </h2>
+              <p className="mt-2 max-w-3xl text-sm font-medium leading-6 text-slate-500">
+                {analytics.businessMessage}
+              </p>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-3 xl:min-w-[620px]">
               <SelectControl label={t('period')} value={period} onChange={(e) => setPeriod(e.target.value)}>
                 <option value="today">{t('today')}</option>
                 <option value="yesterday">{t('yesterday')}</option>
@@ -3835,6 +4284,7 @@ ${effectiveQuestion || (language === 'en' ? 'Explain the business performance an
                 <option value="year">{t('year')}</option>
                 <option value="custom">{t('custom')}</option>
               </SelectControl>
+
               {isShopScope ? (
                 <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800 shadow-sm">
                   {sw ? 'Taarifa za duka hili pekee' : 'This shop only'}
@@ -3845,50 +4295,117 @@ ${effectiveQuestion || (language === 'en' ? 'Explain the business performance an
                   {(data?.shops || []).map((shop) => <option key={shop.id} value={shop.id}>{shop.name}</option>)}
                 </SelectControl>
               )}
+
               <SelectControl label={t('view')} value={viewMode} onChange={(e) => setViewMode(e.target.value)}>
                 <option value="summary">{sw ? 'Muhtasari' : 'Summary'}</option>
-                <option value="grid">{sw ? 'Gridi ya BI' : 'BI Grid'}</option>
-                <option value="chart">{sw ? 'Chati' : 'Charts'}</option>
-                <option value="graph">{sw ? 'Mwenendo' : 'Trends'}</option>
                 <option value="products">{sw ? 'Bidhaa' : 'Products'}</option>
                 <option value="risk">{sw ? 'Hatari' : 'Risks'}</option>
                 <option value="opportunity">{sw ? 'Fursa' : 'Opportunities'}</option>
-                <option value="table">{sw ? 'Majedwali' : 'Tables'}</option>
                 <option value="action">{sw ? 'Hatua' : 'Actions'}</option>
-                <option value="ai">{sw ? 'AI ya Ndani' : 'AI Advisor'}</option>
+                <option value="ai">{sw ? 'AI Advisor' : 'AI Advisor'}</option>
               </SelectControl>
             </div>
           </div>
 
           {period === 'custom' ? (
-            <div className="relative mt-5 grid gap-3 rounded-3xl bg-white/10 p-4 ring-1 ring-white/15 sm:grid-cols-2">
+            <div className="mt-5 grid gap-3 rounded-3xl border border-slate-100 bg-slate-50 p-4 sm:grid-cols-2">
               <label className="block">
-                <span className="mb-1 block text-xs font-bold uppercase text-white/70">{t('startDate')}</span>
-                <input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className="w-full rounded-2xl border border-white/25 bg-white/95 px-3 py-2 text-sm font-semibold text-slate-800" />
+                <span className="mb-1 block text-xs font-bold uppercase text-slate-500">{t('startDate')}</span>
+                <input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800" />
               </label>
               <label className="block">
-                <span className="mb-1 block text-xs font-bold uppercase text-white/70">{t('endDate')}</span>
-                <input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className="w-full rounded-2xl border border-white/25 bg-white/95 px-3 py-2 text-sm font-semibold text-slate-800" />
+                <span className="mb-1 block text-xs font-bold uppercase text-slate-500">{t('endDate')}</span>
+                <input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800" />
               </label>
             </div>
           ) : null}
         </div>
 
-        <div className="space-y-5 p-5">
-  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-    <ExecutiveMetric label={t('totalSales')} value={`TZS ${money(analytics.totalSales)}`} hint={getTrendLabel(salesTrend, language)} trend={salesTrend} gradient="from-blue-500 to-cyan-400" icon="↗" />
-    <ExecutiveMetric label={t('netProfit')} value={`TZS ${money(analytics.netProfit)}`} hint={getTrendLabel(profitTrend, language)} trend={profitTrend} gradient="from-emerald-500 to-teal-400" icon="✓" />
-    <ExecutiveMetric label={t('expenses')} value={`TZS ${money(analytics.totalExpenses)}`} hint={getTrendLabel(expenseTrend, language)} trend={expenseTrend} gradient="from-orange-400 to-rose-400" icon="!" />
-    <ExecutiveMetric label={t('mobileCommission')} value={`TZS ${money(analytics.mobileCommission)}`} hint={getTrendLabel(commissionTrend, language)} trend={commissionTrend} gradient="from-violet-500 to-fuchsia-400" icon="₮" />
-  </div>
+<div className="space-y-6 px-6 py-6">
+    {viewMode === 'summary' ? (
+  <>
+    <div
+      className="mb-5 rounded-[24px] border border-slate-100 bg-white p-3 shadow-sm shadow-slate-200/70"
+      style={{ fontFamily: '"Century Gothic", CenturyGothic, Arial, sans-serif' }}
+    >
+      <div className="flex flex-wrap gap-2">
+        {[
+          { id: 'owner-summary', label: sw ? 'Muhtasari wa Mmiliki' : 'Owner Summary' },
+          { id: 'critical-alerts', label: sw ? 'Tahadhari Muhimu' : 'Critical Alerts' },
+          { id: 'key-comparisons', label: sw ? 'Ulinganisho Muhimu' : 'Key Comparisons' },
+          { id: 'profit-waterfall', label: sw ? 'Mtiririko wa Faida' : 'Profit Waterfall' },
+          { id: 'shop-scorecard', label: sw ? 'Alama za Maduka' : 'Shop Scorecard' },
+          { id: 'profit-breakdown', label: sw ? 'Mgawanyo wa Faida' : 'Profit Breakdown' },
+          { id: 'today-advisor', label: sw ? 'Mshauri wa Leo' : 'Today Advisor' },
+          { id: 'quick-priorities', label: sw ? 'Vipaumbele vya Haraka' : 'Quick Priorities' },
+        ].map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => setSummaryView(item.id)}
+            className={`rounded-full px-4 py-2 text-xs font-semibold transition ${
+              summaryView === item.id
+                ? 'bg-emerald-600 text-white shadow-sm'
+                : 'bg-slate-50 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700'
+            }`}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+    </div>
 
-          {viewMode === 'summary' ? (
+   {summaryView === 'owner-summary' ? (
+    <div className="w-full">
+      <OwnerSummaryPanel
+        analytics={analytics}
+        visibleRecommendations={safeVisibleRecommendations}
+        language={language}
+        salesTrend={salesTrend}
+        profitTrend={profitTrend}
+      />
+    </div>
+  ) : null}
+  </>
+  ) : null}
+
+  {viewMode === 'summary' ? (
             <>
-              <KpiMiniChartPanel analytics={analytics} language={language} />
 
-              <ProfitWaterfallChart analytics={analytics} language={language} />
 
-              <ShopScorecardPanel analytics={analytics} visibleRecommendations={visibleRecommendations} language={language} />
+              {summaryView === 'key-comparisons' ? (
+                <DropdownPanel
+                  title={sw ? 'Ulinganisho Muhimu' : 'Key Comparisons'}
+                  subtitle={sw ? 'Hapa unaona ulinganisho wa mauzo, faida na mwenendo muhimu wa biashara.' : 'Compare sales, profit, and important business movement in one place.'}
+                  defaultOpen
+                  tone="blue"
+                >
+                  <KpiMiniChartPanel analytics={analytics} language={language} />
+                </DropdownPanel>
+              ) : null}
+
+              {summaryView === 'profit-waterfall' ? (
+                <DropdownPanel
+                  title={sw ? 'Mtiririko wa Faida' : 'Profit Waterfall'}
+                  subtitle={sw ? 'Hapa unaona jinsi mauzo, faida na matumizi yanavyoathiri faida ya mwisho.' : 'See how sales, gross profit, and expenses affect the final profit.'}
+                  defaultOpen
+                  tone="emerald"
+                >
+                  <ProfitWaterfallChart analytics={analytics} language={language} />
+                </DropdownPanel>
+              ) : null}
+
+              {summaryView === 'shop-scorecard' ? (
+                <DropdownPanel
+                  title={sw ? 'Alama za Maduka' : 'Shop Scorecard'}
+                  subtitle={sw ? 'Hapa unaona nguvu na udhaifu wa kila duka kwa muhtasari.' : 'See each shop’s strength and weakness in one focused view.'}
+                  defaultOpen
+                  tone="emerald"
+                >
+                  <ShopScorecardPanel analytics={analytics} visibleRecommendations={visibleRecommendations} language={language} />
+                </DropdownPanel>
+              ) : null}
+                            {summaryView === 'profit-breakdown' ? (
 
               <DropdownPanel title={sw ? 'Muhtasari wa Faida za Biashara' : 'Business Profit Breakdown'} subtitle={sw ? 'Vipengele vikuu vya faida vikiwa vimetenganishwa ili kuepuka msongamano.' : 'Main profit lines separated for quick executive reading.'} defaultOpen tone="violet">
                 <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
@@ -3900,38 +4417,80 @@ ${effectiveQuestion || (language === 'en' ? 'Explain the business performance an
                   <SoftTile label={sw ? 'Jumla ya faida za biashara' : 'Total business profit'} value={`TZS ${money(analytics.netProfit + analytics.gasProfit + analytics.mobileCommission)}`} strong className="bg-gradient-to-br from-violet-100 to-indigo-100" />
                 </div>
               </DropdownPanel>
+                            ) : null}
 
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                <SoftTile label={t('grossProfit')} value={`TZS ${money(analytics.grossProfit)}`} className="bg-white/80" />
-                <SoftTile label={t('stockValue')} value={`TZS ${money(analytics.stockValue)}`} className="bg-white/80" />
-                <SoftTile label={t('creditOutstanding')} value={`TZS ${money(analytics.creditOutstanding)}`} className="bg-white/80" />
-                <SoftTile label={t('changeLedger')} value={`TZS ${money(analytics.changeOutstanding)}`} className="bg-white/80" />
-              </div>
+                            {summaryView === 'critical-alerts' ? (
+                <DropdownPanel
+                  title={sw ? 'Tahadhari Muhimu' : 'Critical Alerts'}
+                  subtitle={sw ? 'Hapa unaona hatari muhimu pekee zinazohitaji uamuzi wa mmiliki.' : 'Only important risks that need owner attention are shown here.'}
+                  badge={`${safeVisibleRecommendations.filter((rec) => rec.priority === 'Critical' || rec.priority === 'High').length} ${sw ? 'tahadhari' : 'alerts'}`}
+                  defaultOpen
+                  tone="rose"
+                >
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    {safeVisibleRecommendations
+                      .filter((rec) => rec.priority === 'Critical' || rec.priority === 'High')
+                      .slice(0, 6)
+                      .map((rec) => (
+                        <RecommendationCard
+                          key={rec.id}
+                          rec={rec}
+                          actionRecord={actions[rec.id]}
+                          onDecision={handleDecision}
+                          language={language}
+                        />
+                      ))}
 
-              <DecisionAdvisorPanel
-                recommendations={safeVisibleRecommendations}
-                analytics={analytics}
-                language={language}
-                isShopScope={isShopScope}
-                onDecision={handleDecision}
-              />
+                    {!safeVisibleRecommendations.filter((rec) => rec.priority === 'Critical' || rec.priority === 'High').length ? (
+                      <div className="rounded-3xl bg-white/70 p-5 text-sm text-slate-500">
+                        {sw ? 'Hakuna tahadhari kubwa kwa sasa.' : 'No critical alerts at the moment.'}
+                      </div>
+                    ) : null}
+                  </div>
+                </DropdownPanel>
+              ) : null}
 
-              <DropdownPanel title={sw ? 'Mambo ya Haraka kwa Mmiliki' : 'Owner Quick Priorities'} subtitle={sw ? 'Haya ni mambo machache muhimu zaidi, si kila taarifa ya mfumo.' : 'Only the most important current items are shown here.'} badge={`${visibleRecommendations.slice(0, 5).length} ${sw ? 'vitu' : 'items'}`} defaultOpen tone="amber">
-                <div className="grid gap-4 lg:grid-cols-2">
-                  {visibleRecommendations.slice(0, 4).map((rec) => (
-                    <RecommendationCard key={rec.id} rec={rec} actionRecord={actions[rec.id]} onDecision={handleDecision} language={language} />
-                  ))}
-                  {!visibleRecommendations.length ? <div className="rounded-3xl bg-white/70 p-5 text-sm text-slate-500">{t('noData')}</div> : null}
+              {summaryView === 'key-comparisons' ? (
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                  <SoftTile label={t('grossProfit')} value={`TZS ${money(analytics.grossProfit)}`} className="bg-white/80" />
+                  <SoftTile label={t('stockValue')} value={`TZS ${money(analytics.stockValue)}`} className="bg-white/80" />
+                  <SoftTile label={t('creditOutstanding')} value={`TZS ${money(analytics.creditOutstanding)}`} className="bg-white/80" />
+                  <SoftTile label={t('changeLedger')} value={`TZS ${money(analytics.changeOutstanding)}`} className="bg-white/80" />
                 </div>
-              </DropdownPanel>
+              ) : null}
+
+              {summaryView === 'today-advisor' ? (
+                <DecisionAdvisorPanel
+                  recommendations={safeVisibleRecommendations}
+                  analytics={analytics}
+                  language={language}
+                  isShopScope={isShopScope}
+                  onDecision={handleDecision}
+                />
+              ) : null}
+
+              {summaryView === 'quick-priorities' ? (
+                <DropdownPanel title={sw ? 'Mambo ya Haraka kwa Mmiliki' : 'Owner Quick Priorities'} subtitle={sw ? 'Haya ni mambo machache muhimu zaidi, si kila taarifa ya mfumo.' : 'Only the most important current items are shown here.'} badge={`${visibleRecommendations.slice(0, 5).length} ${sw ? 'vitu' : 'items'}`} defaultOpen tone="amber">
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    {visibleRecommendations.slice(0, 4).map((rec) => (
+                      <RecommendationCard key={rec.id} rec={rec} actionRecord={actions[rec.id]} onDecision={handleDecision} language={language} />
+                    ))}
+                    {!visibleRecommendations.length ? <div className="rounded-3xl bg-white/70 p-5 text-sm text-slate-500">{t('noData')}</div> : null}
+                  </div>
+                </DropdownPanel>
+              ) : null}
             </>
           ) : null}
 
           {viewMode === 'grid' ? (
             <>
-              <KpiMiniChartPanel analytics={analytics} language={language} />
+{summaryView === 'key-comparisons' ? (
+  <KpiMiniChartPanel analytics={analytics} language={language} />
+) : null}
 
-              <ShopScorecardPanel analytics={analytics} visibleRecommendations={visibleRecommendations} language={language} />
+              {summaryView === 'shop-scorecard' ? (
+                <ShopScorecardPanel analytics={analytics} visibleRecommendations={visibleRecommendations} language={language} />
+              ) : null}
 
               <DropdownPanel title={sw ? 'Gridi ya Taarifa Muhimu za Biashara' : 'Business Intelligence Grid'} subtitle={sw ? 'Kila kadi inaonyesha kipimo kimoja muhimu kwa kipindi ulichochagua.' : 'Each card shows one important business measure for the selected period.'} defaultOpen tone="blue">
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -3997,6 +4556,7 @@ ${effectiveQuestion || (language === 'en' ? 'Explain the business performance an
                 </div>
               </DropdownPanel>
 
+              {summaryView === 'key-comparisons' ? (
               <DropdownPanel title={t('businessPulse')} subtitle={sw ? 'Muhtasari wa leo, jana, wiki na mwezi.' : 'Summary for today, yesterday, week and month.'} defaultOpen tone="slate">
                 <p className="mb-4 rounded-2xl bg-white/70 px-4 py-3 text-xs font-semibold leading-5 text-slate-600">
                   {sw
@@ -4016,6 +4576,7 @@ ${effectiveQuestion || (language === 'en' ? 'Explain the business performance an
                   ))}
                 </div>
               </DropdownPanel>
+                            ) : null}
             </>
           ) : null}
 
@@ -4024,8 +4585,8 @@ ${effectiveQuestion || (language === 'en' ? 'Explain the business performance an
               <DropdownPanel title={t('productCommand')} subtitle={sw ? 'Tafuta bidhaa na chuja hali bila kuonyesha taarifa zote kwa wakati mmoja.' : 'Search and filter product intelligence without clutter.'} badge={`${productRows.length} ${sw ? 'bidhaa' : 'products'}`} defaultOpen tone="emerald">
                 <p className="mb-4 rounded-2xl bg-white/70 px-4 py-3 text-xs font-semibold leading-5 text-slate-600">
                   {sw
-                    ? `${(productRows.filter((row) => row.status === 'Risk').length)} bidhaa ziko kwenye Risk kati ya ${productRows.length}. Anza na bidhaa hizo kwa sababu bei, stock au margin zake zinahitaji ukaguzi.`
-                    : `${productRows.filter((row) => row.status === 'Risk').length} products are marked Risk out of ${productRows.length}. Start with those items because price, stock or margin needs review.`}
+  ? `Bidhaa ${productRows.filter((row) => row.status === 'Risk').length} kati ya ${productRows.length} zipo kwenye hatari, chunguza bidhaa hizo kwa sababu bei au faida zake zinahitaji ukaguzi.`
+  : `${productRows.filter((row) => row.status === 'Risk').length} products are marked Risk out of ${productRows.length}. Start with those items because price, stock or margin needs review.`}
                 </p>
                 <div className="mb-4 grid gap-3 md:grid-cols-[1fr_220px]">
                   <input value={productSearch} onChange={(e) => setProductSearch(e.target.value)} placeholder={t('searchProduct')} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-200" />
@@ -4046,7 +4607,7 @@ ${effectiveQuestion || (language === 'en' ? 'Explain the business performance an
                     { key: 'buy', label: t('buy'), render: (row) => `TZS ${money(row.buy)}` },
                     { key: 'sell', label: t('sell'), render: (row) => `TZS ${money(row.sell)}` },
                     { key: 'margin', label: t('margin'), render: (row) => pct(row.margin) },
-                    { key: 'status', label: t('status'), render: (row) => <span className={`rounded-full px-3 py-1 text-xs font-black ${row.status === 'Risk' ? 'bg-rose-100 text-rose-700' : row.status === 'Watch' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>{row.status}</span> },
+                    { key: 'status', label: t('status'), render: (row) => <span className={`rounded-full px-3 py-1 text-xs font-black ${row.status === 'Risk' ? 'bg-rose-100 text-rose-700' : row.status === 'Watch' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>{sw ? (row.status === 'Risk' ? 'Hatari' : row.status === 'Watch' ? 'Ya kuangalia' : 'Nzuri') : row.status}</span> },
                   ]}
                 />
               </DropdownPanel>
@@ -4056,9 +4617,140 @@ ${effectiveQuestion || (language === 'en' ? 'Explain the business performance an
                   <ChartCard title={sw ? 'Bidhaa zinazoleta faida zaidi' : 'Top profit products'} explanation={getTopProductsExplanation(analytics, language)}>
                     <HorizontalBarList rows={(analytics.topProducts || []).slice(0, 10).map((item) => ({ label: `${item.productName} — ${item.shopName}`, value: item.profit }))} valueKey="value" labelKey="label" barClass="from-emerald-400 to-teal-400" />
                   </ChartCard>
+
                   <ChartCard title={sw ? 'Mtaji uliokaa kwenye stock' : 'Capital sitting in stock'} explanation={getCapitalExplanation(analytics, language)}>
                     <HorizontalBarList rows={(analytics.capitalEfficiency || []).slice(0, 10).map((item) => ({ label: `${item.productName} — ${item.shopName}`, value: item.stockValue }))} valueKey="value" labelKey="label" barClass="from-violet-300 to-indigo-400" />
                   </ChartCard>
+                </div>
+
+                <div
+                  className="mt-5 overflow-hidden rounded-[24px] border border-emerald-200 bg-white shadow-md shadow-emerald-100/60 ring-1 ring-emerald-50"
+                  style={{ fontFamily: 'Inter, "Segoe UI", Arial, sans-serif' }}
+                >
+                  <div className="border-b border-emerald-200 bg-gradient-to-r from-emerald-50 via-white to-green-50 px-4 py-3">
+                    <h4 className="text-sm font-bold text-slate-950">
+                      {sw ? 'Maelezo ya Bidhaa Muhimu' : 'Product Contribution Details'}
+                    </h4>
+                    <p className="mt-1 text-xs font-medium text-slate-500">
+                      {sw
+                        ? 'Jedwali hili linaonyesha bidhaa zinavyochangia faida, mauzo, kiasi kilichouzwa na stock iliyopo.'
+                        : 'This table explains how each product contributes profit, sales, quantity sold and current stock.'}
+                    </p>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full border-separate border-spacing-0 text-left text-xs [&_tbody_td]:border-r [&_tbody_td]:border-orange-100/80 [&_tbody_td:last-child]:border-r-0">
+                      <thead className="bg-emerald-100 text-slate-800">
+                        <tr>
+                          <th className="border-b border-r border-emerald-200 px-4 py-3 font-bold">{sw ? 'Aina' : 'Type'}</th>
+                          <th className="border-b border-r border-emerald-200 px-4 py-3 font-bold">{sw ? 'Bidhaa' : 'Product'}</th>
+                          <th className="border-b border-r border-emerald-200 px-4 py-3 font-bold">{sw ? 'Duka' : 'Shop'}</th>
+                          <th className="border-b border-r border-emerald-200 px-4 py-3 font-bold">{sw ? 'Kiasi Kilichouzwa' : 'Qty Sold'}</th>
+                          <th className="border-b border-r border-emerald-200 px-4 py-3 font-bold">{sw ? 'Idadi ya Mauzo' : 'No. of Sales'}</th>
+                          <th className="border-b border-r border-emerald-200 px-4 py-3 font-bold">{sw ? 'Mauzo' : 'Sales'}</th>
+                          <th className="border-b border-r border-emerald-200 px-4 py-3 font-bold">{sw ? 'Faida' : 'Profit'}</th>
+                          <th className="border-b border-r border-emerald-200 px-4 py-3 font-bold">{sw ? 'Margin' : 'Margin'}</th>
+                          <th className="border-b border-r border-emerald-200 px-4 py-3 font-bold">{sw ? 'Stock Iliyopo' : 'Current Stock'}</th>
+                          <th className="border-b border-r border-emerald-200 px-4 py-3 font-bold">{sw ? 'Thamani ya Stock' : 'Stock Value'}</th>
+                          <th className="border-b border-emerald-200 px-4 py-3 font-bold">{sw ? 'Maana yake' : 'Meaning'}</th>
+                        </tr>
+                      </thead>
+
+                      <tbody className="divide-y divide-slate-100">
+                        {[
+                          ...(analytics.topProducts || []).slice(0, 5).map((item) => ({
+                            type: sw ? 'Faida' : 'Profit',
+                            productName: item.productName,
+                            shopName: item.shopName,
+                            qty: item.qty,
+                            unit: item.unit || 'pc',
+                            transactions: item.transactions || 0,
+                            sales: item.sales,
+                            profit: item.profit,
+                            margin: item.sales > 0 ? (item.profit / item.sales) * 100 : 0,
+                            stock: Number(item.stock || 0),
+                            stockValue: Number(item.stockValue || 0),
+                            meaning: sw
+                              ? `Bidhaa hii imechangia faida TZS ${money(item.profit)}. Kiasi kilichouzwa ni ${qtyWithUnit(item.qty || 0, item.unit || 'pc')}. ${
+                                  Number(item.transactions || 0) >= 3
+                                    ? 'Faida hii imetokana zaidi na bidhaa kuuzwa mara nyingi.'
+                                    : (item.sales > 0 && (item.profit / item.sales) * 100 >= 30)
+                                      ? 'Faida hii imetokana zaidi na bidhaa kuwa na margin kubwa.'
+                                      : 'Faida hii imetokana na mchanganyiko wa kiasi kilichouzwa na margin ya bidhaa.'
+                                }`
+                              : `This product contributed TZS ${money(item.profit)} profit. Quantity sold was ${qtyWithUnit(item.qty || 0, item.unit || 'pc')}. ${
+                                  Number(item.transactions || 0) >= 3
+                                    ? 'This profit mainly came from frequent sales.'
+                                    : (item.sales > 0 && (item.profit / item.sales) * 100 >= 30)
+                                      ? 'This profit mainly came from a high margin.'
+                                      : 'This profit came from a mix of quantity sold and product margin.'
+                                }`,
+                          })),
+                          ...(analytics.capitalEfficiency || []).slice(0, 5).map((item) => ({
+                            type: sw ? 'Mtaji' : 'Capital',
+                            productName: item.productName,
+                            shopName: item.shopName,
+                            qty: item.qty || item.qtySold || 0,
+                            unit: item.unit || 'pc',
+                            transactions: item.transactions || 0,
+                            sales: item.sales,
+                            profit: item.profit,
+                            margin: item.sales > 0 ? (item.profit / item.sales) * 100 : 0,
+                            stock: item.stock ?? '-',
+                            stockValue: item.stockValue,
+                            meaning: sw
+                              ? Number(item.qty || item.qtySold || 0) <= 0
+                                ? `Bidhaa hii ina ${qtyWithUnit(item.stock || 0, item.unit || 'pc')} zenye thamani TZS ${money(item.stockValue)}. Ilinunuliwa tarehe ${item.stockedDate || '-' }, lakini mpaka sasa haijauzwa. Hii inaonyesha uhitaji wake ni mdogo kwenye eneo hili. Ushauri: usinunue tena kwa sasa; uza stock iliyopo kwanza au fikiria kuihamisha duka lenye uhitaji.`
+                                : Number(item.transactions || 0) <= 2 && Number(item.margin || 0) >= 30
+                                  ? `Bidhaa hii ina faida kubwa, lakini imeuzwa mara chache sana. Faida kwa kila unit inaweza kuwa nzuri, lakini stock ikikaa muda mrefu inafunga mtaji. Ushauri: nunua stock ndogo tu mpaka uone uhitaji unaongezeka.`
+                                  : `Bidhaa hii ina ${qtyWithUnit(item.stock || 0, item.unit || 'pc')} zenye thamani TZS ${money(item.stockValue)}. Ilinunuliwa tarehe ${item.stockedDate || '-'}. Mpaka sasa imeuza ${qtyWithUnit(item.qty || item.qtySold || 0, item.unit || 'pc')} tu. Hii inaonyesha bidhaa inazunguka polepole ukilinganisha na stock iliyopo. Ushauri: usiongeze stock nyingi; nunua kidogo sana au hamisha sehemu yenye mauzo zaidi.`
+                              : Number(item.qty || item.qtySold || 0) <= 0
+                                ? `This product has ${qtyWithUnit(item.stock || 0, item.unit || 'pc')} worth TZS ${money(item.stockValue)}. Purchased on ${item.stockedDate || '-'}, but it has not sold yet. This suggests low demand in this area. Advice: do not buy more for now; sell current stock first or consider transferring it to a shop with demand.`
+                                : Number(item.transactions || 0) <= 2 && Number(item.margin || 0) >= 30
+                                  ? `This product has a high margin, but it has sold only a few times. Profit per unit may be good, but slow stock ties capital. Advice: buy very low stock until demand improves.`
+                                  : `This product has ${qtyWithUnit(item.stock || 0, item.unit || 'pc')} worth TZS ${money(item.stockValue)}. Purchased on ${item.stockedDate || '-'}. So far it has sold only ${qtyWithUnit(item.qty || item.qtySold || 0, item.unit || 'pc')}. This suggests the product is moving slowly compared with current stock. Advice: do not add much stock; buy very little or transfer it to a stronger sales location.`,
+                          })),
+                        ].map((row, index) => (
+                                                    <tr
+                            key={`${row.type}-${row.productName}-${row.shopName}-${index}`}
+                            className={`align-top transition ${
+                              index % 2 === 0
+                                ? '[&>td]:bg-orange-50/80'
+                                : '[&>td]:bg-white'
+                            } hover:[&>td]:bg-orange-100/80`}
+                          >
+                            <td className="px-4 py-3">
+                              <span className={`rounded-full px-3 py-1 text-[11px] font-bold ${
+                                row.type === 'Faida' || row.type === 'Profit'
+                                  ? 'bg-emerald-50 text-emerald-700'
+                                  : 'bg-violet-50 text-violet-700'
+                              }`}>
+                                {row.type}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 font-semibold text-slate-800">{row.productName}</td>
+                            <td className="px-4 py-3 text-slate-600">{row.shopName}</td>
+                            <td className="px-4 py-3 text-slate-700">{qtyWithUnit(row.qty || 0, row.unit || 'pc')}</td>
+                            <td className="px-4 py-3 font-semibold text-slate-700">{row.transactions || 0}</td>
+                            <td className="px-4 py-3 font-semibold text-slate-800">TZS {money(row.sales || 0)}</td>
+                            <td className="px-4 py-3 font-semibold text-emerald-700">TZS {money(row.profit || 0)}</td>
+                            <td className="px-4 py-3 font-semibold text-slate-700">{Number(row.margin || 0).toFixed(1)}%</td>
+                            <td className="px-4 py-3 text-slate-700">{row.stock === '-' ? '-' : qtyWithUnit(row.stock, row.unit || 'pc')}</td>
+                            <td className="px-4 py-3 font-semibold text-slate-800">TZS {money(row.stockValue || 0)}</td>
+                            <td className="px-4 py-3 text-slate-600">{row.meaning}</td>
+                          </tr>
+                        ))}
+
+                        {!(analytics.topProducts || []).length && !(analytics.capitalEfficiency || []).length ? (
+                          <tr>
+                            <td colSpan={11} className="px-4 py-5 text-center text-sm text-slate-500">
+                              {t('noData')}
+                            </td>
+                          </tr>
+                        ) : null}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </DropdownPanel>
             </>
@@ -4066,57 +4758,102 @@ ${effectiveQuestion || (language === 'en' ? 'Explain the business performance an
 
           {viewMode === 'risk' ? (
             <>
-              <DropdownPanel title={sw ? 'Muonekano wa Hatari' : 'Risk Intelligence'} subtitle={sw ? 'Hatari zimepangwa kwa picha, vipaumbele na thamani iliyo hatarini.' : 'Risks are shown by priority, urgency and value at risk.'} defaultOpen tone="rose">
-                <p className="mb-4 rounded-2xl bg-white/70 px-4 py-3 text-xs font-semibold leading-5 text-slate-600">
-                  {sw
-                    ? getRiskExplanation(visibleRecommendations, language)
-                    : getRiskExplanation(visibleRecommendations, language)}
+              <div
+                className="mb-5 rounded-[24px] border border-slate-100 bg-white p-3 shadow-sm shadow-slate-200/70"
+                style={{ fontFamily: '"Century Gothic", CenturyGothic, Arial, sans-serif' }}
+              >
+                <div className="flex flex-wrap gap-3 rounded-[22px] bg-slate-50/90 p-2 ring-1 ring-slate-200/80">
+                  {[
+                    { id: 'reorder-needed', label: sw ? 'Bidhaa za Kuongezwa' : 'Reorder Needed' },
+                    { id: 'expired-stock', label: sw ? 'Bidhaa Zilizoisha Muda' : 'Expired Stock' },
+                    { id: 'near-expiry-stock', label: sw ? 'Bidhaa Karibu Kuisha Muda' : 'Near Expiry Stock' },
+                  ].map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setRiskView(item.id)}
+                      className={`rounded-full border px-5 py-2.5 text-sm font-semibold shadow-sm transition ${
+                        riskView === item.id
+                          ? 'border-rose-600 bg-rose-600 text-white shadow-rose-100'
+                          : 'border-slate-200 bg-white text-slate-700 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700'
+                      }`}
+                      style={{ fontFamily: '"Century Gothic", CenturyGothic, Arial, sans-serif' }}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <DropdownPanel
+                title={
+                  riskView === 'reorder-needed'
+                    ? (sw ? 'Bidhaa Zinazohitaji Kuongezwa' : 'Reorder Needed')
+                    : riskView === 'expired-stock'
+                      ? (sw ? 'Bidhaa Zilizoisha Muda wa Matumizi' : 'Expired Stock')
+                      : (sw ? 'Bidhaa Zinazokaribia Kuisha Muda wa Matumizi' : 'Near Expiry Stock')
+                }
+                subtitle={
+                  riskView === 'reorder-needed'
+                    ? (sw
+                        ? 'Bidhaa ambazo stock yake inaweza kuisha muda mfupi kwa sababu bado zinaonyesha mwenendo wa mauzo.'
+                        : 'Products that may run out soon based on sales movement and current stock.')
+                    : riskView === 'expired-stock'
+                      ? (sw
+                          ? 'Bidhaa ambazo tarehe yake ya mwisho wa matumizi tayari imepita.'
+                          : 'Products whose expiry date has already passed.')
+                      : (sw
+                          ? 'Bidhaa ambazo bado hazijaisha muda wa matumizi, lakini zimekaribia tarehe ya mwisho wa matumizi.'
+                          : 'Products that have not expired yet, but are close to expiry.')
+                }
+                badge={`${
+                  riskView === 'reorder-needed'
+                    ? reorderNeededRecommendations.length
+                    : riskView === 'expired-stock'
+                      ? expiredStockRecommendations.length
+                      : nearExpiryStockRecommendations.length
+                } ${sw ? 'vitu' : 'items'}`}
+                defaultOpen
+                tone="rose"
+              >
+                <p className="mb-4 rounded-2xl bg-white/70 px-4 py-3 text-xs font-medium leading-5 text-slate-600">
+                  {riskView === 'reorder-needed'
+                    ? (sw
+                        ? 'Hapa unaona bidhaa zinazohitaji kuongezwa kwa sababu stock iliyopo inaweza kuisha muda mfupi, na historia ya mauzo inaonyesha bidhaa hizo bado zinauzika.'
+                        : 'This shows products that need restocking where recent sales and history confirm active demand.')
+                    : riskView === 'expired-stock'
+                      ? (sw
+                          ? 'Hapa unaona bidhaa ambazo muda wake wa matumizi umeshapita. Bidhaa hizi zinahitaji kutengwa, kuhakikiwa, kusitishwa kuuzwa, na kuchukuliwa hatua salama.'
+                          : 'This shows products that are already expired. Actions include isolating them, confirming stock, stopping sale, and deciding safe disposal or other action.')
+                      : (sw
+                          ? 'Hapa unaona bidhaa ambazo bado hazijaisha muda wake wa matumizi, lakini zimekaribia. Hatua zinaweza kuwa kuuza mapema, kupunguza bei, kuhamisha kama kuna uhitaji, au kusitisha kununua tena.'
+                          : 'This shows products close to expiry. Actions include selling early, discounting, transferring where demand exists, or stopping reorders.')}
                 </p>
-                <div className="grid gap-4 xl:grid-cols-12">
-                  <ChartCard title={sw ? 'Piramidi ya Hatari' : 'Risk Pyramid'} subtitle={sw ? 'Juu ni hatari za haraka zaidi' : 'Top layers need faster decisions'} explanation={getRiskExplanation(visibleRecommendations, language)} className="xl:col-span-4">
-                    <div className="space-y-3 rounded-3xl bg-slate-50 p-4">
-                      {['Critical', 'High', 'Medium', 'Low'].map((priority, idx) => {
-                        const count = visibleRecommendations.filter((rec) => rec.priority === priority).length;
-                        const widths = ['w-full', 'w-10/12', 'w-8/12', 'w-6/12'];
-                        const tones = ['bg-rose-100 text-rose-700', 'bg-orange-100 text-orange-700', 'bg-amber-100 text-amber-700', 'bg-slate-100 text-slate-700'];
-                        return (
-                          <div key={priority} className={`mx-auto rounded-2xl px-4 py-3 text-center text-sm font-black ${widths[idx]} ${tones[idx]}`}>
-                            {priority}: {count}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </ChartCard>
-                  <ChartCard title={sw ? 'Hatari kwa Vipaumbele' : 'Risk by Priority'} explanation={getRiskExplanation(visibleRecommendations, language)} className="xl:col-span-4">
-                    <DonutChart
-                      items={['Critical', 'High', 'Medium', 'Low'].map((priority) => ({ label: priority, value: visibleRecommendations.filter((rec) => rec.priority === priority).length }))}
-                      centerLabel={sw ? 'Ushauri' : 'Insights'}
-                      centerValue={visibleRecommendations.length}
-                      language={language}
-                    />
-                  </ChartCard>
-                  <ChartCard title={sw ? 'Vipimo vya Haraka vya Hatari' : 'Quick Risk Gauges'} explanation={sw ? 'Vipimo hivi vinaonyesha kiasi cha stock kilicho hatarini ukilinganisha na stock yote. Kadiri kipimo kinavyojaa, ndivyo hatari inavyokuwa kubwa.' : 'These gauges show how much stock is at risk compared with total stock. The fuller the gauge, the larger the risk.'} className="xl:col-span-4">
-                    <div className="grid gap-3">
-                      <GaugeCard label={sw ? 'Stock isiyozunguka' : 'Slow stock capital'} value={analytics.summaryTotals.slowStockCapital} max={Math.max(1, analytics.stockValue)} tone="amber" />
-                      <GaugeCard label={sw ? 'Stock karibu na expiry' : 'Expiry risk value'} value={analytics.summaryTotals.expiryRiskValue} max={Math.max(1, analytics.stockValue)} tone="rose" />
-                    </div>
-                  </ChartCard>
-                </div>
-              </DropdownPanel>
 
-              <DropdownPanel title={sw ? 'Hatari kubwa' : 'Critical Risks'} subtitle={sw ? 'Hatari kubwa pekee zinazohitaji uamuzi wa haraka.' : 'Only critical risks requiring urgent decisions.'} badge={`${criticalRecommendations.length} ${sw ? 'hatari' : 'risks'}`} defaultOpen={criticalRecommendations.length > 0} tone="rose">
-                <div className="space-y-3">
-                  {criticalRecommendations.length ? criticalRecommendations.map((rec) => (
-                    <RecommendationCard key={rec.id} rec={rec} actionRecord={actions[rec.id]} onDecision={handleDecision} language={language} />
-                  )) : <div className="rounded-3xl bg-white/70 p-5 text-sm text-slate-500">{t('noData')}</div>}
-                </div>
-              </DropdownPanel>
-
-              <DropdownPanel title={sw ? 'Vipaumbele vya juu' : 'High Priorities'} subtitle={sw ? 'Vipaumbele vya juu bila kuchanganya na fursa.' : 'High-priority items separated from opportunities.'} badge={`${highRecommendations.length} ${sw ? 'vipaumbele' : 'priorities'}`} defaultOpen={!criticalRecommendations.length && highRecommendations.length > 0} tone="amber">
-                <div className="space-y-3">
-                  {highRecommendations.length ? highRecommendations.slice(0, 10).map((rec) => (
-                    <RecommendationCard key={rec.id} rec={rec} actionRecord={actions[rec.id]} onDecision={handleDecision} language={language} />
-                  )) : <div className="rounded-3xl bg-white/70 p-5 text-sm text-slate-500">{t('noData')}</div>}
+                <div className="grid gap-4 lg:grid-cols-2">
+                  {(riskView === 'reorder-needed'
+                    ? reorderNeededRecommendations
+                    : riskView === 'expired-stock'
+                      ? expiredStockRecommendations
+                      : nearExpiryStockRecommendations
+                  ).length ? (
+                    (riskView === 'reorder-needed'
+                      ? reorderNeededRecommendations
+                      : riskView === 'expired-stock'
+                        ? expiredStockRecommendations
+                        : nearExpiryStockRecommendations
+                    ).slice(0, 12).map((rec) => (
+                      <RecommendationCard
+                        key={rec.id}
+                        rec={rec}
+                        actionRecord={actions[rec.id]}
+                        onDecision={handleDecision}
+                        language={language}
+                      />
+                    ))
+                  ) : (
+                    <div className="rounded-3xl bg-white/70 p-5 text-sm text-slate-500">{t('noData')}</div>
+                  )}
                 </div>
               </DropdownPanel>
             </>
@@ -4124,16 +4861,74 @@ ${effectiveQuestion || (language === 'en' ? 'Explain the business performance an
 
           {viewMode === 'opportunity' ? (
             <>
-              <DropdownPanel title={sw ? 'Fursa za Biashara' : 'Business Opportunities'} subtitle={sw ? 'Fursa za kuhamisha stock, kuongeza bidhaa, na kuongeza uwekezaji.' : 'Stock transfer, missing product and investment opportunities.'} badge={`${opportunityRecommendations.length} ${sw ? 'fursa' : 'opportunities'}`} defaultOpen tone="emerald">
+              <div
+                className="mb-5 rounded-[24px] border border-slate-100 bg-white p-3 shadow-sm shadow-slate-200/70"
+                style={{ fontFamily: '"Century Gothic", CenturyGothic, Arial, sans-serif' }}
+              >
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { id: 'stock-transfer', label: sw ? 'Stock Transfer' : 'Stock Transfer' },
+                    { id: 'investment', label: sw ? 'Investment Opportunity' : 'Investment Opportunity' },
+                  ].map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setOpportunityView(item.id)}
+                      className={`rounded-full px-4 py-2 text-xs font-semibold transition ${
+                        opportunityView === item.id
+                          ? 'bg-emerald-600 text-white shadow-sm'
+                          : 'bg-slate-50 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <DropdownPanel
+                title={
+                  opportunityView === 'stock-transfer'
+                    ? (sw ? 'Stock Transfer' : 'Stock Transfer')
+                    : (sw ? 'Investment Opportunity' : 'Investment Opportunity')
+                }
+                subtitle={
+                  opportunityView === 'stock-transfer'
+                    ? (sw ? 'Fursa za kuhamisha stock pale ambapo duka moja lina uhitaji na duka jingine lina stock ya ziada.' : 'Stock transfer opportunities where one shop needs stock and another has excess stock.')
+                    : (sw ? 'Fursa za kuongeza nguvu kwenye makundi au bidhaa zenye mwenendo mzuri.' : 'Investment opportunities for categories or products showing stronger movement.')
+                }
+                badge={`${
+                  opportunityView === 'stock-transfer'
+                    ? stockTransferRecommendations.length
+                    : investmentOpportunityRecommendations.length
+                } ${sw ? 'fursa' : 'opportunities'}`}
+                defaultOpen
+                tone="emerald"
+              >
                 <p className="mb-4 rounded-2xl bg-white/70 px-4 py-3 text-xs font-semibold leading-5 text-slate-600">
-                  {sw
-                    ? 'Fursa siyo tatizo; ni mahali ambapo biashara inaweza kuongeza mauzo au kutumia stock vizuri zaidi. Zitumie kwa maamuzi ya kuongeza bidhaa, kuhamisha stock au kuongeza mtaji.'
-                    : 'Opportunities are not problems; they show where the business can increase sales or use stock better. Use them for product expansion, stock transfer or capital allocation decisions.'}
+                  {opportunityView === 'stock-transfer'
+                    ? (sw
+                        ? 'Hapa unaona mapendekezo ya kuhamisha stock. Tutayaboresha zaidi ili yasitokee bila ushahidi wa mauzo na tarehe ya mauzo ya mwisho.'
+                        : 'These are stock transfer suggestions. We will further improve them so they appear only with clear sales evidence and last-sale date.')
+                    : (sw
+                        ? 'Hapa unaona fursa za kuongeza uwekezaji au nguvu kwenye bidhaa na makundi yanayoonyesha mwenendo mzuri.'
+                        : 'These are opportunities to increase investment or focus on products and categories showing stronger movement.')}
                 </p>
+
                 <div className="grid gap-4 lg:grid-cols-2">
-                  {opportunityRecommendations.length ? opportunityRecommendations.slice(0, 12).map((rec) => (
-                    <RecommendationCard key={rec.id} rec={rec} actionRecord={actions[rec.id]} onDecision={handleDecision} language={language} />
-                  )) : <div className="rounded-3xl bg-white/70 p-5 text-sm text-slate-500">{t('noData')}</div>}
+                  {(opportunityView === 'stock-transfer'
+                    ? stockTransferRecommendations
+                    : investmentOpportunityRecommendations
+                  ).length ? (
+                    (opportunityView === 'stock-transfer'
+                      ? stockTransferRecommendations
+                      : investmentOpportunityRecommendations
+                    ).slice(0, 12).map((rec) => (
+                      <RecommendationCard key={rec.id} rec={rec} actionRecord={actions[rec.id]} onDecision={handleDecision} language={language} />
+                    ))
+                  ) : (
+                    <div className="rounded-3xl bg-white/70 p-5 text-sm text-slate-500">{t('noData')}</div>
+                  )}
                 </div>
               </DropdownPanel>
 
@@ -4361,6 +5156,8 @@ ${effectiveQuestion || (language === 'en' ? 'Explain the business performance an
             </DropdownPanel>
           ) : null}
         </div>
+          </div>
+        </main>
       </div>
     </div>
   );
