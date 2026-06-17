@@ -1,4 +1,5 @@
 import React from 'react';
+import { supabase } from './supabaseClient';
 
 const ACTION_STORAGE_KEY = 'ceo_recommendation_actions_v2';
 const DEFAULT_SNOOZE_DAYS = 7;
@@ -606,6 +607,80 @@ function addWarningHistoryEntry(entry) {
   writeWarningHistory([nextEntry, ...history].slice(0, 500));
 
   return nextEntry;
+}
+
+async function saveCeoActionToSupabase(actionRecord) {
+  if (!navigator.onLine) return;
+
+  const row = {
+    recommendation_id: actionRecord.recommendationId,
+    recommendation_type: actionRecord.type || '',
+    priority: actionRecord.priority || '',
+
+    action_status: actionRecord.status || '',
+    action_note: actionRecord.note || '',
+
+    shop_id: actionRecord.shopId || '',
+    shop_name: actionRecord.shopName || '',
+
+    product_code: actionRecord.productCode || '',
+    product_name: actionRecord.productName || '',
+
+    user_id: actionRecord.userId || '',
+    user_name: actionRecord.userName || '',
+    user_role: actionRecord.userRole || '',
+
+    hidden_until: actionRecord.snoozeUntil || null,
+    updated_at: actionRecord.updatedAt || new Date().toISOString(),
+  };
+
+  const { error } = await supabase
+    .from('ceo_recommendation_actions')
+    .upsert(row, { onConflict: 'recommendation_id' });
+
+  if (error) {
+    console.error('CEO action Supabase save failed:', error);
+  }
+}
+
+async function saveCeoWarningHistoryToSupabase(entry) {
+  if (!navigator.onLine) return;
+
+  const row = {
+    recommendation_id: entry.recommendationId,
+    recommendation_type: entry.type || '',
+    priority: entry.priority || '',
+
+    warning_title: entry.challenge || '',
+    warning_evidence: entry.evidence || '',
+    recommended_action: entry.suggestedAction || '',
+
+    warning_status: entry.status || 'open',
+
+    shop_id: entry.shopId || '',
+    shop_name: entry.shopName || '',
+
+    product_code: entry.productCode || '',
+    product_name: entry.productName || '',
+
+    user_id: entry.userId || '',
+    user_name: entry.userName || '',
+    user_role: entry.userRole || '',
+
+    resolved_at: entry.implemented ? new Date().toISOString() : null,
+    hidden_until: entry.snoozeUntil || null,
+
+    created_at: entry.createdAt || new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
+  const { error } = await supabase
+    .from('ceo_warning_history')
+    .insert([row]);
+
+  if (error) {
+    console.error('CEO warning history Supabase save failed:', error);
+  }
 }
 
 function actionHidden(action) {
@@ -2049,11 +2124,19 @@ function buildMessage({ totalSales, previousTotalSales, netProfit, previousNetPr
   const salesText = salesChange >= 5 ? (sw ? 'yanaongezeka' : 'improving') : salesChange <= -5 ? (sw ? 'yanapungua' : 'reducing') : (sw ? 'yametulia' : 'stable');
   const profitText = profitChange >= 5 ? (sw ? 'inaongezeka' : 'improving') : profitChange <= -5 ? (sw ? 'inapungua' : 'reducing') : (sw ? 'imetulia' : 'stable');
 
-  if (sw) {
+    if (sw) {
     let msg = `Mauzo ya biashara ${salesText} ukilinganisha na kipindi kilichopita. Faida halisi ${profitText}.`;
-    if (expenseChange > salesChange && expenseChange > 10) msg += ' Matumizi yanaongezeka kwa kasi kuliko mauzo, hivyo zinahitaji kuangaliwa.';
-    if (weakest && weakest.status !== 'Good') msg += ` ${weakest.shopName} linahitaji uangalizi kwa sababu hali yake ni ${weakest.status}.`;
-    if (critical || high) msg += ` Kuna ushauri ${critical} ya hatari sana na ${high} ya umuhimu wa juu unaohitaji uamuzi wa mmiliki.`;
+
+    if (expenseChange > salesChange && expenseChange > 10) {
+      msg += ' Matumizi yanaongezeka kwa kasi kuliko mauzo, hivyo linahitaji uangalizi wa karibu.';
+    }
+
+    const shopNameForMessage = weakest?.shopName
+      ? formatShopForText(weakest.shopName, language).replace(/^duka/, 'Duka')
+      : 'Biashara';
+
+    msg += ` ${shopNameForMessage} lina hatari kubwa ${critical} na ushauri muhimu ${high} unaohitaji maamuzi.`;
+
     return msg;
   }
 
@@ -4047,6 +4130,7 @@ const initialShopFilter = isShopScope && lockedShopId ? String(lockedShopId) : '
     const actionRecord = {
       recommendationId: rec.id,
       type: rec.type,
+      priority: rec.priority || '',
       productCode: rec.productCode,
       productName: rec.productName,
       shopName: rec.shopName,
@@ -4058,6 +4142,9 @@ const initialShopFilter = isShopScope && lockedShopId ? String(lockedShopId) : '
       note,
       implemented,
       snoozeUntil,
+      userId: analytics?.currentUser?.id || analytics?.currentUser?.auth_user_id || '',
+      userName: analytics?.currentUser?.name || analytics?.currentUser?.username || '',
+      userRole: analytics?.currentUser?.role || '',
       updatedAt: new Date().toISOString(),
     };
 
@@ -4069,7 +4156,11 @@ const initialShopFilter = isShopScope && lockedShopId ? String(lockedShopId) : '
     setActions(next);
     writeActions(next);
 
-    addWarningHistoryEntry({
+    saveCeoActionToSupabase(actionRecord).catch((error) => {
+      console.error('CEO action background save failed:', error);
+    });
+
+    const historyEntry = addWarningHistoryEntry({
       recommendationId: rec.id,
       eventType: 'ACTION_RECORDED',
       type: rec.type,
@@ -4088,6 +4179,10 @@ const initialShopFilter = isShopScope && lockedShopId ? String(lockedShopId) : '
         language === 'en'
           ? `Action recorded: ${status}`
           : `Hatua imehifadhiwa: ${status}`,
+    });
+
+    saveCeoWarningHistoryToSupabase(historyEntry).catch((error) => {
+      console.error('CEO warning history background save failed:', error);
     });
   };
 
