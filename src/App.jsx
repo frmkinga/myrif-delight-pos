@@ -8578,6 +8578,8 @@ useEffect(() => {
       throw new Error('Cannot refresh confirmed sales because shop id is missing.');
     }
 
+    const salesMode = 'today';
+
     let salesQuery = supabase
   .from('sales')
   .select('*')
@@ -8698,16 +8700,7 @@ if (salesMode === 'year') {
       setData((prev) => {
         const previousSales = Array.isArray(prev.sales) ? prev.sales : [];
 
-        const nextSales = confirmedResult.isOwnerUser
-          ? confirmedResult.sales
-          : [
-              ...previousSales.filter(
-                (sale) =>
-                  String(sale.shop_id || sale.shopId || sale.shopid || '') !==
-                  String(confirmedResult.shopId)
-              ),
-              ...confirmedResult.sales,
-            ];
+        const nextSales = mergeRowsById(previousSales, confirmedResult.sales || []);
 
         const previousProducts = Array.isArray(prev.products) ? prev.products : [];
         const confirmedProducts = Array.isArray(confirmedResult.products)
