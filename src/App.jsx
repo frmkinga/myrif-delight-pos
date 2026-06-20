@@ -800,6 +800,7 @@ const seedData = {
   purchases: [],
     mobileMoneyEntries: [],
   monthlyWakalaCommissions: [],
+  monthlySalesTargets: [],
   gasEntries: [],
   houses: [],
   meters: [],
@@ -876,6 +877,7 @@ function normalizeData(parsed = {}) {
     purchases: Array.isArray(parsed.purchases) ? parsed.purchases : [],
     mobileMoneyEntries: Array.isArray(parsed.mobileMoneyEntries) ? parsed.mobileMoneyEntries : [],
     monthlyWakalaCommissions: Array.isArray(parsed.monthlyWakalaCommissions) ? parsed.monthlyWakalaCommissions : [],
+    monthlySalesTargets: Array.isArray(parsed.monthlySalesTargets) ? parsed.monthlySalesTargets : [],
     gasEntries: Array.isArray(parsed.gasEntries) ? parsed.gasEntries : [],
     houses: Array.isArray(parsed.houses) ? parsed.houses : [],
     meters: Array.isArray(parsed.meters) ? parsed.meters : [],
@@ -904,6 +906,7 @@ function buildShopOnlyData(data, shopId) {
     changeLedger: (data.changeLedger || []).filter(sameShop),
     mobileMoneyEntries: (data.mobileMoneyEntries || []).filter(sameShop),
     monthlyWakalaCommissions: (data.monthlyWakalaCommissions || []).filter(sameShop),
+    monthlySalesTargets: (data.monthlySalesTargets || []).filter(sameShop),
     gasEntries: (data.gasEntries || []).filter(sameShop),
     houses: (data.houses || []).filter(sameShop),
     meters: (data.meters || []).filter(sameShop),
@@ -965,6 +968,7 @@ let creditQuery = supabase.from('creditSales').select('*');
 let changeQuery = supabase.from('changeLedger').select('*');
 let mobileMoneyQuery = supabase.from('mobileMoneyEntries').select('*');
 let monthlyWakalaCommissionsQuery = supabase.from('monthlyWakalaCommissions').select('*');
+let monthlySalesTargetsQuery = supabase.from('monthly_sales_targets').select('*');
 let gasQuery = supabase.from('gasEntries').select('*');
 let housesQuery = supabase.from('houses').select('*');
 let metersQuery = supabase.from('meters').select('*');
@@ -979,6 +983,7 @@ let serviceChargesQuery = supabase.from('servicecharges').select('*');
   changeQuery = changeQuery.eq('shop_id', sessionShopId);
   mobileMoneyQuery = mobileMoneyQuery.eq('shop_id', sessionShopId);
   monthlyWakalaCommissionsQuery = monthlyWakalaCommissionsQuery.eq('shop_id', sessionShopId);
+  monthlySalesTargetsQuery = monthlySalesTargetsQuery.eq('shop_id', sessionShopId);
   gasQuery = gasQuery.eq('shop_id', sessionShopId);
   housesQuery = housesQuery.eq('shop_id', sessionShopId);
   metersQuery = metersQuery.eq('shop_id', sessionShopId);
@@ -994,6 +999,7 @@ let serviceChargesQuery = supabase.from('servicecharges').select('*');
   { data: cloudChangeLedger },
   { data: cloudMobileMoneyEntries },
   { data: cloudMonthlyWakalaCommissions },
+  { data: cloudMonthlySalesTargets },
   { data: cloudGasEntries },
   { data: cloudHouses },
   { data: cloudMeters },
@@ -1007,6 +1013,7 @@ let serviceChargesQuery = supabase.from('servicecharges').select('*');
   changeQuery,
   mobileMoneyQuery,
   monthlyWakalaCommissionsQuery,
+  monthlySalesTargetsQuery,
   gasQuery,
   housesQuery,
   metersQuery,
@@ -1131,6 +1138,7 @@ const normalized = normalizeData({
       })),
       mobileMoneyEntries: cloudMobileMoneyEntries || [],
       monthlyWakalaCommissions: cloudMonthlyWakalaCommissions || [],
+      monthlySalesTargets: (cloudMonthlySalesTargets || []).map(normalizeMonthlySalesTarget),
       gasEntries: cloudGasEntries || [],
     });
 
@@ -1804,6 +1812,131 @@ function buildShopMonthlySalesTarget(data, shopId) {
   };
 }
 
+function getCurrentTargetMonth() {
+  const today = startOfDay(new Date());
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function normalizeMonthlySalesTarget(row = {}) {
+  return {
+    id: row.id || `${row.target_month || getCurrentTargetMonth()}-${row.shop_id || ''}`,
+    shop_id: String(row.shop_id || row.shopId || '').trim(),
+    shopName: row.shop_name || row.shopName || '',
+    shop_name: row.shop_name || row.shopName || '',
+    targetMonth: row.target_month || row.targetMonth || getCurrentTargetMonth(),
+    target_month: row.target_month || row.targetMonth || getCurrentTargetMonth(),
+    goal: Number(row.goal || 0),
+    actualAtCreation: Number(row.actual_at_creation || row.actualAtCreation || 0),
+    actual_at_creation: Number(row.actual_at_creation || row.actualAtCreation || 0),
+    growthPercent: Number(row.growth_percent || row.growthPercent || 5),
+    growth_percent: Number(row.growth_percent || row.growthPercent || 5),
+    source: row.source || 'previous_six_months_plus_5_percent',
+    created_by: row.created_by || '',
+    created_by_name: row.created_by_name || '',
+    created_at: row.created_at || '',
+    updated_at: row.updated_at || '',
+  };
+}
+
+function getSavedMonthlySalesTarget(data, shopId) {
+  const targetMonth = getCurrentTargetMonth();
+
+  return (data.monthlySalesTargets || [])
+    .map(normalizeMonthlySalesTarget)
+    .find(
+      (target) =>
+        String(target.shop_id) === String(shopId) &&
+        String(target.target_month) === String(targetMonth)
+    );
+}
+
+function applyFixedMonthlyGoal(dynamicTarget, savedTarget) {
+  const goal = Number(savedTarget?.goal || dynamicTarget?.goal || 0);
+  const actual = Number(dynamicTarget?.actual || 0);
+  const progress = goal > 0 ? (actual / goal) * 100 : 0;
+
+  return {
+    ...dynamicTarget,
+    hasGoal: goal > 0,
+    goal,
+    actual,
+    progress,
+    cappedProgress: Math.min(100, progress),
+    remainingAmount: Math.max(0, goal - actual),
+    remainingPercent: Math.max(0, 100 - progress),
+    exceededAmount: Math.max(0, actual - goal),
+    exceededPercent: Math.max(0, progress - 100),
+    rewardAmount: progress >= 100 ? Math.round(10000 * (progress / 100)) : 0,
+    targetMonth: savedTarget?.target_month || getCurrentTargetMonth(),
+    targetSource: savedTarget ? 'fixed_supabase_target' : 'dynamic_fallback',
+  };
+}
+
+function getFixedShopMonthlySalesTarget(data, shopId) {
+  const dynamicTarget = buildShopMonthlySalesTarget(data, shopId);
+  const savedTarget = getSavedMonthlySalesTarget(data, shopId);
+
+  return applyFixedMonthlyGoal(dynamicTarget, savedTarget);
+}
+
+function mergeRowsById(existingRows = [], incomingRows = []) {
+  const merged = new Map();
+
+  (Array.isArray(existingRows) ? existingRows : []).forEach((row) => {
+    const key = String(row?.id || '').trim();
+    if (key) merged.set(key, row);
+  });
+
+  (Array.isArray(incomingRows) ? incomingRows : []).forEach((row) => {
+    const key = String(row?.id || '').trim();
+    if (key) {
+      merged.set(key, {
+        ...(merged.get(key) || {}),
+        ...row,
+      });
+    }
+  });
+
+  return Array.from(merged.values());
+}
+
+async function fetchShopSalesForTarget(shopId) {
+  const targetMonth = getCurrentTargetMonth();
+  const monthStart = startOfDay(`${targetMonth}-01`);
+  const historyStart = todayISO(addDays(monthStart, -180));
+  const today = todayISO();
+
+  const pageSize = 1000;
+  let from = 0;
+  let allRows = [];
+  let keepLoading = true;
+
+  while (keepLoading) {
+    const { data: pageRows, error } = await supabase
+      .from('sales')
+      .select('*')
+      .eq('shop_id', shopId)
+      .gte('date', historyStart)
+      .lte('date', today)
+      .order('created_at', { ascending: false })
+      .range(from, from + pageSize - 1);
+
+    if (error) throw error;
+
+    const rows = Array.isArray(pageRows) ? pageRows : [];
+    allRows = [...allRows, ...rows];
+
+    keepLoading = rows.length === pageSize;
+    from += pageSize;
+  }
+
+  return allRows.map((sale) => ({
+    ...sale,
+    shop_id: String(sale?.shop_id || '').trim(),
+    date: sale?.date || (sale?.created_at ? String(sale.created_at).slice(0, 10) : todayISO()),
+    confirmed: true,
+  }));
+}
 function OwnerDashboard({ data, setAppData, openShop, logout, exportBackup, importBackup, ownerPeriod, setOwnerPeriod, language, setLanguage }) {
 const [currentPasswordInput, setCurrentPasswordInput] = useState('');
 const [newPasswordInput, setNewPasswordInput] = useState('');
@@ -2028,7 +2161,7 @@ const totalBusinessProfit = totalProfit + totalGasProfit + totalWakalaCommission
 
 const ownerMonthlyTargets = data.shops.map((shop) => ({
   shop,
-  target: buildShopMonthlySalesTarget(data, shop.id),
+  target: getFixedShopMonthlySalesTarget(data, shop.id),
 }));
 
 const ownerMonthlyGoal = ownerMonthlyTargets.reduce(
@@ -2376,7 +2509,7 @@ const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(e
 function ShopDashboard({ shop, data, saveData, backToOwner, logout, canBack, language, setLanguage, exportBackup }) {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [quickSearch, setQuickSearch] = useState('');
-  const monthlySalesGoal = buildShopMonthlySalesTarget(data, shop.id);
+  const monthlySalesGoal = getFixedShopMonthlySalesTarget(data, shop.id);
 
   const today = startOfDay(new Date());
   const todayIso = todayISO(today);
@@ -8273,6 +8406,7 @@ const [decisionCentreSales, setDecisionCentreSales] = useState([]);
 const [decisionCentreSalesLoaded, setDecisionCentreSalesLoaded] = useState(false);
 const [isHydrating, setIsHydrating] = useState(true);
 const [hasLoadedInitialData, setHasLoadedInitialData] = useState(false);
+const monthlyTargetSyncRef = useRef(new Set());
 
 useEffect(() => {
   let cancelled = false;
@@ -9085,6 +9219,102 @@ const importBackup = () => {
     setData(normalizeData(seedData));
     setActiveShopId(null);
   };
+  const ensureCurrentMonthSalesTargets = async (specificShopId = null) => {
+  if (!navigator.onLine) return;
+
+  const targetMonth = getCurrentTargetMonth();
+  const syncKey = `${targetMonth}-${specificShopId || 'all'}`;
+
+  if (monthlyTargetSyncRef.current.has(syncKey)) return;
+  monthlyTargetSyncRef.current.add(syncKey);
+
+  try {
+    const targetShops = (data.shops || []).filter((shop) => {
+      if (!specificShopId) return true;
+      return String(shop.id) === String(specificShopId);
+    });
+
+    if (!targetShops.length) return;
+
+    const shopIds = targetShops.map((shop) => String(shop.id));
+
+    const { data: existingRows, error: existingError } = await supabase
+      .from('monthly_sales_targets')
+      .select('*')
+      .eq('target_month', targetMonth)
+      .in('shop_id', shopIds);
+
+    if (existingError) throw existingError;
+
+    const existingTargets = (existingRows || []).map(normalizeMonthlySalesTarget);
+
+    const missingShops = targetShops.filter(
+      (shop) =>
+        !existingTargets.some(
+          (target) =>
+            String(target.shop_id) === String(shop.id) &&
+            String(target.target_month) === String(targetMonth)
+        )
+    );
+
+    const createdTargets = [];
+
+    for (const shop of missingShops) {
+      const shopSales = await fetchShopSalesForTarget(shop.id);
+
+      const temporaryData = normalizeData({
+        ...data,
+        sales: mergeRowsById(data.sales || [], shopSales),
+      });
+
+      const calculated = buildShopMonthlySalesTarget(temporaryData, shop.id);
+      const goal = Math.round(Number(calculated.goal || 0));
+
+      if (goal <= 0) continue;
+
+      createdTargets.push({
+        id: `${targetMonth}-${shop.id}`,
+        shop_id: shop.id,
+        shop_name: shop.name || '',
+        target_month: targetMonth,
+        goal,
+        actual_at_creation: Number(calculated.actual || 0),
+        growth_percent: 5,
+        source: 'previous_six_months_plus_5_percent',
+        created_by: data.currentUser?.id || data.currentUser?.auth_user_id || '',
+        created_by_name: data.currentUser?.name || data.currentUser?.username || '',
+      });
+    }
+
+    let savedCreatedTargets = [];
+
+    if (createdTargets.length) {
+      const { data: savedRows, error: saveError } = await supabase
+        .from('monthly_sales_targets')
+        .upsert(createdTargets, { onConflict: 'shop_id,target_month' })
+        .select('*');
+
+      if (saveError) throw saveError;
+
+      savedCreatedTargets = (savedRows || []).map(normalizeMonthlySalesTarget);
+    }
+
+    const allTargets = [...existingTargets, ...savedCreatedTargets];
+
+    if (allTargets.length) {
+      setData((prev) => ({
+        ...prev,
+        monthlySalesTargets: mergeRowsById(
+          prev.monthlySalesTargets || [],
+          allTargets.map(normalizeMonthlySalesTarget)
+        ),
+      }));
+    }
+  } catch (error) {
+    console.error('Monthly sales target sync failed:', error);
+    monthlyTargetSyncRef.current.delete(syncKey);
+  }
+};
 const handleLogin = async (user) => {
   const sessionUser = {
     ...user,
@@ -9290,82 +9520,117 @@ const handleLogin = async (user) => {
       }
     };
 
+    ensureCurrentMonthSalesTargets(shopId).catch((error) => {
+      console.error('Monthly target creation failed after login:', error);
+    });
+
     loadBackgroundLayers();
   }
 };
 
 const openShopDashboard = async (shopId) => {
-  setActiveShopId(shopId);
+  const selectedShopId = String(shopId || '').trim();
 
-  const [
-    { data: products },
-    { data: sales },
-    { data: expenses },
-    { data: purchases },
-  ] = await Promise.all([
-    supabase.from('products').select('*').eq('shop_id', shopId),
-    supabase.from('sales').select('*').eq('shop_id', shopId),
-    supabase.from('expenses').select('*').eq('shop_id', shopId),
-    supabase.from('purchases').select('*').eq('shop_id', shopId),
-  ]);
+  if (!selectedShopId) {
+    setSyncMessage(
+      t(
+        language,
+        'Shop could not be opened because shop ID is missing.',
+        'Duka halijafunguka kwa sababu taarifa ya duka haipo.'
+      )
+    );
+    return;
+  }
 
-  setData((prev) => {
-  const nextProducts = (products || []).map((p) => ({
-    id: p.id,
-    name: p.name,
-    buyPrice: Number(p.buyingprice || 0),
-    sellPrice: Number(p.sellingprice || 0),
-    stockBaseQty: Number(p.stock || 0),
-    stockQty: Number(p.stock || 0),
-    shop_id: String(p.shop_id || p.shopid || '').trim(),
-    baseUnit: p.baseunit || 'pc',
-    minStockLevel: Number(p.minStockLevel || 5),
-    expiryDate: p.expiryDate || p.expirydate || '',
-    qrCode: p.qrCode || '',
-    subUnitsRaw: p.subUnitsRaw || '',
-    archived: Boolean(p.archived),
-    createdAt: p.createdAt || (p.created_at ? String(p.created_at).slice(0, 10) : ''),
-    confirmed: true,
-  }));
+  if (navigator.onLine) {
+    try {
+      setSyncMessage(
+        t(
+          language,
+          'Loading shop sales history before opening...',
+          'Inapakia historia ya mauzo ya duka kabla ya kufungua...'
+        )
+      );
 
-  const nextSales = (sales || []).map((s) => ({
-    ...s,
-    shop_id: String(s.shop_id || '').trim(),
-    date: s.created_at ? todayISO(new Date(s.created_at)) : (s.date || todayISO()),
-  }));
+      const pageSize = 1000;
+      let from = 0;
+      let allShopSales = [];
+      let keepLoading = true;
 
-  const nextExpenses = (expenses || []).map((e) => ({
-    id: e.id || '',
-    shop_id: String(e.shop_id || '').trim(),
-    title: e.title || e.description || '',
-    description: e.description || e.title || '',
-    amount: Number(e.amount || 0),
-    category: e.category || '',
-    date: e.date || (e.created_at ? String(e.created_at).slice(0, 10) : todayISO()),
-    notes: e.notes || '',
-    created_at: e.created_at || '',
-  }));
+      while (keepLoading) {
+        const { data: pageRows, error } = await supabase
+          .from('sales')
+          .select('*')
+          .eq('shop_id', selectedShopId)
+          .gte('date', daysAgoISO(180))
+          .order('created_at', { ascending: false })
+          .range(from, from + pageSize - 1);
 
-  const nextPurchases = (purchases || []).map((p) => ({
-    ...p,
-    shop_id: String(p.shop_id || '').trim(),
-    date: p.date || (p.created_at ? String(p.created_at).slice(0, 10) : todayISO()),
-  }));
+        if (error) throw error;
 
-  const keepOtherShops = (items = []) =>
-  items.filter(
-    (item) =>
-      String(item?.shop_id || item?.shopId || item?.shopid || '') !== String(shopId)
-  );
+        const rows = Array.isArray(pageRows) ? pageRows : [];
+        allShopSales = [...allShopSales, ...rows];
 
-return {
-  ...prev,
-  products: [...keepOtherShops(prev.products), ...nextProducts],
-  sales: [...keepOtherShops(prev.sales), ...nextSales],
-  expenses: [...keepOtherShops(prev.expenses), ...nextExpenses],
-  purchases: [...keepOtherShops(prev.purchases), ...nextPurchases],
-};
-});
+        keepLoading = rows.length === pageSize;
+        from += pageSize;
+      }
+
+      const normalizedShopSales = allShopSales.map((sale) => ({
+        ...sale,
+        shop_id: String(sale?.shop_id || '').trim(),
+        date: sale?.date || (sale?.created_at ? String(sale.created_at).slice(0, 10) : todayISO()),
+        confirmed: true,
+      }));
+
+      setData((prev) => {
+        const salesById = new Map();
+
+        (prev.sales || []).forEach((sale) => {
+          if (sale?.id) {
+            salesById.set(String(sale.id), sale);
+          }
+        });
+
+        normalizedShopSales.forEach((sale) => {
+          if (sale?.id) {
+            salesById.set(String(sale.id), {
+              ...(salesById.get(String(sale.id)) || {}),
+              ...sale,
+            });
+          }
+        });
+
+        const salesWithoutId = (prev.sales || []).filter((sale) => !sale?.id);
+
+        return {
+          ...prev,
+          sales: [...salesWithoutId, ...Array.from(salesById.values())],
+        };
+      });
+
+      setSyncMessage(
+        t(
+          language,
+          'Shop history loaded from Supabase.',
+          'Historia ya duka imepakiwa kutoka Supabase.'
+        )
+      );
+    } catch (error) {
+      console.error('Failed to load shop history before opening:', error);
+
+      setSyncMessage(
+        t(
+          language,
+          'Shop opened, but history refresh failed. Using available data.',
+          'Duka limefunguliwa, lakini historia haijapakiwa upya. Inatumia taarifa zilizopo.'
+        )
+      );
+    }
+  }
+
+  await ensureCurrentMonthSalesTargets(selectedShopId);
+
+  setActiveShopId(selectedShopId);
 };
 const logout = async () => {
   writeStorage(STORAGE_SESSION_KEY, null);
