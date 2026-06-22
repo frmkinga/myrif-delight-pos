@@ -2389,6 +2389,10 @@ const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(e
   </div>
 ) : null}
 
+<div className="mt-6">
+  <CEODecisionCentre data={data} language={language} />
+</div>
+
 <div className="mt-6 grid gap-4 lg:grid-cols-3 text-base">
         {data.shops.map((shop) => {
           const shopSales = filterByPreset(
@@ -5966,6 +5970,7 @@ banks: mobileMoneyForm.banks.map((b) => ({
 />
 </div>
 
+
 {monthlySalesGoal.hasGoal ? (
   <div className="mt-4 rounded-[28px] border border-emerald-100 bg-gradient-to-r from-emerald-50 via-white to-lime-50 p-5 shadow-md">
     <div className="flex flex-wrap items-start justify-between gap-4">
@@ -6068,6 +6073,16 @@ banks: mobileMoneyForm.banks.map((b) => ({
       </div>
     </CardContent>
   </Card>
+
+  <div className="mt-6">
+    <CEODecisionCentre
+      data={buildShopOnlyData(data, shop.id)}
+      language={language}
+      scope="shop"
+      lockedShopId={shop.id}
+      titleOverride={t(language, 'Shop Decision Centre', 'Kituo cha Maamuzi ya Duka')}
+    />
+  </div>
 </TabsContent>
 
 
@@ -9326,7 +9341,7 @@ const handleLogin = async (user) => {
   let loaded;
 
   try {
-    loaded = await readData({ preferFresh: navigator.onLine });
+    loaded = await readData({ preferFresh: false });
   } catch (error) {
     console.error('Login data loading failed. Falling back to local saved data:', error);
     loaded = await readData({ preferFresh: false });
@@ -9334,7 +9349,7 @@ const handleLogin = async (user) => {
 
   let products = Array.isArray(loaded.products) ? loaded.products : [];
 
-  if (shopId && navigator.onLine) {
+  if (false && shopId && navigator.onLine) {
     try {
       const { data: freshProducts, error } = await supabase
         .from('products')
@@ -9459,63 +9474,59 @@ const handleLogin = async (user) => {
       });
     };
 
-    const loadBackgroundLayers = async () => {
-      try {
-        setSyncMessage(
-          t(
-            language,
-            'POS opened. Loading 30 days history in background...',
-            'POS imefunguka. Inapakia historia ya siku 30 kwa nyuma...'
-          )
-        );
+const loadBackgroundLayers = async () => {
+  try {
+    setSyncMessage(
+      t(
+        language,
+        'You are seeing the last confirmed data. New information is loading in the background.',
+        'Unaona taarifa za mwisho zilizothibitishwa. Taarifa mpya zinaendelea kupakiwa.'
+      )
+    );
 
-        const monthLoaded = await readData({ preferFresh: true, salesMode: 'month' });
-        applyBackgroundData(monthLoaded);
+    const monthLoaded = await readData({ preferFresh: true, salesMode: 'month' });
+    applyBackgroundData(monthLoaded);
 
-        setSyncMessage(
-          t(
-            language,
-            '30 days loaded. Loading 180 days history...',
-            'Siku 30 zimepakiwa. Inapakia historia ya siku 180...'
-          )
-        );
+    setSyncMessage(
+      t(
+        language,
+        'New information is still loading. Please wait a little.',
+        'Taarifa mpya bado zinaendelea kupakiwa. Tafadhali subiri kidogo.'
+      )
+    );
 
-        const sixMonthsLoaded = await readData({ preferFresh: true, salesMode: 'sixMonths' });
-        applyBackgroundData(sixMonthsLoaded);
+    const sixMonthsLoaded = await readData({ preferFresh: true, salesMode: 'sixMonths' });
+    applyBackgroundData(sixMonthsLoaded);
 
-        setSyncMessage(
-          t(
-            language,
-            '180 days loaded. Loading full year history...',
-            'Siku 180 zimepakiwa. Inapakia historia ya mwaka mzima...'
-          )
-        );
+    setSyncMessage(
+      t(
+        language,
+        'New information is still loading. Please wait a little.',
+        'Taarifa mpya bado zinaendelea kupakiwa. Tafadhali subiri kidogo.'
+      )
+    );
 
-        const yearLoaded = await readData({ preferFresh: true, salesMode: 'year' });
-        applyBackgroundData(yearLoaded);
+    const yearLoaded = await readData({ preferFresh: true, salesMode: 'year' });
+    applyBackgroundData(yearLoaded);
 
-        setSyncMessage(
-          t(
-            language,
-            'Full business history loaded.',
-            'Historia kamili ya biashara imepakiwa.'
-          )
-        );
-      } catch (error) {
-        console.error('Background layered history loading failed:', error);
-        setSyncMessage(
-          t(
-            language,
-            'POS is ready. More history will load when connection improves.',
-            'POS iko tayari. Historia zaidi itapakiwa mtandao ukiimarika.'
-          )
-        );
-      }
-    };
-
-    ensureCurrentMonthSalesTargets(shopId).catch((error) => {
-      console.error('Monthly target creation failed after login:', error);
-    });
+    setSyncMessage(
+      t(
+        language,
+        'New information is complete. Please continue.',
+        'Taarifa mpya zimekamilika. Tafadhali endelea.'
+      )
+    );
+  } catch (error) {
+    console.error('Background layered history loading failed:', error);
+    setSyncMessage(
+      t(
+        language,
+        'POS is ready. New information could not be completed now; please continue with the last confirmed data.',
+        'POS iko tayari. Taarifa mpya hazijakamilika kwa sasa; tafadhali endelea kutumia taarifa za mwisho zilizothibitishwa.'
+      )
+    );
+  }
+};
 
     loadBackgroundLayers();
   }
@@ -9722,10 +9733,6 @@ if (isHydrating) {
   language={language}
   setLanguage={setLanguage}
 />
-
-<div className="mx-4">
-  <CEODecisionCentre data={data} language={language} />
-</div>
   </>
 );
   }
@@ -9755,15 +9762,7 @@ return (
       exportBackup={exportBackup}
     />
 
-    <div className="mx-4 mt-6">
-      <CEODecisionCentre
-        data={shopDecisionData}
-        language={language}
-        scope="shop"
-        lockedShopId={selectedShopId}
-        titleOverride={t(language, 'Shop Decision Centre', 'Kituo cha Maamuzi ya Duka')}
-      />
-    </div>
+
   </>
 );
 }
