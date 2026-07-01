@@ -4023,6 +4023,7 @@ export default function CEODecisionCentre({
   scope = 'owner',
   lockedShopId = '',
   titleOverride = '',
+  ownerPeriod = '',
 }) {
   const t = useT(language);
   const sw = language !== 'en';
@@ -4030,7 +4031,12 @@ export default function CEODecisionCentre({
 const isOwnerScope = !isShopScope;
 const initialShopFilter = isShopScope && lockedShopId ? String(lockedShopId) : 'all';
 
-  const [period, setPeriod] = React.useState('month');
+  const [period, setPeriod] = React.useState(ownerPeriod || 'month');
+    React.useEffect(() => {
+    if (ownerPeriod) {
+      setPeriod(ownerPeriod);
+    }
+  }, [ownerPeriod]);
   const [customStart, setCustomStart] = React.useState(toISO(addDays(new Date(), -29)));
   const [customEnd, setCustomEnd] = React.useState(toISO(new Date()));
   const [viewMode, setViewMode] = React.useState('summary');
@@ -4367,18 +4373,20 @@ ${effectiveQuestion || (language === 'en' ? 'Explain the business performance an
             </div>
 
             <div className="grid gap-3 sm:grid-cols-3 xl:min-w-[620px]">
-              <SelectControl label={t('period')} value={period} onChange={(e) => setPeriod(e.target.value)}>
-                <option value="today">{t('today')}</option>
-                <option value="yesterday">{t('yesterday')}</option>
-                <option value="week">{t('week')}</option>
-                <option value="lastweek">{t('lastweek')}</option>
-                <option value="month">{t('month')}</option>
-                <option value="lastmonth">{t('lastmonth')}</option>
-                <option value="3months">{t('threeMonths')}</option>
-                <option value="6months">{t('sixMonths')}</option>
-                <option value="year">{t('year')}</option>
-                <option value="custom">{t('custom')}</option>
-              </SelectControl>
+                            {!ownerPeriod ? (
+                <SelectControl label={t('period')} value={period} onChange={(e) => setPeriod(e.target.value)}>
+                  <option value="today">{t('today')}</option>
+                  <option value="yesterday">{t('yesterday')}</option>
+                  <option value="week">{t('week')}</option>
+                  <option value="lastweek">{t('lastweek')}</option>
+                  <option value="month">{t('month')}</option>
+                  <option value="lastmonth">{t('lastmonth')}</option>
+                  <option value="3months">{t('threeMonths')}</option>
+                  <option value="6months">{t('sixMonths')}</option>
+                  <option value="year">{t('year')}</option>
+                  <option value="custom">{t('custom')}</option>
+                </SelectControl>
+              ) : null}
 
               {isShopScope ? (
                 <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800 shadow-sm">

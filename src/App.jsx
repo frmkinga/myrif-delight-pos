@@ -1705,15 +1705,19 @@ const yesterdaySales = shopSales
 };
 }
 
-function buildShopMonthlySalesTarget(data, shopId) {
+function buildShopMonthlySalesTarget(data, shopId, ownerPeriod = 'month') {
   const today = startOfDay(new Date());
-  const year = today.getFullYear();
-  const month = today.getMonth();
+  const targetMonth = getOwnerTargetMonth(ownerPeriod);
+  const [targetYear, targetMonthNumber] = targetMonth.split('-').map(Number);
+
+  const year = targetYear || today.getFullYear();
+  const month = targetMonthNumber ? targetMonthNumber - 1 : today.getMonth();
 
   const monthStart = new Date(year, month, 1);
   const monthEnd = new Date(year, month + 1, 0);
   const monthStartIso = todayISO(monthStart);
-  const todayIso = todayISO(today);
+  const calculationEndDate = targetMonth === getCurrentTargetMonth() ? today : monthEnd;
+  const todayIso = todayISO(calculationEndDate);
 
   const daysInMonth = monthEnd.getDate();
 
@@ -1842,6 +1846,16 @@ function getCurrentTargetMonth() {
   const today = startOfDay(new Date());
   return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
 }
+function getOwnerTargetMonth(ownerPeriod = 'month') {
+  const today = startOfDay(new Date());
+
+  if (ownerPeriod === 'lastmonth') {
+    const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    return `${lastMonth.getFullYear()}-${String(lastMonth.getMonth() + 1).padStart(2, '0')}`;
+  }
+
+  return getCurrentTargetMonth();
+}
 
 function normalizeMonthlySalesTarget(row = {}) {
   return {
@@ -1864,8 +1878,8 @@ function normalizeMonthlySalesTarget(row = {}) {
   };
 }
 
-function getSavedMonthlySalesTarget(data, shopId) {
-  const targetMonth = getCurrentTargetMonth();
+function getSavedMonthlySalesTarget(data, shopId, ownerPeriod = 'month') {
+  const targetMonth = getOwnerTargetMonth(ownerPeriod);
 
   return (data.monthlySalesTargets || [])
     .map(normalizeMonthlySalesTarget)
@@ -1898,9 +1912,9 @@ function applyFixedMonthlyGoal(dynamicTarget, savedTarget) {
   };
 }
 
-function getFixedShopMonthlySalesTarget(data, shopId) {
-  const dynamicTarget = buildShopMonthlySalesTarget(data, shopId);
-  const savedTarget = getSavedMonthlySalesTarget(data, shopId);
+function getFixedShopMonthlySalesTarget(data, shopId, ownerPeriod = 'month') {
+  const dynamicTarget = buildShopMonthlySalesTarget(data, shopId, ownerPeriod);
+  const savedTarget = getSavedMonthlySalesTarget(data, shopId, ownerPeriod);
 
   return applyFixedMonthlyGoal(dynamicTarget, savedTarget);
 }
@@ -2064,16 +2078,42 @@ setAppData(nextData);
           startDate = daysAgoISO(364);
         }
 
-        const { data: oldSales, error } = await supabase
-          .from('sales')
-          .select('*')
-          .gte('date', startDate)
-          .lte('date', endDate)
-          .order('created_at', { ascending: false });
+        const pageSize = 1000;
+        let from = 0;
+        let oldSales = [];
+        let keepLoading = true;
 
-        if (error) throw error;
+        while (keepLoading) {
+          const { data: pageRows, error } = await supabase
+            .from('sales')
+            .select('*')
+            .gte('date', startDate)
+            .lte('date', endDate)
+            .order('created_at', { ascending: false })
+            .range(from, from + pageSize - 1);
 
-        setOwnerSalesSource(oldSales || []);
+          if (error) throw error;
+
+          const rows = Array.isArray(pageRows) ? pageRows : [];
+          oldSales = [...oldSales, ...rows];
+
+          keepLoading = rows.length === pageSize;
+          from += pageSize;
+        }
+
+        const confirmedOwnerSales = (oldSales || []).map((sale) => ({
+          ...sale,
+          shop_id: String(sale?.shop_id || '').trim(),
+          date: sale?.date || (sale?.created_at ? String(sale.created_at).slice(0, 10) : todayISO()),
+          confirmed: true,
+        }));
+
+        setOwnerSalesSource(confirmedOwnerSales);
+
+        setAppData((prev) => ({
+          ...prev,
+          sales: mergeRowsById(prev.sales || [], confirmedOwnerSales),
+        }));
       } catch (error) {
         console.error('Failed to load old owner sales:', error);
         setOwnerSalesSource([]);
@@ -2085,7 +2125,7 @@ setAppData(nextData);
     loadOldOwnerSales();
   }, [ownerPeriod, shouldLoadOldOwnerSalesFromSupabase]);
 
-  const ownerSalesBase = shouldLoadOldOwnerSalesFromSupabase ? ownerSalesSource : data.sales;
+  const ownerSalesBase = data.sales;
 
   const salesPeriod = filterByPreset(ownerSalesBase, ownerPeriod, todayISO());
 console.log('OWNER STATE CHECK', {
@@ -2188,18 +2228,29 @@ const totalBusinessProfit = totalProfit + totalGasProfit + totalWakalaCommission
 
 const ownerMonthlyTargets = data.shops.map((shop) => ({
   shop,
-  target: getFixedShopMonthlySalesTarget(data, shop.id),
+  target: getFixedShopMonthlySalesTarget(data, shop.id, ownerPeriod),
 }));
 
-const ownerMonthlyGoal = ownerMonthlyTargets.reduce(
+const ownerBaseMonthlyGoal = ownerMonthlyTargets.reduce(
   (sum, row) => sum + Number(row.target.goal || 0),
   0
 );
 
-const ownerMonthlyActual = ownerMonthlyTargets.reduce(
-  (sum, row) => sum + Number(row.target.actual || 0),
-  0
-);
+const ownerTargetMonthCount = {
+  today: 1,
+  yesterday: 1,
+  week: 1,
+  lastweek: 1,
+  month: 1,
+  lastmonth: 1,
+  '3months': 3,
+  '6months': 6,
+  year: 12,
+}[ownerPeriod] || 1;
+
+const ownerMonthlyGoal = ownerBaseMonthlyGoal * ownerTargetMonthCount;
+
+const ownerMonthlyActual = totalSales;
 
 const ownerMonthlyProgress = ownerMonthlyGoal > 0
   ? (ownerMonthlyActual / ownerMonthlyGoal) * 100
@@ -2228,6 +2279,57 @@ const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(e
     '6months': t(language, 'Last 6 months', 'Miezi 6 iliyopita'),
     year: t(language, 'This year', 'Mwaka huu'),
   }[ownerPeriod] || t(language, 'Selected period', 'Kipindi ulichochagua');
+    const ownerTargetText = {
+    today: {
+      title: t(language, 'All Shops Monthly Target', 'Lengo la Mwezi la Maduka Yote'),
+      sales: t(language, 'Sales today', 'Mauzo ya leo'),
+      target: t(language, 'Monthly target', 'Lengo la mwezi'),
+    },
+    yesterday: {
+      title: t(language, 'All Shops Monthly Target', 'Lengo la Mwezi la Maduka Yote'),
+      sales: t(language, 'Sales yesterday', 'Mauzo ya jana'),
+      target: t(language, 'Monthly target', 'Lengo la mwezi'),
+    },
+    week: {
+      title: t(language, 'All Shops Monthly Target', 'Lengo la Mwezi la Maduka Yote'),
+      sales: t(language, 'Sales this week', 'Mauzo ya wiki hii'),
+      target: t(language, 'Monthly target', 'Lengo la mwezi'),
+    },
+    lastweek: {
+      title: t(language, 'All Shops Monthly Target', 'Lengo la Mwezi la Maduka Yote'),
+      sales: t(language, 'Sales last week', 'Mauzo ya wiki iliyopita'),
+      target: t(language, 'Monthly target', 'Lengo la mwezi'),
+    },
+    month: {
+      title: t(language, 'All Shops Monthly Target', 'Lengo la Mwezi la Maduka Yote'),
+      sales: t(language, 'Sales this month', 'Mauzo ya mwezi huu'),
+      target: t(language, 'This month target', 'Lengo la mwezi huu'),
+    },
+    lastmonth: {
+      title: t(language, 'All Shops Last Month Target', 'Lengo la Mwezi Uliopita la Maduka Yote'),
+      sales: t(language, 'Last month sales', 'Mauzo ya mwezi uliopita'),
+      target: t(language, 'Last month target', 'Lengo la mwezi uliopita'),
+    },
+    '3months': {
+      title: t(language, 'All Shops 3-Month Target', 'Lengo la Miezi 3 la Maduka Yote'),
+      sales: t(language, 'Sales for last 3 months', 'Mauzo ya miezi 3 iliyopita'),
+      target: t(language, 'Target for last 3 months', 'Lengo la miezi 3 iliyopita'),
+    },
+    '6months': {
+      title: t(language, 'All Shops 6-Month Target', 'Lengo la Miezi 6 la Maduka Yote'),
+      sales: t(language, 'Sales for last 6 months', 'Mauzo ya miezi 6 iliyopita'),
+      target: t(language, 'Target for last 6 months', 'Lengo la miezi 6 iliyopita'),
+    },
+    year: {
+      title: t(language, 'All Shops Year Target', 'Lengo la Mwaka la Maduka Yote'),
+      sales: t(language, 'Sales this year', 'Mauzo ya mwaka huu'),
+      target: t(language, 'Target this year', 'Lengo la mwaka huu'),
+    },
+  }[ownerPeriod] || {
+    title: t(language, 'All Shops Target', 'Lengo la Maduka Yote'),
+    sales: t(language, 'Sales for selected period', 'Mauzo ya kipindi ulichochagua'),
+    target: t(language, 'Target for selected period', 'Lengo la kipindi ulichochagua'),
+  };
 
  return (
   <AppShell>
@@ -2360,7 +2462,7 @@ const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(e
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <div className="rounded-3xl bg-white px-4 py-3 shadow-sm ring-1 ring-emerald-100">
             <div className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">
-              {t(language, 'Sales so far', 'Mauzo hadi sasa')}
+              {ownerPeriod === 'lastmonth' ? t(language, 'Last month sales', 'Mauzo ya mwezi uliopita') : t(language, 'Sales so far', 'Mauzo hadi sasa')}
             </div>
             <div className="mt-1 text-2xl font-black text-slate-900">
   {dashboardDataReady ? `TZS ${currency(ownerMonthlyActual)}` : ownerDashboardLoadingText}
@@ -2424,17 +2526,7 @@ const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(e
   </div>
 ) : null}
 
-<div className="mt-6">
-  {dashboardDataReady ? (
-    <CEODecisionCentre data={data} language={language} />
-  ) : (
-    <Card>
-      <CardContent className="pt-6 text-sm font-medium text-slate-600">
-        {ownerDashboardLoadingText}
-      </CardContent>
-    </Card>
-  )}
-</div>
+
 
 <div className="mt-6 grid gap-4 lg:grid-cols-3 text-base">
         {data.shops.map((shop) => {
@@ -2547,6 +2639,19 @@ const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(e
 );
         })}
       </div>
+
+      <div className="mt-6">
+  {dashboardDataReady && !ownerSalesLoading ? (
+    <CEODecisionCentre data={data} language={language} ownerPeriod={ownerPeriod} />
+  ) : (
+    <Card>
+      <CardContent className="pt-6 text-sm font-medium text-slate-600">
+        {ownerDashboardLoadingText}
+      </CardContent>
+    </Card>
+  )}
+</div>
+
       </div>
     </div>
   </AppShell>
@@ -6028,7 +6133,7 @@ banks: mobileMoneyForm.banks.map((b) => ({
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <div className="rounded-3xl bg-white px-4 py-3 shadow-sm ring-1 ring-emerald-100">
             <div className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">
-              {t(language, 'Sales so far', 'Mauzo hadi sasa')}
+              {ownerTargetText.sales}
             </div>
             <div className="mt-1 text-2xl font-black text-slate-900">
   {dashboardDataReady ? `TZS ${currency(monthlySalesGoal.actual)}` : dashboardLoadingText}
