@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from './supabaseClient';
 
 const currency = (value) =>
@@ -141,10 +141,87 @@ export default function RentalPropertySectionPreview({ language = 'sw', setLangu
   const houses = Array.isArray(data?.houses) ? data.houses : [];
   const meters = Array.isArray(data?.meters) ? data.meters : [];
   const serviceCharges = Array.isArray(data?.serviceCharges) ? data.serviceCharges : [];
+  const rentPayments = Array.isArray(data?.rentPayments) ? data.rentPayments : [];
 
   const [houseForm, setHouseForm] = useState({ ...emptyHouseForm });
   const [meterForm, setMeterForm] = useState({ ...emptyMeterForm });
   const [serviceChargeForm, setServiceChargeForm] = useState({ ...emptyServiceChargeForm });
+  const [isRentPaymentEntry, setIsRentPaymentEntry] = useState(false);
+    useEffect(() => {
+    const existingHistory = Array.isArray(data?.rentPayments) ? data.rentPayments : [];
+
+    const makePaymentKey = (row) =>
+      [
+        String(row?.houseId || row?.id || ''),
+        String(row?.rentPaidDate || ''),
+        String(row?.rentStartDate || ''),
+        String(row?.amountPaid || 0),
+      ].join('|');
+
+    const existingKeys = new Set(existingHistory.map(makePaymentKey));
+
+    const migratedRentPayments = houses
+      .filter((house) => Number(house?.amountPaid || 0) > 0)
+      .map((house) => {
+        const row = {
+          id: `rent-payment-existing-${house.id || house.houseNumber}`,
+          houseId: house.id || '',
+          shop_id: house.shop_id || data?.currentUser?.shop_id || data?.currentUser?.shopId || 'shop-1',
+          houseNumber: house.houseNumber || '',
+          tenantName: house.tenantName || '',
+          rentPaidDate: house.rentPaidDate || '',
+          rentStartDate: house.rentStartDate || '',
+          rentEndDate: house.rentEndDate || '',
+          monthlyRentAmount: Number(house.monthlyRentAmount || 0),
+          amountPaid: Number(house.amountPaid || 0),
+          rentDurationMonths: Number(house.rentDurationMonths || 0),
+          paymentType: house.paymentType || 'Full',
+          nextPaymentDate: house.nextPaymentDate || '',
+          balance: Number(house.balance || 0),
+          created_at: house.created_at || new Date().toISOString(),
+          source: 'existing_rent_report',
+        };
+
+        return row;
+      })
+      .filter((row) => !existingKeys.has(makePaymentKey(row)));
+
+    if (!migratedRentPayments.length) return;
+
+    saveData({
+      ...data,
+      rentPayments: [...existingHistory, ...migratedRentPayments],
+    });
+
+    supabase
+      .from('rentPayments')
+      .upsert(
+        migratedRentPayments.map((row) => ({
+          id: row.id,
+          shop_id: row.shop_id,
+          houseId: row.houseId,
+          houseNumber: row.houseNumber || '',
+          tenantName: row.tenantName || '',
+          rentPaidDate: row.rentPaidDate || null,
+          rentStartDate: row.rentStartDate || null,
+          rentEndDate: row.rentEndDate || null,
+          monthlyRentAmount: Number(row.monthlyRentAmount || 0),
+          amountPaid: Number(row.amountPaid || 0),
+          rentDurationMonths: Number(row.rentDurationMonths || 0),
+          paymentType: row.paymentType || 'Full',
+          nextPaymentDate: row.nextPaymentDate || null,
+          balance: Number(row.balance || 0),
+          source: row.source || 'existing_rent_report',
+          created_at: row.created_at || new Date().toISOString(),
+        })),
+        { onConflict: 'id' }
+      )
+      .then(({ error }) => {
+        if (error) {
+          console.error('Existing rent payment history sync failed:', error);
+        }
+      });
+  }, [houses, rentPayments.length]);
 
   const meterPreviewUnitsUsed = Math.max(0, Number(meterForm.currentUnits || 0) - Number(meterForm.previousUnits || 0));
   const meterPreviewTotal = Math.max(0, meterPreviewUnitsUsed * Number(meterForm.costPerUnit || 0) - Number(meterForm.discount || 0));
@@ -245,10 +322,31 @@ const saveHouse = async () => {
     return [record, ...currentHouses];
   })();
 
+  const rentPaymentRecord = (isRentPaymentEntry || !houseForm.id) && paid > 0
+    ? {
+        id: `rent-payment-${Date.now()}`,
+        houseId: record.id,
+        shop_id: record.shop_id,
+        houseNumber: record.houseNumber,
+        tenantName: record.tenantName,
+        rentPaidDate: record.rentPaidDate,
+        rentStartDate: record.rentStartDate,
+        rentEndDate: record.rentEndDate,
+        monthlyRentAmount: record.monthlyRentAmount,
+        amountPaid: record.amountPaid,
+        rentDurationMonths: record.rentDurationMonths,
+        paymentType: record.paymentType,
+        nextPaymentDate: record.nextPaymentDate,
+        balance: record.balance,
+        created_at: new Date().toISOString(),
+      }
+    : null;
+
   // This is the missing part: update local app state immediately
   saveData({
     ...data,
     houses: updatedHouses,
+    rentPayments: rentPaymentRecord ? [rentPaymentRecord, ...rentPayments] : rentPayments,
   });
 
   const { error } = await supabase
@@ -281,9 +379,43 @@ const saveHouse = async () => {
     return;
   }
 
+  if (rentPaymentRecord) {
+    const { error: rentPaymentError } = await supabase
+      .from('rentPayments')
+      .upsert(
+        [
+          {
+            id: rentPaymentRecord.id,
+            shop_id: rentPaymentRecord.shop_id,
+            houseId: rentPaymentRecord.houseId,
+            houseNumber: rentPaymentRecord.houseNumber || '',
+            tenantName: rentPaymentRecord.tenantName || '',
+            rentPaidDate: rentPaymentRecord.rentPaidDate || null,
+            rentStartDate: rentPaymentRecord.rentStartDate || null,
+            rentEndDate: rentPaymentRecord.rentEndDate || null,
+            monthlyRentAmount: Number(rentPaymentRecord.monthlyRentAmount || 0),
+            amountPaid: Number(rentPaymentRecord.amountPaid || 0),
+            rentDurationMonths: Number(rentPaymentRecord.rentDurationMonths || 0),
+            paymentType: rentPaymentRecord.paymentType || 'Unpaid',
+            nextPaymentDate: rentPaymentRecord.nextPaymentDate || null,
+            balance: Number(rentPaymentRecord.balance || 0),
+            source: rentPaymentRecord.source || 'new_payment',
+            created_at: rentPaymentRecord.created_at || new Date().toISOString(),
+          },
+        ],
+        { onConflict: 'id' }
+      );
+
+    if (rentPaymentError) {
+      alert(`Rent payment history sync failed: ${rentPaymentError.message}`);
+      return;
+    }
+  }
+
   alert('Taarifa za nyumba zimehifadhiwa kikamilifu.');
 
   setHouseForm({ ...emptyHouseForm });
+  setIsRentPaymentEntry(false);
 };
 
   const saveMeter = async () => {
@@ -411,6 +543,8 @@ const saveHouse = async () => {
   setServiceChargeForm({ ...emptyServiceChargeForm });
 };
 const editHouse = (row) => {
+  setIsRentPaymentEntry(false);
+
   setHouseForm({
     id: row.id || '',
     houseNumber: row.houseNumber || '',
@@ -430,6 +564,8 @@ const editHouse = (row) => {
 };
 
 const startNewRentPayment = (row) => {
+  setIsRentPaymentEntry(true);
+
   setHouseForm({
     id: row.id || '',
     houseNumber: row.houseNumber || '',
@@ -785,6 +921,7 @@ const startNewMeterReading = (row) => {
   houses={houses}
   meters={meters}
   serviceCharges={serviceCharges}
+    rentPayments={rentPayments}
   totalRent={totalRent}
   totalPaid={totalPaid}
   totalOutstanding={totalOutstanding}
@@ -889,6 +1026,7 @@ function ReportsSection({
   houses,
   meters,
   serviceCharges,
+  rentPayments,
   totalRent,
   totalPaid,
   totalOutstanding,
@@ -906,6 +1044,59 @@ function ReportsSection({
   onDeleteServiceCharge,
 }) {
   const [reportType, setReportType] = useState('rent');
+    const getRentStatusInfo = (row) => {
+    if (String(row?.houseStatus || '') === 'Vacant') {
+      return {
+        label: t(language, 'Vacant', 'Nyumba tupu'),
+        className: 'bg-slate-100 text-slate-700',
+      };
+    }
+
+    const daysLeft = daysBetween(todayISO(), row?.nextPaymentDate);
+
+    if (daysLeft === null) {
+      return {
+        label: t(language, 'No next payment date', 'Hakuna tarehe ya malipo ijayo'),
+        className: 'bg-slate-100 text-slate-700',
+      };
+    }
+
+    if (daysLeft < 0) {
+      const delayedDays = Math.abs(daysLeft);
+
+      return {
+        label: t(
+          language,
+          `Overdue by ${delayedDays} day(s)`,
+          `Imechelewa siku ${delayedDays}`
+        ),
+        className: 'bg-red-100 text-red-700',
+      };
+    }
+
+    if (daysLeft === 0) {
+      return {
+        label: t(language, 'Due today', 'Inalipwa leo'),
+        className: 'bg-amber-100 text-amber-700',
+      };
+    }
+
+    if (daysLeft <= 7) {
+      return {
+        label: t(
+          language,
+          `Due in ${daysLeft} day(s)`,
+          `Inakaribia bado siku ${daysLeft}`
+        ),
+        className: 'bg-orange-100 text-orange-700',
+      };
+    }
+
+    return {
+      label: t(language, 'Okay', 'Iko sawa'),
+      className: 'bg-emerald-100 text-emerald-700',
+    };
+  };
 
   return (
     <div className="space-y-4">
@@ -918,6 +1109,7 @@ function ReportsSection({
           <option value="rent">{t(language, 'Rent Report', 'Ripoti ya Kodi')}</option>
           <option value="utilities">{t(language, 'Utilities Report', 'Ripoti ya Utilities')}</option>
           <option value="service">{t(language, 'Service Charge Report', 'Ripoti ya Service Charge')}</option>
+                    <option value="rentHistory">{t(language, 'Rent Payment History', 'Historia ya Malipo ya Kodi')}</option>
         </select>
       </div>
 
@@ -945,14 +1137,14 @@ function ReportsSection({
                 </thead>
                 <tbody>
                   {houses.map((row) => (
-                    <tr key={row.id} className="border-b">
+                    <tr key={row.id} className={`border-b ${getRentStatusInfo(row).className.includes('red') ? 'text-red-700' : ''}`}>
                       <td className="py-2 pr-3">{row.houseNumber}</td>
                       <td className="py-2 pr-3">{row.tenantName || '-'}</td>
                       <td className="py-2 pr-3">{row.rentPaidDate || '-'}</td>
                       <td className="py-2 pr-3">{row.rentStartDate || '-'}</td>
                       <td className="py-2 pr-3">{row.rentEndDate || '-'}</td>
-                      <td className="py-2 pr-3">{row.nextPaymentDate || '-'}</td>
-                      <td className="py-2 pr-3">TZS {currency(row.monthlyRentAmount)}</td>
+<td className="py-2 pr-3">{row.nextPaymentDate || '-'}</td>
+<td className="py-2 pr-3">TZS {currency(row.monthlyRentAmount)}</td>
                       <td className="py-2 pr-3">TZS {currency(row.amountPaid)}</td>
                       <td className="py-2 pr-3">TZS {currency(row.balance)}</td>
                       <td className="py-2 pr-3">{row.paymentType}</td>
@@ -960,10 +1152,10 @@ function ReportsSection({
                       <td className="py-2 pr-3">{row.itemsIssued || '-'}</td>
 
 <td className="py-2 pr-3">
-  <div className="flex gap-2">
+  <div className="grid grid-cols-[120px_72px_84px_150px] items-center gap-2">
     <button
       type="button"
-      className="rounded-lg bg-blue-600 px-3 py-1 text-white"
+      className="h-10 w-[120px] rounded-lg bg-blue-600 px-3 text-sm font-medium text-white"
       onClick={() => onNewRentPayment(row)}
     >
       {t(language, 'New Payment', 'Malipo Mapya')}
@@ -971,7 +1163,7 @@ function ReportsSection({
 
     <button
       type="button"
-      className="rounded-lg bg-amber-500 px-3 py-1 text-white"
+      className="h-10 w-[72px] rounded-lg bg-amber-500 px-3 text-sm font-medium text-white"
       onClick={() => onEditHouse(row)}
     >
       {t(language, 'Edit', 'Hariri')}
@@ -979,7 +1171,7 @@ function ReportsSection({
 
     <button
       type="button"
-      className="rounded-lg bg-red-600 px-3 py-1 text-white"
+      className="h-10 w-[84px] rounded-lg bg-red-600 px-3 text-sm font-medium text-white"
       onClick={() => {
         const confirmed = window.confirm('Delete this house record?');
         if (!confirmed) return;
@@ -989,6 +1181,14 @@ function ReportsSection({
     >
       {t(language, 'Delete', 'Futa')}
     </button>
+
+    {!getRentStatusInfo(row).className.includes('slate') ? (
+      <div className={`flex min-h-10 w-[150px] items-center justify-center rounded-xl px-3 py-2 text-center text-xs font-semibold shadow-sm ${getRentStatusInfo(row).className}`}>
+        {getRentStatusInfo(row).label}
+      </div>
+    ) : (
+      <div className="w-[150px]" />
+    )}
   </div>
 </td>
                    
@@ -1132,6 +1332,70 @@ function ReportsSection({
                       </td>
                     </tr>
                   ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {reportType === 'rentHistory' && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{t(language, 'Rent Payment History', 'Historia ya Malipo ya Kodi')}</CardTitle>
+          </CardHeader>
+
+          <CardContent>
+            <div className="mb-3 rounded-xl bg-blue-50 p-3 text-sm text-blue-700">
+              {t(
+                language,
+                'This report is automatic and read-only. It records each rent payment saved from the main rent report.',
+                'Ripoti hii inajijaza yenyewe na haisahihishwi hapa. Inatunza kila malipo ya kodi yanayohifadhiwa kupitia ripoti kuu ya kodi.'
+              )}
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left">
+                    <th className="py-2 pr-3">{t(language, 'Date Paid', 'Tarehe Ilipolipwa')}</th>
+                    <th className="py-2 pr-3">{t(language, 'House', 'Nyumba')}</th>
+                    <th className="py-2 pr-3">{t(language, 'Tenant', 'Mpangaji')}</th>
+                    <th className="py-2 pr-3">{t(language, 'Rent Start Date', 'Kodi Kuanza')}</th>
+                    <th className="py-2 pr-3">{t(language, 'Rent End Date', 'Kodi Kuisha')}</th>
+                    <th className="py-2 pr-3">{t(language, 'Amount Paid', 'Kiasi Kilicholipwa')}</th>
+                    <th className="py-2 pr-3">{t(language, 'Payment Type', 'Aina ya Malipo')}</th>
+                    <th className="py-2 pr-3">{t(language, 'Balance', 'Salio')}</th>
+                    <th className="py-2 pr-3">{t(language, 'Next Payment', 'Malipo Yanayofuata')}</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {rentPayments.length === 0 ? (
+                    <tr>
+                      <td className="py-3 text-slate-500" colSpan={9}>
+                        {t(
+                          language,
+                          'No rent payment history yet. Save a new rent payment to see it here.',
+                          'Bado hakuna historia ya malipo ya kodi. Hifadhi malipo mapya ya kodi ili yaonekane hapa.'
+                        )}
+                      </td>
+                    </tr>
+                  ) : (
+                    rentPayments.map((row) => (
+                      <tr key={row.id} className="border-b">
+                        <td className="py-2 pr-3">{row.rentPaidDate || '-'}</td>
+                        <td className="py-2 pr-3">{row.houseNumber || '-'}</td>
+                        <td className="py-2 pr-3">{row.tenantName || '-'}</td>
+                        <td className="py-2 pr-3">{row.rentStartDate || '-'}</td>
+                        <td className="py-2 pr-3">{row.rentEndDate || '-'}</td>
+                        <td className="py-2 pr-3">TZS {currency(row.amountPaid)}</td>
+                        <td className="py-2 pr-3">{row.paymentType || '-'}</td>
+                        <td className="py-2 pr-3">TZS {currency(row.balance)}</td>
+                        <td className="py-2 pr-3">{row.nextPaymentDate || '-'}</td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
