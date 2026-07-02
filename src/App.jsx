@@ -1347,6 +1347,20 @@ function Login({ onLogin, users, language, setLanguage }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const loginTheme = getWeeklyLoginTheme();
+    const loginWelcomeNames = {
+    shop1: 'Anko Rashidi / Odo Fatma',
+    shop2: 'Anko Mudi / Odo',
+    shop3: 'Anko Sele',
+    shop4: 'Anko Fredy',
+    shop5: 'Odo Arafa',
+  };
+
+  const typedLoginUsername = String(username || '').trim().toLowerCase();
+  const loginWelcomeName = loginWelcomeNames[typedLoginUsername] || '';
+
+  const loginWelcomeMessage = loginWelcomeName
+    ? t(language, `Karibu ${loginWelcomeName}`, `Karibu ${loginWelcomeName}`)
+    : '';
 
  const submit = async (e) => {
   e.preventDefault();
@@ -1472,6 +1486,11 @@ function Login({ onLogin, users, language, setLanguage }) {
                           'Tumia jina na nenosiri kufungua duka lako.'
                         )}
                       </p>
+                      {loginWelcomeMessage ? (
+  <div className="mt-3 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800 shadow-sm">
+    {loginWelcomeMessage}
+  </div>
+) : null}
                     </div>
 
                     <select
@@ -2027,6 +2046,10 @@ setAppData(nextData);
   setConfirmPasswordInput('');
 };
     const shouldLoadOldOwnerSalesFromSupabase =
+    ownerPeriod === 'today' ||
+    ownerPeriod === 'yesterday' ||
+    ownerPeriod === 'week' ||
+    ownerPeriod === 'month' ||
     ownerPeriod === 'lastweek' ||
     ownerPeriod === 'lastmonth' ||
     ownerPeriod === '3months' ||
@@ -2250,7 +2273,10 @@ const ownerTargetMonthCount = {
 
 const ownerMonthlyGoal = ownerBaseMonthlyGoal * ownerTargetMonthCount;
 
-const ownerMonthlyActual = totalSales;
+const ownerMonthlyActual = ownerMonthlyTargets.reduce(
+  (sum, row) => sum + Number(row.target.actual || 0),
+  0
+);
 
 const ownerMonthlyProgress = ownerMonthlyGoal > 0
   ? (ownerMonthlyActual / ownerMonthlyGoal) * 100
@@ -2662,6 +2688,13 @@ function ShopDashboard({ shop, data, saveData, backToOwner, logout, canBack, lan
   const [activeTab, setActiveTab] = useState('dashboard');
   const [quickSearch, setQuickSearch] = useState('');
   const dashboardLoadingText = 'Inapakia taarifa...';
+    const shopWorkspaceLabel = {
+    'shop-1': t(language, 'Welcome Anko Rashidi / Odo Fatma', 'Karibu Anko Rashidi / Odo Fatma'),
+    'shop-2': t(language, 'Welcome Anko Mudi / Odo', 'Karibu Anko Mudi / Odo'),
+    'shop-3': t(language, 'Welcome Anko Sele', 'Karibu Anko Sele'),
+    'shop-4': t(language, 'Welcome Anko Fredy', 'Karibu Anko Fredy'),
+    'shop-5': t(language, 'Welcome Odo Arafa', 'Karibu Odo Arafa'),
+  }[String(shop.id)] || t(language, 'Shop Workspace', 'Eneo la Kazi la Duka');
   const monthlySalesGoal = getFixedShopMonthlySalesTarget(data, shop.id);
 
   const today = startOfDay(new Date());
@@ -5831,7 +5864,7 @@ banks: mobileMoneyForm.banks.map((b) => ({
               </div>
 
               <div className="mt-3 inline-flex rounded-full bg-gradient-to-r from-indigo-500 via-violet-500 to-fuchsia-500 px-3 py-1 text-xs font-semibold text-white shadow-sm">
-                {t(language, 'Shop Workspace', 'Eneo la Kazi la Duka')}
+                {shopWorkspaceLabel}
               </div>
 
               <h1 className="mt-4 text-3xl font-semibold tracking-tight text-slate-900">
@@ -6133,7 +6166,7 @@ banks: mobileMoneyForm.banks.map((b) => ({
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <div className="rounded-3xl bg-white px-4 py-3 shadow-sm ring-1 ring-emerald-100">
             <div className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">
-              {ownerTargetText.sales}
+              {t(language, 'Sales this month', 'Mauzo ya mwezi huu')}
             </div>
             <div className="mt-1 text-2xl font-black text-slate-900">
   {dashboardDataReady ? `TZS ${currency(monthlySalesGoal.actual)}` : dashboardLoadingText}
@@ -6239,7 +6272,7 @@ banks: mobileMoneyForm.banks.map((b) => ({
       language={language}
       scope="shop"
       lockedShopId={shop.id}
-      titleOverride={t(language, 'Shop Decision Centre', 'Kituo cha Maamuzi ya Duka')}
+      titleOverride={t(language, 'Important Shop Information', 'Taarifa Muhimu za Duka Lako')}
     />
   </div>
 </TabsContent>
