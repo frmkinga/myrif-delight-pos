@@ -2905,6 +2905,13 @@ const [reportDate, setReportDate] = useState(todayISO());
 const [reportStartDate, setReportStartDate] = useState(todayISO());
 const [reportEndDate, setReportEndDate] = useState(todayISO());
 const [reportType, setReportType] = useState('stockValue');
+
+const [commissionReportMonth, setCommissionReportMonth] = useState(() => {
+  const d = new Date();
+  d.setMonth(d.getMonth() - 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+});
+
 const [reportSalesSource, setReportSalesSource] = useState([]);
 const [reportSalesLoading, setReportSalesLoading] = useState(false);
   const [productFormError, setProductFormError] = useState('');
@@ -3221,6 +3228,86 @@ const isOwnerUser = String(data.currentUser?.role || '') === 'owner';
 const isEditingMobileMoney = Boolean(mobileMoneyForm.id);
 const shouldShowMobileMoneyWarning = !isOwnerUser && todayMobileMoneyEntries.length > 0;
 const shouldDisableMobileMoneySave = !isOwnerUser && todayMobileMoneyEntries.length > 0 && !isEditingMobileMoney;
+
+const commissionRecordsForSelectedMonth = (data.monthlyWakalaCommissions || []).filter(
+  (record) => String(record.commissionMonth || '') === String(commissionReportMonth)
+);
+
+const getCommissionAmountFromRows = (rows = [], nameKey, selectedName) =>
+  (Array.isArray(rows) ? rows : [])
+    .filter((row) => String(row?.[nameKey] || '').trim() === String(selectedName).trim())
+    .reduce((sum, row) => sum + Number(row.amount || row.commission || 0), 0);
+
+const commissionShopRows = (data.shops || []).map((reportShop) => {
+  const shopRecords = commissionRecordsForSelectedMonth.filter(
+    (record) => String(record.shop_id || '') === String(reportShop.id)
+  );
+
+  const mobileTotal = shopRecords.reduce(
+    (sum, record) => sum + Number(record.mobileTotal || 0),
+    0
+  );
+
+  const bankTotal = shopRecords.reduce(
+    (sum, record) => sum + Number(record.bankTotal || 0),
+    0
+  );
+
+  const mobileBreakdown = Object.fromEntries(
+    MOBILE_PROVIDERS.map((provider) => [
+      provider,
+      shopRecords.reduce(
+        (sum, record) =>
+          sum + getCommissionAmountFromRows(record.mobileCommissions || [], 'provider', provider),
+        0
+      ),
+    ])
+  );
+
+  const bankBreakdown = Object.fromEntries(
+    BANKS.map((bankName) => [
+      bankName,
+      shopRecords.reduce(
+        (sum, record) =>
+          sum + getCommissionAmountFromRows(record.bankCommissions || [], 'bankName', bankName),
+        0
+      ),
+    ])
+  );
+
+  const recorded = shopRecords.length > 0;
+
+  return {
+    shopId: reportShop.id,
+    shopName: reportShop.name,
+    mobileTotal,
+    bankTotal,
+    grandTotal: mobileTotal + bankTotal,
+    recorded,
+    status: recorded ? t(language, 'Recorded', 'Imejazwa') : t(language, 'Missing', 'Haijajazwa'),
+    mobileBreakdown,
+    bankBreakdown,
+  };
+});
+
+const commissionSummaryTotals = {
+  mobileTotal: commissionShopRows.reduce((sum, row) => sum + Number(row.mobileTotal || 0), 0),
+  bankTotal: commissionShopRows.reduce((sum, row) => sum + Number(row.bankTotal || 0), 0),
+  grandTotal: commissionShopRows.reduce((sum, row) => sum + Number(row.grandTotal || 0), 0),
+  recordedShopCount: commissionShopRows.filter((row) => row.recorded).length,
+  totalShopCount: (data.shops || []).length,
+  missingShopNames: commissionShopRows
+    .filter((row) => !row.recorded)
+    .map((row) => row.shopName),
+};
+
+const commissionNetworkBankRows = commissionShopRows.map((row) => ({
+  shopId: row.shopId,
+  shopName: row.shopName,
+  recorded: row.recorded,
+  mobileBreakdown: row.mobileBreakdown,
+  bankBreakdown: row.bankBreakdown,
+}));
 
 const gasEntries = (data.gasEntries || []).filter(
   (g) => String(g.shop_id) === String(shop.id)
@@ -7177,6 +7264,13 @@ onDeleteGas={deleteGas}
 <option value="mobileMoneyAllShops">
   {t(language, 'Mobile Money All Shops', 'Ripoti ya Wakala Maduka Yote')}
 </option>
+
+{isOwnerUser ? (
+  <option value="monthlyCommissionsReport">
+    {t(language, 'Monthly Commissions Report', 'Ripoti ya Kamisheni za Mwezi')}
+  </option>
+) : null}
+
                   <option value="gas">{t(language, 'Gas Business Report', 'Ripoti ya Biashara ya Gesi')}</option>
 <option value="fastMoving">{t(language, 'Fast Moving Items', 'Bidhaa Zinazotembea Haraka')}</option>
                   <option value="slowMoving">{t(language, 'Slow Moving Items', 'Bidhaa Zinazotembea Polepole')}</option>
@@ -7866,6 +7960,187 @@ onDeleteGas={deleteGas}
           </div>
         ))
     )}
+  </div>
+) : reportType === 'monthlyCommissionsReport' ? (
+  <div className="space-y-6">
+    <div className="rounded-3xl border border-emerald-100 bg-emerald-50/70 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="text-lg font-semibold text-slate-900">
+            {t(language, 'Monthly Commissions Report', 'Ripoti ya Kamisheni za Mwezi')}
+          </div>
+          <div className="mt-1 text-sm text-slate-600">
+            {t(
+              language,
+              'This report shows saved Wakala commissions for all shops.',
+              'Ripoti hii inaonyesha kamisheni za Wakala zilizohifadhiwa kwa maduka yote.'
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Label className="mb-0">
+            {t(language, 'Commission Month', 'Mwezi wa Kamisheni')}
+          </Label>
+          <Input
+            type="month"
+            value={commissionReportMonth}
+            onChange={(e) => setCommissionReportMonth(e.target.value)}
+            className="w-44"
+          />
+        </div>
+      </div>
+    </div>
+
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          {t(language, 'Mobile Money Commission Total', 'Jumla ya Kamisheni za Simu')}
+        </div>
+        <div className="mt-2 text-xl font-bold text-slate-900">
+          TZS {currency(commissionSummaryTotals.mobileTotal)}
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          {t(language, 'Bank Commission Total', 'Jumla ya Kamisheni za Benki')}
+        </div>
+        <div className="mt-2 text-xl font-bold text-slate-900">
+          TZS {currency(commissionSummaryTotals.bankTotal)}
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 shadow-sm">
+        <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+          {t(language, 'Grand Total Commission', 'Jumla Kuu ya Kamisheni')}
+        </div>
+        <div className="mt-2 text-xl font-bold text-emerald-800">
+          TZS {currency(commissionSummaryTotals.grandTotal)}
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          {t(language, 'Number of Shops Recorded', 'Maduka Yaliyojaza')}
+        </div>
+        <div className="mt-2 text-xl font-bold text-slate-900">
+          {commissionSummaryTotals.recordedShopCount} / {commissionSummaryTotals.totalShopCount}
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4 shadow-sm">
+        <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+          {t(language, 'Missing Shops', 'Maduka Ambayo Hayajajaza')}
+        </div>
+        <div className="mt-2 text-sm font-semibold text-amber-800">
+          {commissionSummaryTotals.missingShopNames.length
+            ? commissionSummaryTotals.missingShopNames.join(', ')
+            : t(language, 'None', 'Hakuna')}
+        </div>
+      </div>
+    </div>
+
+    <div className="overflow-x-auto rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="mb-3 text-base font-semibold text-slate-900">
+        {t(language, 'Shop-by-Shop Breakdown', 'Mchanganuo kwa Kila Duka')}
+      </div>
+
+      <table className="w-full min-w-[800px] text-sm">
+        <thead>
+          <tr className="border-b text-left text-slate-500">
+            <th className="py-2 pr-3">{t(language, 'Shop Name', 'Jina la Duka')}</th>
+            <th className="py-2 pr-3">{t(language, 'Mobile Commission', 'Kamisheni za Simu')}</th>
+            <th className="py-2 pr-3">{t(language, 'Bank Commission', 'Kamisheni za Benki')}</th>
+            <th className="py-2 pr-3">{t(language, 'Grand Total', 'Jumla Kuu')}</th>
+            <th className="py-2 pr-3">{t(language, 'Status', 'Hali')}</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {commissionShopRows.map((row) => (
+            <tr key={row.shopId} className="border-b border-slate-100">
+              <td className="py-3 pr-3 font-medium text-slate-900">{row.shopName}</td>
+              <td className="py-3 pr-3">TZS {currency(row.mobileTotal)}</td>
+              <td className="py-3 pr-3">TZS {currency(row.bankTotal)}</td>
+              <td className="py-3 pr-3 font-semibold">TZS {currency(row.grandTotal)}</td>
+              <td className="py-3 pr-3">
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                    row.recorded
+                      ? 'bg-emerald-50 text-emerald-700'
+                      : 'bg-amber-50 text-amber-700'
+                  }`}
+                >
+                  {row.status}
+                </span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+
+    <div className="overflow-x-auto rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="mb-3 text-base font-semibold text-slate-900">
+        {t(language, 'Network / Bank Breakdown', 'Mchanganuo wa Mitandao na Benki')}
+      </div>
+
+      <table className="w-full min-w-[1100px] text-sm">
+        <thead>
+          <tr className="border-b text-left text-slate-500">
+            <th className="py-2 pr-3">{t(language, 'Shop Name', 'Jina la Duka')}</th>
+            {MOBILE_PROVIDERS.map((provider) => (
+              <th key={provider} className="py-2 pr-3">
+                {provider}
+              </th>
+            ))}
+            {BANKS.map((bankName) => (
+              <th key={bankName} className="py-2 pr-3">
+                {bankName}
+              </th>
+            ))}
+            <th className="py-2 pr-3">{t(language, 'Status', 'Hali')}</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {commissionNetworkBankRows.map((row) => (
+            <tr key={row.shopId} className="border-b border-slate-100">
+              <td className="py-3 pr-3 font-medium text-slate-900">
+                {row.shopName}
+              </td>
+
+              {MOBILE_PROVIDERS.map((provider) => (
+                <td key={provider} className="py-3 pr-3">
+                  TZS {currency(row.mobileBreakdown?.[provider] || 0)}
+                </td>
+              ))}
+
+              {BANKS.map((bankName) => (
+                <td key={bankName} className="py-3 pr-3">
+                  TZS {currency(row.bankBreakdown?.[bankName] || 0)}
+                </td>
+              ))}
+
+              <td className="py-3 pr-3">
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                    row.recorded
+                      ? 'bg-emerald-50 text-emerald-700'
+                      : 'bg-amber-50 text-amber-700'
+                  }`}
+                >
+                  {row.recorded
+                    ? t(language, 'Recorded', 'Imejazwa')
+                    : t(language, 'Missing', 'Haijajazwa')}
+                </span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   </div>
 ) : reportType === 'gas' ? (
   <GasReportBlock
