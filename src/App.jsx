@@ -50,32 +50,26 @@ const BACKUP_KEYS = [
 const DEFAULT_LANGUAGE = 'sw';
 const MOBILE_PROVIDERS = ['M-Pesa', 'Mixx by Yas', 'Airtel Money', 'HaloPesa'];
 const BANKS = ['CRDB', 'NMB', 'NBC'];
-const GAS_TYPES = ['Taifa Gas', 'Oryx Gas', 'Mihan / Taifa Gas', 'O Gas', 'Other'];
+const GAS_TYPES = ['Taifa / Mihan Gas', 'Oryx Gas', 'O Gas', 'Other'];
 const GAS_CYLINDER_SIZES = ['Small Cylinder', 'Big Cylinder'];
 const GAS_PRICE_BOOK = {
-  'Taifa Gas': {
-    smallBuy: 20500,
-    smallSell: 25000,
-    bigBuy: 49000,
-    bigSell: 55000,
-  },
-  'Mihan / Taifa Gas': {
-    smallBuy: 20500,
-    smallSell: 25000,
-    bigBuy: 49000,
-    bigSell: 55000,
+  'Taifa / Mihan Gas': {
+    smallBuy: 23500,
+    smallSell: 26000,
+    bigBuy: 55000,
+    bigSell: 60000,
   },
   'Oryx Gas': {
     smallBuy: 24500,
     smallSell: 27000,
     bigBuy: 56000,
-    bigSell: 60000,
+    bigSell: 62000,
   },
   'O Gas': {
-    smallBuy: 21000,
-    smallSell: 25000,
-    bigBuy: 49000,
-    bigSell: 55000,
+    smallBuy: 24500,
+    smallSell: 27000,
+    bigBuy: 56000,
+    bigSell: 62000,
   },
 };
 
@@ -749,7 +743,7 @@ const RECURRING_EXPENSES_BY_SHOP = {
 const emptyGasForm = {
   id: '',
   date: todayISO(),
-  gasType: 'Taifa Gas',
+  gasType: 'Taifa / Mihan Gas',
   cylinderSize: 'Small Cylinder',
   totalCylinders: '',
   smallCylindersTotal: '',
@@ -767,7 +761,7 @@ const emptyGasForm = {
 };
 const emptyGasSaleRow = {
   id: '',
-  gasType: 'Taifa Gas',
+  gasType: 'Taifa / Mihan Gas',
   smallGasSoldToday: '',
   bigGasSoldToday: '',
   smallGasBuyPrice: '',
@@ -2922,7 +2916,7 @@ const saleLock = useRef(false);
   const [changeReduceMap, setChangeReduceMap] = useState({});
 const [gasForm, setGasForm] = useState({
   ...emptyGasForm,
-  gasType: 'Taifa Gas',
+  gasType: 'Taifa / Mihan Gas',
   cylinderSize: 'Small Cylinder',
   smallGasBuyPrice: '',
   smallGasSellPrice: '',
@@ -2934,7 +2928,7 @@ const [gasSalesRows, setGasSalesRows] = useState([
   {
     ...emptyGasSaleRow,
     id: `gas-sale-${Date.now()}`,
-    gasType: 'Taifa Gas',
+    gasType: 'Taifa / Mihan Gas',
     smallGasBuyPrice: '20500',
     smallGasSellPrice: '25000',
     bigGasBuyPrice: '49000',
@@ -3004,15 +2998,19 @@ const saveGas = async (formOverride = null, options = {}) => {
     return true;
   }
 
+  const resetGasType = record.gasType || 'Taifa / Mihan Gas';
+  const resetDefaultPrices =
+    GAS_PRICE_BOOK[resetGasType] || GAS_PRICE_BOOK['Taifa / Mihan Gas'] || {};
+
   setGasForm({
     ...emptyGasForm,
     date: todayISO(),
-    gasType: 'Taifa Gas',
+    gasType: resetGasType,
     cylinderSize: 'Small Cylinder',
-    smallGasBuyPrice: String(GAS_PRICE_BOOK['Taifa Gas'].smallBuy),
-    smallGasSellPrice: String(GAS_PRICE_BOOK['Taifa Gas'].smallSell),
-    bigGasBuyPrice: String(GAS_PRICE_BOOK['Taifa Gas'].bigBuy),
-    bigGasSellPrice: String(GAS_PRICE_BOOK['Taifa Gas'].bigSell),
+    smallGasBuyPrice: String(record.smallGasBuyPrice || resetDefaultPrices.smallBuy || ''),
+    smallGasSellPrice: String(record.smallGasSellPrice || resetDefaultPrices.smallSell || ''),
+    bigGasBuyPrice: String(record.bigGasBuyPrice || resetDefaultPrices.bigBuy || ''),
+    bigGasSellPrice: String(record.bigGasSellPrice || resetDefaultPrices.bigSell || ''),
   });
 
   return true;
@@ -3023,7 +3021,7 @@ const editGas = (entry) => {
   setGasForm({
     id: entry.id,
     date: entry.date,
-    gasType: entry.gasType || 'Taifa Gas',
+    gasType: entry.gasType || 'Taifa / Mihan Gas',
     cylinderSize: entry.cylinderSize || 'Small Cylinder',
     totalCylinders: String(entry.totalCylinders || ''),
     smallCylindersTotal: String(entry.smallCylindersTotal || ''),
@@ -3072,7 +3070,7 @@ const addGasSalesRow = () => {
    {
   ...emptyGasSaleRow,
   id: `gas-sale-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-  gasType: 'Taifa Gas',
+  gasType: 'Taifa / Mihan Gas',
   smallGasBuyPrice: '20500',
   smallGasSellPrice: '25000',
   bigGasBuyPrice: '49000',
@@ -3098,7 +3096,7 @@ const updateGasSalesRow = (rowId, field, value) => {
   };
 }
 
-if (value === 'Taifa Gas' || value === 'Mihan / Taifa Gas') {
+if (value === 'Taifa / Mihan Gas' || value === 'Mihan / Taifa Gas') {
   return {
     ...row,
     gasType: value,
@@ -8392,7 +8390,17 @@ onDeleteGas={deleteGas}
   </CardHeader>
 
   <CardContent className="space-y-5">
-    <div>
+    {monthlyCommissionForm.id ? (
+      <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-800">
+        {t(
+          language,
+          'You are editing a saved monthly commission. After changing the figures, press Update Monthly Commission.',
+          'Unahariri kamisheni ya mwezi iliyohifadhiwa. Baada ya kubadilisha taarifa, bonyeza Sasisha Kamisheni ya Mwezi.'
+        )}
+      </div>
+    ) : null}
+
+    <div id="monthly-commission-edit-form">
       <Label>{t(language, 'Commission Month', 'Mwezi wa Kamisheni')}</Label>
       <Input
         type="month"
@@ -8679,6 +8687,11 @@ onDeleteGas={deleteGas}
           }),
           notes: record.notes || '',
         });
+                setTimeout(() => {
+          document
+            .getElementById('monthly-commission-edit-form')
+            ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 0);
       }}
     >
       {t(language, 'Edit', 'Hariri')}

@@ -1,28 +1,23 @@
 import React, { useMemo, useState } from 'react';
 import { Pencil, Trash2, PlusCircle } from 'lucide-react';
 const GAS_PRICE_BOOK = {
-  'Taifa Gas': {
-    // Mihan/Taifa Gas use the same company price
-    smallBuy: 20500,
-    smallSell: 25000,
-    bigBuy: 49000,
-    bigSell: 55000,
+  'Taifa / Mihan Gas': {
+    smallBuy: 23500,
+    smallSell: 26000,
+    bigBuy: 55000,
+    bigSell: 60000,
   },
   'Oryx Gas': {
     smallBuy: 24500,
     smallSell: 27000,
     bigBuy: 56000,
-    bigSell: 60000,
+    bigSell: 62000,
   },
   'O Gas': {
-    // O Gas is currently used for small cylinder only.
-    smallBuy: 21000,
-    smallSell: 25000,
-
-    // Keep these unchanged for now to avoid breaking any existing code
-    // that expects bigBuy/bigSell to exist.
-    bigBuy: 49000,
-    bigSell: 55000,
+    smallBuy: 24500,
+    smallSell: 27000,
+    bigBuy: 56000,
+    bigSell: 62000,
   },
 };
 function getGasProfitBreakdown(entry) {
@@ -109,7 +104,7 @@ export function buildGasRecord(gasForm, existingEntry) {
   return {
   id: gasForm.id || `gas-${Date.now()}`,
   date: gasForm.date,
-  gasType: gasForm.gasType || 'Taifa Gas',
+  gasType: gasForm.gasType || 'Taifa / Mihan Gas',
   cylinderSize: gasForm.cylinderSize || 'Small Cylinder',
     totalCylinders: Number(gasForm.totalCylinders || 0),
     smallCylindersTotal: Number(gasForm.smallCylindersTotal || 0),
@@ -244,10 +239,121 @@ const [quickGasSaleForm, setQuickGasSaleForm] = useState({
   gasType: '',
   cylinderSize: '',
   quantity: '1',
+  buyPrice: '',
+  sellPrice: '',
 });
 
+const normalizeGasTypeName = (value) => {
+  const name = String(value || '').trim();
+
+  // These old names are kept only so old saved records can still be read correctly.
+  if (name === 'Taifa Gas' || name === 'Mihan / Taifa Gas' || name === 'Taifa / Mihan Gas') {
+    return 'Taifa / Mihan Gas';
+  }
+
+  return name;
+};
+
+const getLatestGasPriceValues = (gasTypeValue) => {
+  const gasType = normalizeGasTypeName(gasTypeValue);
+  const priceDefaults = GAS_PRICE_BOOK[gasType] || {};
+
+  const latestSavedPriceRecord = (gasEntries || [])
+    .filter((entry) => normalizeGasTypeName(entry.gasType) === gasType)
+    .slice()
+    .sort((a, b) => {
+      const dateCompare = String(b.date || '').localeCompare(String(a.date || ''));
+      if (dateCompare !== 0) return dateCompare;
+
+      return String(b.id || '').localeCompare(String(a.id || ''));
+    })[0];
+
+  return {
+    smallGasBuyPrice: String(latestSavedPriceRecord?.smallGasBuyPrice || priceDefaults.smallBuy || ''),
+    smallGasSellPrice: String(latestSavedPriceRecord?.smallGasSellPrice || priceDefaults.smallSell || ''),
+    bigGasBuyPrice: String(latestSavedPriceRecord?.bigGasBuyPrice || priceDefaults.bigBuy || ''),
+    bigGasSellPrice: String(latestSavedPriceRecord?.bigGasSellPrice || priceDefaults.bigSell || ''),
+  };
+};
+
+const getGasPriceForSelectedSize = (gasTypeValue, cylinderSizeValue) => {
+  const latestPrices = getLatestGasPriceValues(gasTypeValue);
+  const isSmall = cylinderSizeValue === 'Small Cylinder';
+
+  return {
+    buyPrice: isSmall ? latestPrices.smallGasBuyPrice : latestPrices.bigGasBuyPrice,
+    sellPrice: isSmall ? latestPrices.smallGasSellPrice : latestPrices.bigGasSellPrice,
+  };
+};
+
+const defaultGasPriceForm = {
+  gasType: 'Taifa / Mihan Gas',
+  cylinderSize: 'Small Cylinder',
+  ...getGasPriceForSelectedSize('Taifa / Mihan Gas', 'Small Cylinder'),
+};
+
+const [gasPriceForm, setGasPriceForm] = useState(defaultGasPriceForm);
+
+const saveGasPriceSettings = async () => {
+  const selectedGasType = normalizeGasTypeName(gasPriceForm.gasType);
+  const selectedCylinderSize = gasPriceForm.cylinderSize || 'Small Cylinder';
+  const isSmall = selectedCylinderSize === 'Small Cylinder';
+
+  if (!selectedGasType) {
+    alert(t(language, 'Please select gas type.', 'Tafadhali chagua aina ya gesi.'));
+    return;
+  }
+
+  if (!gasPriceForm.buyPrice || !gasPriceForm.sellPrice) {
+    alert(t(language, 'Please enter buying and selling price.', 'Tafadhali jaza bei ya kununua na bei ya kuuza.'));
+    return;
+  }
+
+  const latestPrices = getLatestGasPriceValues(selectedGasType);
+
+  const todayPriceRecord =
+    (todayGasEntries || []).find(
+      (entry) =>
+        String(entry.date || '') === String(todayISO()) &&
+        normalizeGasTypeName(entry.gasType) === selectedGasType
+    ) || null;
+
+  const base = todayPriceRecord || {};
+
+  const nextGasForm = {
+    ...base,
+    id: base.id || `gas-price-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    date: todayISO(),
+    gasType: selectedGasType,
+    cylinderSize: selectedCylinderSize,
+
+    totalCylinders: String(base.totalCylinders || ''),
+    smallCylindersTotal: String(base.smallCylindersTotal || ''),
+    bigCylindersTotal: String(base.bigCylindersTotal || ''),
+    smallCylindersWithGas: String(base.smallCylindersWithGas || ''),
+    bigCylindersWithGas: String(base.bigCylindersWithGas || ''),
+    smallEmptyCylinders: String(base.smallEmptyCylinders || ''),
+    bigEmptyCylinders: String(base.bigEmptyCylinders || ''),
+    smallGasSoldToday: String(base.smallGasSoldToday || ''),
+    bigGasSoldToday: String(base.bigGasSoldToday || ''),
+
+    smallGasBuyPrice: String(isSmall ? gasPriceForm.buyPrice : latestPrices.smallGasBuyPrice || 0),
+    smallGasSellPrice: String(isSmall ? gasPriceForm.sellPrice : latestPrices.smallGasSellPrice || 0),
+    bigGasBuyPrice: String(!isSmall ? gasPriceForm.buyPrice : latestPrices.bigGasBuyPrice || 0),
+    bigGasSellPrice: String(!isSmall ? gasPriceForm.sellPrice : latestPrices.bigGasSellPrice || 0),
+  };
+
+  const saved = await onSaveGas(nextGasForm, { keepGasForm: true });
+
+  if (saved) {
+    alert(t(language, 'Gas prices updated successfully.', 'Bei za gesi zimesasishwa kikamilifu.'));
+  }
+};
+const parseGasPriceValue = (value) =>
+  Number(String(value || '').replace(/TZS/g, '').replace(/,/g, '').trim() || 0);
+
 const quickGasPrices = useMemo(() => {
-  const gasType = quickGasSaleForm.gasType;
+  const gasType = normalizeGasTypeName(quickGasSaleForm.gasType);
   const cylinderSize = quickGasSaleForm.cylinderSize;
 
   if (!gasType || !cylinderSize) {
@@ -257,22 +363,53 @@ const quickGasPrices = useMemo(() => {
     };
   }
 
-  const priceDefaults = GAS_PRICE_BOOK[gasType] || null;
-
-  if (!priceDefaults) {
-    return {
-      buyPrice: 0,
-      sellPrice: 0,
-    };
-  }
-
   const isSmall = cylinderSize === 'Small Cylinder';
 
+  const latestSavedPriceRecord = (gasEntries || [])
+    .filter((entry) => normalizeGasTypeName(entry.gasType) === gasType)
+    .slice()
+    .sort((a, b) => {
+      const dateCompare = String(b.date || '').localeCompare(String(a.date || ''));
+      if (dateCompare !== 0) return dateCompare;
+
+      return String(b.id || '').localeCompare(String(a.id || ''));
+    })[0];
+
+  const savedBuyPrice = isSmall
+    ? Number(latestSavedPriceRecord?.smallGasBuyPrice || 0)
+    : Number(latestSavedPriceRecord?.bigGasBuyPrice || 0);
+
+  const savedSellPrice = isSmall
+    ? Number(latestSavedPriceRecord?.smallGasSellPrice || 0)
+    : Number(latestSavedPriceRecord?.bigGasSellPrice || 0);
+
+  const priceDefaults = GAS_PRICE_BOOK[gasType] || {};
+
+  const defaultBuyPrice = isSmall
+    ? Number(priceDefaults.smallBuy || 0)
+    : Number(priceDefaults.bigBuy || 0);
+
+  const defaultSellPrice = isSmall
+    ? Number(priceDefaults.smallSell || 0)
+    : Number(priceDefaults.bigSell || 0);
+
+  const resolvedBuyPrice = savedBuyPrice > 0 ? savedBuyPrice : defaultBuyPrice;
+  const resolvedSellPrice = savedSellPrice > 0 ? savedSellPrice : defaultSellPrice;
+
+  const manualBuyPrice = parseGasPriceValue(quickGasSaleForm.buyPrice);
+  const manualSellPrice = parseGasPriceValue(quickGasSaleForm.sellPrice);
+
   return {
-    buyPrice: isSmall ? Number(priceDefaults.smallBuy || 0) : Number(priceDefaults.bigBuy || 0),
-    sellPrice: isSmall ? Number(priceDefaults.smallSell || 0) : Number(priceDefaults.bigSell || 0),
+    buyPrice: manualBuyPrice > 0 ? manualBuyPrice : resolvedBuyPrice,
+    sellPrice: manualSellPrice > 0 ? manualSellPrice : resolvedSellPrice,
   };
-}, [quickGasSaleForm.gasType, quickGasSaleForm.cylinderSize]);
+}, [
+  quickGasSaleForm.gasType,
+  quickGasSaleForm.cylinderSize,
+  quickGasSaleForm.buyPrice,
+  quickGasSaleForm.sellPrice,
+  gasEntries,
+]);
 
 const quickGasSalePreview = useMemo(() => {
   const qty = Number(quickGasSaleForm.quantity || 0);
@@ -308,6 +445,9 @@ if (!qty || qty <= 0) {
   }
 
   const isSmall = quickGasSaleForm.cylinderSize === 'Small Cylinder';
+  const selectedGasType = normalizeGasTypeName(quickGasSaleForm.gasType);
+  const selectedDefaultPrices = GAS_PRICE_BOOK[selectedGasType] || {};
+
   const todayRecord =
     (todayGasEntries || []).find((entry) => String(entry.date || '') === String(quickGasSaleForm.date || todayISO())) ||
     null;
@@ -318,20 +458,28 @@ if (!qty || qty <= 0) {
     ...base,
     id: base.id || gasForm.id || '',
     date: quickGasSaleForm.date || todayISO(),
-    gasType: quickGasSaleForm.gasType || 'Taifa Gas',
+    gasType: selectedGasType || 'Taifa / Mihan Gas',
     cylinderSize: quickGasSaleForm.cylinderSize || 'Small Cylinder',
 
     smallGasBuyPrice: String(
-      isSmall ? quickGasPrices.buyPrice : (base.smallGasBuyPrice || GAS_PRICE_BOOK[quickGasSaleForm.gasType]?.smallBuy || 0)
+      isSmall
+        ? quickGasPrices.buyPrice
+        : (base.smallGasBuyPrice || selectedDefaultPrices.smallBuy || 0)
     ),
     smallGasSellPrice: String(
-      isSmall ? quickGasPrices.sellPrice : (base.smallGasSellPrice || GAS_PRICE_BOOK[quickGasSaleForm.gasType]?.smallSell || 0)
+      isSmall
+        ? quickGasPrices.sellPrice
+        : (base.smallGasSellPrice || selectedDefaultPrices.smallSell || 0)
     ),
     bigGasBuyPrice: String(
-      !isSmall ? quickGasPrices.buyPrice : (base.bigGasBuyPrice || GAS_PRICE_BOOK[quickGasSaleForm.gasType]?.bigBuy || 0)
+      !isSmall
+        ? quickGasPrices.buyPrice
+        : (base.bigGasBuyPrice || selectedDefaultPrices.bigBuy || 0)
     ),
     bigGasSellPrice: String(
-      !isSmall ? quickGasPrices.sellPrice : (base.bigGasSellPrice || GAS_PRICE_BOOK[quickGasSaleForm.gasType]?.bigSell || 0)
+      !isSmall
+        ? quickGasPrices.sellPrice
+        : (base.bigGasSellPrice || selectedDefaultPrices.bigSell || 0)
     ),
 
     smallGasSoldToday: String(Number(base.smallGasSoldToday || 0) + (isSmall ? qty : 0)),
@@ -365,13 +513,15 @@ if (!qty || qty <= 0) {
   gasType: '',
   cylinderSize: '',
   quantity: '1',
+  buyPrice: '',
+  sellPrice: '',
 }));
   }
 };
 
   return (
     <div className="grid gap-4 xl:grid-cols-2">
-      <Card>
+      <Card className="xl:col-span-2">
         <CardHeader>
           <CardTitle>{t(language, 'Gas Business', 'Biashara ya Gesi')}</CardTitle>
         </CardHeader>
@@ -580,7 +730,7 @@ if (!qty || qty <= 0) {
           setGasForm({
             id: '',
             date: todayISO(),
-            gasType: 'Taifa Gas',
+            gasType: 'Taifa / Mihan Gas',
             cylinderSize: 'Small Cylinder',
             totalCylinders: '',
             smallCylindersTotal: '',
@@ -607,6 +757,112 @@ bigGasSellPrice: '',
       </Card>
 
             <Card>
+        <CardHeader>
+          <CardTitle>{t(language, 'Update Gas Prices', 'Sasisha Bei za Gesi')}</CardTitle>
+        </CardHeader>
+
+        <CardContent className="space-y-4">
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+            <div className="mb-3">
+              <div className="text-sm font-semibold text-amber-900">
+                {t(language, 'Update Gas Prices', 'Sasisha Bei za Gesi')}
+              </div>
+              <div className="text-xs text-amber-700">
+                {t(
+                  language,
+                  'Update prices before selling. Sell Gas will use these prices automatically.',
+                  'Sasisha bei kabla ya kuuza. Uza Gesi itatumia bei hizi kiotomatiki.'
+                )}
+              </div>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <div>
+                <div className="mb-1 text-sm text-slate-600">
+                  {t(language, 'Gas Company', 'Kampuni ya Gesi')}
+                </div>
+                <select
+                  className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+                  value={gasPriceForm.gasType}
+                  onChange={(e) => {
+                    const nextGasType = e.target.value;
+                    setGasPriceForm((prev) => ({
+                      ...prev,
+                      gasType: nextGasType,
+                      ...getGasPriceForSelectedSize(nextGasType, prev.cylinderSize),
+                    }));
+                  }}
+                >
+                  {gasTypes
+                    .filter((type) => type !== 'Other')
+                    .map((type) => (
+                      <option key={type} value={type}>
+                        {type}
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              <div>
+                <div className="mb-1 text-sm text-slate-600">
+                  {t(language, 'Cylinder Size', 'Ukubwa wa Mtungi')}
+                </div>
+                <select
+                  className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+                  value={gasPriceForm.cylinderSize}
+                  onChange={(e) => {
+                    const nextCylinderSize = e.target.value;
+                    setGasPriceForm((prev) => ({
+                      ...prev,
+                      cylinderSize: nextCylinderSize,
+                      ...getGasPriceForSelectedSize(prev.gasType, nextCylinderSize),
+                    }));
+                  }}
+                >
+                  <option value="Small Cylinder">
+                    {t(language, 'Small Cylinder', 'Mtungi Mdogo')}
+                  </option>
+                  <option value="Big Cylinder">
+                    {t(language, 'Big Cylinder', 'Mtungi Mkubwa')}
+                  </option>
+                </select>
+              </div>
+
+              <Input
+                type="number"
+                label={t(language, 'Buying Price', 'Bei ya Kununua')}
+                value={gasPriceForm.buyPrice}
+                onChange={(e) =>
+                  setGasPriceForm((prev) => ({
+                    ...prev,
+                    buyPrice: e.target.value,
+                  }))
+                }
+              />
+
+              <Input
+                type="number"
+                label={t(language, 'Selling Price', 'Bei ya Kuuza')}
+                value={gasPriceForm.sellPrice}
+                onChange={(e) =>
+                  setGasPriceForm((prev) => ({
+                    ...prev,
+                    sellPrice: e.target.value,
+                  }))
+                }
+              />
+            </div>
+
+            <div className="mt-3">
+              <Button type="button" onClick={saveGasPriceSettings}>
+                {t(language, 'Save Gas Prices', 'Hifadhi Bei za Gesi')}
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
         <CardHeader>
           <CardTitle>{t(language, 'Sell Gas', 'Uza Gesi')}</CardTitle>
         </CardHeader>
@@ -638,9 +894,11 @@ bigGasSellPrice: '',
   value={quickGasSaleForm.gasType}
   onChange={(e) =>
     setQuickGasSaleForm((prev) => ({
-      ...prev,
-      gasType: e.target.value,
-    }))
+  ...prev,
+  gasType: e.target.value,
+  buyPrice: '',
+  sellPrice: '',
+}))
   }
 >
   <option value="">
@@ -662,9 +920,11 @@ bigGasSellPrice: '',
   value={quickGasSaleForm.cylinderSize}
   onChange={(e) =>
     setQuickGasSaleForm((prev) => ({
-      ...prev,
-      cylinderSize: e.target.value,
-    }))
+  ...prev,
+  cylinderSize: e.target.value,
+  buyPrice: '',
+  sellPrice: '',
+}))
   }
 >
   <option value="">
@@ -688,16 +948,28 @@ bigGasSellPrice: '',
             />
 
             <Input
-              label={t(language, 'Buying Price', 'Bei ya Kununua')}
-              value={`TZS ${currency(quickGasPrices.buyPrice)}`}
-              readOnly
-            />
+  type="number"
+  label={t(language, 'Buying Price', 'Bei ya Kununua')}
+  value={quickGasSaleForm.buyPrice || quickGasPrices.buyPrice || ''}
+  onChange={(e) =>
+    setQuickGasSaleForm((prev) => ({
+      ...prev,
+      buyPrice: e.target.value,
+    }))
+  }
+/>
 
             <Input
-              label={t(language, 'Selling Price', 'Bei ya Kuuza')}
-              value={`TZS ${currency(quickGasPrices.sellPrice)}`}
-              readOnly
-            />
+  type="number"
+  label={t(language, 'Selling Price', 'Bei ya Kuuza')}
+  value={quickGasSaleForm.sellPrice || quickGasPrices.sellPrice || ''}
+  onChange={(e) =>
+    setQuickGasSaleForm((prev) => ({
+      ...prev,
+      sellPrice: e.target.value,
+    }))
+  }
+/>
           </div>
 
           <div className="grid gap-3 md:grid-cols-3 text-sm">
@@ -727,7 +999,7 @@ bigGasSellPrice: '',
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="xl:col-span-2">
         <CardHeader>
           <CardTitle>{t(language, 'Saved Gas Records', 'Rekodi za Gesi')}</CardTitle>
         </CardHeader>
