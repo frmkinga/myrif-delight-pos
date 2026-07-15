@@ -708,36 +708,54 @@ const emptyCreditRow = { id: '', customerName: '', amount: '', phone: '', notes:
 const emptyChangeRow = { id: '', customerName: '', amountOwed: '', notes: '' };
 const emptyNetworkRow = { provider: 'M-Pesa', float: '' };
 const emptyBankRow = { bankName: 'CRDB', float: '' };
+function getDailyElectricityExpenseAmount(inputDate = new Date()) {
+  const d = new Date(inputDate);
+  const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+
+  return Math.round(15000 / daysInMonth);
+}
+
+const dailyElectricityExpense = String(getDailyElectricityExpenseAmount());
+
 const RECURRING_EXPENSES_BY_SHOP = {
   'shop-1': [
     { title: 'Home Expenses', amount: '10000', category: 'Recurring', notes: '' },
     { title: 'Salaries', amount: '10000', category: 'Recurring', notes: '' },
     { title: 'Medical', amount: '1500', category: 'Recurring', notes: '' },
     { title: 'TRA', amount: '1500', category: 'Recurring', notes: '' },
+    { title: 'Electricity', amount: dailyElectricityExpense, category: 'Recurring', notes: 'Monthly electricity TZS 15,000 divided by days of the month' },
   ],
   'shop-2': [
     { title: 'Home Expenses', amount: '10000', category: 'Recurring', notes: '' },
     { title: 'Salaries', amount: '10000', category: 'Recurring', notes: '' },
     { title: 'Medical', amount: '1500', category: 'Recurring', notes: '' },
     { title: 'TRA', amount: '1500', category: 'Recurring', notes: '' },
+    { title: 'Electricity', amount: dailyElectricityExpense, category: 'Recurring', notes: 'Monthly electricity TZS 15,000 divided by days of the month' },
+    { title: 'Fare', amount: '3000', category: 'Recurring', notes: 'Daily fare to and from work' },
   ],
   'shop-3': [
     { title: 'Home Expenses', amount: '5000', category: 'Recurring', notes: '' },
     { title: 'Salaries', amount: '5000', category: 'Recurring', notes: '' },
     { title: 'Medical', amount: '1000', category: 'Recurring', notes: '' },
     { title: 'TRA', amount: '1000', category: 'Recurring', notes: '' },
+    { title: 'Electricity', amount: dailyElectricityExpense, category: 'Recurring', notes: 'Monthly electricity TZS 15,000 divided by days of the month' },
+    { title: 'Fare', amount: '3000', category: 'Recurring', notes: 'Daily fare to and from work' },
   ],
   'shop-4': [
-    { title: 'Home Expenses', amount: '0', category: 'Recurring', notes: '' },
-    { title: 'Salaries', amount: '5000', category: 'Recurring', notes: '' },
-    { title: 'Medical', amount: '1000', category: 'Recurring', notes: '' },
-    { title: 'TRA', amount: '1000', category: 'Recurring', notes: '' },
-  ],
-  'shop-5': [
     { title: 'Home Expenses', amount: '5000', category: 'Recurring', notes: '' },
     { title: 'Salaries', amount: '5000', category: 'Recurring', notes: '' },
     { title: 'Medical', amount: '1000', category: 'Recurring', notes: '' },
     { title: 'TRA', amount: '1000', category: 'Recurring', notes: '' },
+    { title: 'Electricity', amount: dailyElectricityExpense, category: 'Recurring', notes: 'Monthly electricity TZS 15,000 divided by days of the month' },
+    { title: 'Fare', amount: '3000', category: 'Recurring', notes: 'Daily fare to and from work' },
+  ],
+  'shop-5': [
+    { title: 'Home Expenses', amount: '10000', category: 'Recurring', notes: '' },
+    { title: 'Salaries', amount: '5000', category: 'Recurring', notes: '' },
+    { title: 'Medical', amount: '1000', category: 'Recurring', notes: '' },
+    { title: 'TRA', amount: '1000', category: 'Recurring', notes: '' },
+    { title: 'Electricity', amount: dailyElectricityExpense, category: 'Recurring', notes: 'Monthly electricity TZS 15,000 divided by days of the month' },
+    { title: 'Fare', amount: '3000', category: 'Recurring', notes: 'Daily fare to and from work' },
   ],
 };
 const emptyGasForm = {
@@ -1998,6 +2016,9 @@ const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
 const [passwordMessage, setPasswordMessage] = useState('');
 const [ownerSalesSource, setOwnerSalesSource] = useState([]);
 const [ownerSalesLoading, setOwnerSalesLoading] = useState(false);
+
+const ownerConfirmedPeriodReady = dashboardDataReady && !ownerSalesLoading;
+
 const changeAdminPassword = () => {
   const ownerUser = data.users.find((u) => u.role === 'owner');
 
@@ -2039,16 +2060,7 @@ setAppData(nextData);
   setNewPasswordInput('');
   setConfirmPasswordInput('');
 };
-    const shouldLoadOldOwnerSalesFromSupabase =
-    ownerPeriod === 'today' ||
-    ownerPeriod === 'yesterday' ||
-    ownerPeriod === 'week' ||
-    ownerPeriod === 'month' ||
-    ownerPeriod === 'lastweek' ||
-    ownerPeriod === 'lastmonth' ||
-    ownerPeriod === '3months' ||
-    ownerPeriod === '6months' ||
-    ownerPeriod === 'year';
+    const shouldLoadOldOwnerSalesFromSupabase = false;
 
   useEffect(() => {
     if (!shouldLoadOldOwnerSalesFromSupabase) {
@@ -2402,28 +2414,28 @@ const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(e
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
   <StatCard
     title={`${t(language, 'Total Sales', 'Jumla ya Mauzo')} ${ownerPeriodLabel}`}
-    value={dashboardDataReady ? `TZS ${currency(totalSales)}` : ownerDashboardLoadingText}
+    value={ownerConfirmedPeriodReady ? `TZS ${currency(totalSales)}` : ownerDashboardLoadingText}
     icon={ShoppingCart}
     color="from-fuchsia-500 to-purple-600"
   />
 
   <StatCard
     title={`${t(language, 'Total Expenses', 'Jumla ya Matumizi')} ${ownerPeriodLabel}`}
-    value={dashboardDataReady ? `TZS ${currency(totalExpenses)}` : ownerDashboardLoadingText}
+    value={ownerConfirmedPeriodReady ? `TZS ${currency(totalExpenses)}` : ownerDashboardLoadingText}
     icon={AlertTriangle}
     color="from-orange-400 to-pink-500"
   />
 
   <StatCard
     title={`${t(language, 'Profit', 'Faida ya')} ${ownerPeriodLabel}`}
-    value={dashboardDataReady ? `TZS ${currency(totalProfit)}` : ownerDashboardLoadingText}
+    value={ownerConfirmedPeriodReady ? `TZS ${currency(totalProfit)}` : ownerDashboardLoadingText}
     icon={Wallet}
     color="from-violet-500 to-indigo-700"
   />
 
   <StatCard
     title={t(language, 'Current Mobile Money Capital', 'Mtaji wa Sasa wa Simu')}
-    value={dashboardDataReady ? `TZS ${currency(totalMobileCapital)}` : ownerDashboardLoadingText}
+    value={ownerConfirmedPeriodReady ? `TZS ${currency(totalMobileCapital)}` : ownerDashboardLoadingText}
     subtitle={t(language, 'Based on latest entry per shop', 'Kutokana na rekodi ya mwisho ya kila duka')}
     icon={HandCoins}
     color="from-blue-500 to-cyan-600"
@@ -2431,12 +2443,13 @@ const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(e
 
   <StatCard
     title={t(language, 'Current Bank Capital', 'Mtaji wa Sasa wa Benki')}
-    value={dashboardDataReady ? `TZS ${currency(totalBankCapital)}` : ownerDashboardLoadingText}
+    value={ownerConfirmedPeriodReady ? `TZS ${currency(totalBankCapital)}` : ownerDashboardLoadingText}
     subtitle={t(language, 'Based on latest entry per shop', 'Kutokana na rekodi ya mwisho ya kila duka')}
     icon={Building2}
     color="from-indigo-500 to-blue-700"
   />
 </div>
+
 <Card className="mt-6 border-white/40 bg-white/70 shadow-lg backdrop-blur-md">
   <CardHeader>
     <CardTitle>{t(language, 'Business Profit Breakdown', 'Muhtasari wa Faida za Biashara')}</CardTitle>
@@ -2818,22 +2831,36 @@ const autoSaveRecurringExpensesForToday = async () => {
   recurringAutoSaveRef.current = autoSaveKey;
 
   const rowsToAutoSave = recurringExpenseDefaults
-    .map((item, idx) => ({
-      id: `recurring-${shop.id}-${today}-${idx}`,
-      shop_id: shop.id,
-      title: item.title,
-      description: item.title,
-      amount: Number(item.amount || 0),
-      category: item.category || 'Recurring',
-      date: today,
-      notes: item.notes || 'Auto-saved fixed daily expense',
-      created_at: new Date().toISOString(),
-      autoRecurring: true,
-      auto_recurring: true,
-      recurring_key: `recurring-${shop.id}-${today}-${idx}`,
-      sync_source: 'auto_recurring',
-    }))
-    .filter((item, idx) => Number(item.amount || 0) > 0 && !isRecurringExpenseSavedForDate(item, idx, today));
+    .map((item, idx) => {
+      const preparedId = `recurring-${shop.id}-${today}-${idx}`;
+
+      const existingExpense = (data.expenses || []).find(
+        (expense) =>
+          String(expense.shop_id || expense.shopId || '') === String(shop.id) &&
+          String(expense.date || '') === String(today) &&
+          String(expense.title || expense.description || '').trim().toLowerCase() ===
+            String(item.title || '').trim().toLowerCase() &&
+          String(expense.category || '').trim().toLowerCase() ===
+            String(item.category || 'Recurring').trim().toLowerCase()
+      );
+
+      return {
+        id: existingExpense?.id || preparedId,
+        shop_id: shop.id,
+        title: item.title,
+        description: item.title,
+        amount: Number(item.amount || 0),
+        category: item.category || 'Recurring',
+        date: today,
+        notes: item.notes || 'Auto-saved fixed daily expense',
+        created_at: existingExpense?.created_at || new Date().toISOString(),
+        autoRecurring: true,
+        auto_recurring: true,
+        recurring_key: existingExpense?.recurring_key || preparedId,
+        sync_source: 'auto_recurring',
+      };
+    })
+    .filter((item) => Number(item.amount || 0) > 0);
 
   if (!rowsToAutoSave.length) {
     setExpenseRows([{ ...emptyExpenseRow }]);
@@ -2873,7 +2900,26 @@ const autoSaveRecurringExpensesForToday = async () => {
     });
   }
 
-  const nextExpenses = [...(data.expenses || []), ...rowsToAutoSave];
+  const existingExpensesWithoutUpdatedRecurring = (data.expenses || []).filter((expense) => {
+    return !rowsToAutoSave.some((row) => {
+      const sameId = String(expense.id || '') === String(row.id || '');
+
+      const sameRecurringExpense =
+        String(expense.shop_id || expense.shopId || '') === String(row.shop_id || '') &&
+        String(expense.date || '') === String(row.date || '') &&
+        String(expense.title || expense.description || '').trim().toLowerCase() ===
+          String(row.title || row.description || '').trim().toLowerCase() &&
+        String(expense.category || '').trim().toLowerCase() ===
+          String(row.category || 'Recurring').trim().toLowerCase();
+
+      return sameId || sameRecurringExpense;
+    });
+  });
+
+  const nextExpenses = [
+    ...existingExpensesWithoutUpdatedRecurring,
+    ...rowsToAutoSave,
+  ];
 
   await saveData({
     ...data,
@@ -2903,6 +2949,11 @@ const [reportType, setReportType] = useState('stockValue');
 const [commissionReportMonth, setCommissionReportMonth] = useState(() => {
   const d = new Date();
   d.setMonth(d.getMonth() - 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+});
+
+const [expenseReportMonth, setExpenseReportMonth] = useState(() => {
+  const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 });
 
@@ -3307,6 +3358,82 @@ const commissionNetworkBankRows = commissionShopRows.map((row) => ({
   bankBreakdown: row.bankBreakdown,
 }));
 
+const monthlyExpenseCategories = [
+  'Home Expenses',
+  'Salaries',
+  'Medical',
+  'TRA',
+  'Electricity',
+  'Fare',
+];
+
+const monthlyExpensesForSelectedMonth = (data.expenses || []).filter((expense) =>
+  String(expense.date || '').slice(0, 7) === String(expenseReportMonth)
+);
+
+const getExpenseAmountByTitle = (rows = [], title) =>
+  (Array.isArray(rows) ? rows : [])
+    .filter(
+      (row) =>
+        String(row.title || row.description || '').trim().toLowerCase() ===
+        String(title || '').trim().toLowerCase()
+    )
+    .reduce((sum, row) => sum + Number(row.amount || 0), 0);
+
+const monthlyExpenseShopRows = (data.shops || []).map((reportShop) => {
+  const shopExpensesForMonth = monthlyExpensesForSelectedMonth.filter(
+    (expense) => String(expense.shop_id || '') === String(reportShop.id)
+  );
+
+  const categoryBreakdown = Object.fromEntries(
+    monthlyExpenseCategories.map((categoryName) => [
+      categoryName,
+      getExpenseAmountByTitle(shopExpensesForMonth, categoryName),
+    ])
+  );
+
+  const knownCategoryNames = monthlyExpenseCategories.map((name) => name.toLowerCase());
+
+  const otherExpenses = shopExpensesForMonth
+    .filter(
+      (expense) =>
+        !knownCategoryNames.includes(
+          String(expense.title || expense.description || '').trim().toLowerCase()
+        )
+    )
+    .reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+
+  const total = Object.values(categoryBreakdown).reduce(
+    (sum, value) => sum + Number(value || 0),
+    0
+  ) + otherExpenses;
+
+  return {
+    shopId: reportShop.id,
+    shopName: reportShop.name,
+    ...categoryBreakdown,
+    Other: otherExpenses,
+    total,
+    recorded: shopExpensesForMonth.length > 0,
+    status:
+      shopExpensesForMonth.length > 0
+        ? t(language, 'Recorded', 'Imejazwa')
+        : t(language, 'Missing', 'Haijajazwa'),
+  };
+});
+
+const monthlyExpenseSummaryTotals = {
+  homeExpenses: monthlyExpenseShopRows.reduce((sum, row) => sum + Number(row['Home Expenses'] || 0), 0),
+  salaries: monthlyExpenseShopRows.reduce((sum, row) => sum + Number(row.Salaries || 0), 0),
+  medical: monthlyExpenseShopRows.reduce((sum, row) => sum + Number(row.Medical || 0), 0),
+  tra: monthlyExpenseShopRows.reduce((sum, row) => sum + Number(row.TRA || 0), 0),
+  electricity: monthlyExpenseShopRows.reduce((sum, row) => sum + Number(row.Electricity || 0), 0),
+  fare: monthlyExpenseShopRows.reduce((sum, row) => sum + Number(row.Fare || 0), 0),
+  other: monthlyExpenseShopRows.reduce((sum, row) => sum + Number(row.Other || 0), 0),
+  grandTotal: monthlyExpenseShopRows.reduce((sum, row) => sum + Number(row.total || 0), 0),
+  recordedShopCount: monthlyExpenseShopRows.filter((row) => row.recorded).length,
+  totalShopCount: (data.shops || []).length,
+};
 const gasEntries = (data.gasEntries || []).filter(
   (g) => String(g.shop_id) === String(shop.id)
 );
@@ -5882,6 +6009,34 @@ banks: mobileMoneyForm.banks.map((b) => ({
         BigGasBuyPrice: Number(row.bigGasBuyPrice || 0),
         BigGasSellPrice: Number(row.bigGasSellPrice || 0),
       }));
+    } else if (reportType === 'monthlyExpensesReport') {
+      rows = monthlyExpenseShopRows.map((row) => ({
+        ShopName: row.shopName,
+        ExpenseMonth: expenseReportMonth,
+        HomeExpenses: Number(row['Home Expenses'] || 0),
+        Salaries: Number(row.Salaries || 0),
+        Medical: Number(row.Medical || 0),
+        TRA: Number(row.TRA || 0),
+        Electricity: Number(row.Electricity || 0),
+        Fare: Number(row.Fare || 0),
+        OtherExpenses: Number(row.Other || 0),
+        Total: Number(row.total || 0),
+        Status: row.status,
+      }));
+
+      rows.push({
+        ShopName: 'TOTAL',
+        ExpenseMonth: expenseReportMonth,
+        HomeExpenses: Number(monthlyExpenseSummaryTotals.homeExpenses || 0),
+        Salaries: Number(monthlyExpenseSummaryTotals.salaries || 0),
+        Medical: Number(monthlyExpenseSummaryTotals.medical || 0),
+        TRA: Number(monthlyExpenseSummaryTotals.tra || 0),
+        Electricity: Number(monthlyExpenseSummaryTotals.electricity || 0),
+        Fare: Number(monthlyExpenseSummaryTotals.fare || 0),
+        OtherExpenses: Number(monthlyExpenseSummaryTotals.other || 0),
+        Total: Number(monthlyExpenseSummaryTotals.grandTotal || 0),
+        Status: `${monthlyExpenseSummaryTotals.recordedShopCount}/${monthlyExpenseSummaryTotals.totalShopCount}`,
+      });
     } else if (reportType === 'fastMoving') {
       rows = movementRows
         .slice()
@@ -7264,9 +7419,15 @@ onDeleteGas={deleteGas}
 </option>
 
 {isOwnerUser ? (
-  <option value="monthlyCommissionsReport">
-    {t(language, 'Monthly Commissions Report', 'Ripoti ya Kamisheni za Mwezi')}
-  </option>
+  <>
+    <option value="monthlyCommissionsReport">
+      {t(language, 'Monthly Commissions Report', 'Ripoti ya Kamisheni za Mwezi')}
+    </option>
+
+    <option value="monthlyExpensesReport">
+      {t(language, 'Monthly Expenses Report', 'Ripoti ya Matumizi ya Mwezi')}
+    </option>
+  </>
 ) : null}
 
                   <option value="gas">{t(language, 'Gas Business Report', 'Ripoti ya Biashara ya Gesi')}</option>
@@ -8138,6 +8299,173 @@ onDeleteGas={deleteGas}
           ))}
         </tbody>
       </table>
+    </div>
+  </div>
+) : reportType === 'monthlyExpensesReport' ? (
+  <div className="space-y-6">
+    <div className="rounded-3xl border border-orange-100 bg-orange-50/70 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="text-lg font-semibold text-slate-900">
+            {t(language, 'Monthly Expenses Report', 'Ripoti ya Matumizi ya Mwezi')}
+          </div>
+          <div className="mt-1 text-sm text-slate-600">
+            {t(
+              language,
+              'This report shows monthly expenses for all shops.',
+              'Ripoti hii inaonyesha matumizi ya mwezi kwa maduka yote.'
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Label className="mb-0">
+            {t(language, 'Expense Month', 'Mwezi wa Matumizi')}
+          </Label>
+          <Input
+            type="month"
+            value={expenseReportMonth}
+            onChange={(e) => setExpenseReportMonth(e.target.value)}
+            className="w-44"
+          />
+        </div>
+      </div>
+    </div>
+
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          {t(language, 'Total Expenses', 'Jumla ya Matumizi')}
+        </div>
+        <div className="mt-2 text-xl font-bold text-slate-900">
+          TZS {currency(monthlyExpenseSummaryTotals.grandTotal)}
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          {t(language, 'Home Expenses', 'Matumizi ya Nyumbani')}
+        </div>
+        <div className="mt-2 text-xl font-bold text-slate-900">
+          TZS {currency(monthlyExpenseSummaryTotals.homeExpenses)}
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          {t(language, 'Electricity', 'Umeme')}
+        </div>
+        <div className="mt-2 text-xl font-bold text-slate-900">
+          TZS {currency(monthlyExpenseSummaryTotals.electricity)}
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          {t(language, 'Fare', 'Nauli')}
+        </div>
+        <div className="mt-2 text-xl font-bold text-slate-900">
+          TZS {currency(monthlyExpenseSummaryTotals.fare)}
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4 shadow-sm">
+        <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+          {t(language, 'Shops Recorded', 'Maduka Yenye Rekodi')}
+        </div>
+        <div className="mt-2 text-xl font-bold text-amber-800">
+          {monthlyExpenseSummaryTotals.recordedShopCount} / {monthlyExpenseSummaryTotals.totalShopCount}
+        </div>
+      </div>
+    </div>
+
+    <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="mb-3 text-sm font-semibold text-slate-800">
+        {t(language, 'Expenses by Shop', 'Matumizi kwa Kila Duka')}
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-left text-sm">
+          <thead>
+            <tr className="border-b border-slate-200 text-slate-600">
+              <th className="py-2 pr-3">{t(language, 'Shop', 'Duka')}</th>
+              <th className="py-2 pr-3">{t(language, 'Home', 'Nyumbani')}</th>
+              <th className="py-2 pr-3">{t(language, 'Salaries', 'Mishahara')}</th>
+              <th className="py-2 pr-3">{t(language, 'Medical', 'Matibabu')}</th>
+              <th className="py-2 pr-3">{t(language, 'TRA', 'TRA')}</th>
+              <th className="py-2 pr-3">{t(language, 'Electricity', 'Umeme')}</th>
+              <th className="py-2 pr-3">{t(language, 'Fare', 'Nauli')}</th>
+              <th className="py-2 pr-3">{t(language, 'Other', 'Mengine')}</th>
+              <th className="py-2 pr-3">{t(language, 'Total', 'Jumla')}</th>
+              <th className="py-2 pr-3">{t(language, 'Status', 'Hali')}</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {monthlyExpenseShopRows.map((row) => (
+              <tr key={row.shopId} className="border-b border-slate-100">
+                <td className="py-3 pr-3 font-medium text-slate-900">
+                  {row.shopName}
+                </td>
+                <td className="py-3 pr-3">TZS {currency(row['Home Expenses'] || 0)}</td>
+                <td className="py-3 pr-3">TZS {currency(row.Salaries || 0)}</td>
+                <td className="py-3 pr-3">TZS {currency(row.Medical || 0)}</td>
+                <td className="py-3 pr-3">TZS {currency(row.TRA || 0)}</td>
+                <td className="py-3 pr-3">TZS {currency(row.Electricity || 0)}</td>
+                <td className="py-3 pr-3">TZS {currency(row.Fare || 0)}</td>
+                <td className="py-3 pr-3">TZS {currency(row.Other || 0)}</td>
+                <td className="py-3 pr-3 font-semibold text-slate-900">
+                  TZS {currency(row.total || 0)}
+                </td>
+                <td className="py-3 pr-3">
+                  <span
+                    className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                      row.recorded
+                        ? 'bg-emerald-50 text-emerald-700'
+                        : 'bg-amber-50 text-amber-700'
+                    }`}
+                  >
+                    {row.status}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="mb-3 text-sm font-semibold text-slate-800">
+        {t(language, 'Expenses by Category', 'Matumizi kwa Aina')}
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 text-sm">
+        <div className="rounded-2xl bg-slate-50 p-3">
+          {t(language, 'Home Expenses', 'Matumizi ya Nyumbani')}: TZS {currency(monthlyExpenseSummaryTotals.homeExpenses)}
+        </div>
+        <div className="rounded-2xl bg-slate-50 p-3">
+          {t(language, 'Salaries', 'Mishahara')}: TZS {currency(monthlyExpenseSummaryTotals.salaries)}
+        </div>
+        <div className="rounded-2xl bg-slate-50 p-3">
+          {t(language, 'Medical', 'Matibabu')}: TZS {currency(monthlyExpenseSummaryTotals.medical)}
+        </div>
+        <div className="rounded-2xl bg-slate-50 p-3">
+          {t(language, 'TRA', 'TRA')}: TZS {currency(monthlyExpenseSummaryTotals.tra)}
+        </div>
+        <div className="rounded-2xl bg-slate-50 p-3">
+          {t(language, 'Electricity', 'Umeme')}: TZS {currency(monthlyExpenseSummaryTotals.electricity)}
+        </div>
+        <div className="rounded-2xl bg-slate-50 p-3">
+          {t(language, 'Fare', 'Nauli')}: TZS {currency(monthlyExpenseSummaryTotals.fare)}
+        </div>
+        <div className="rounded-2xl bg-slate-50 p-3">
+          {t(language, 'Other Expenses', 'Matumizi Mengine')}: TZS {currency(monthlyExpenseSummaryTotals.other)}
+        </div>
+        <div className="rounded-2xl bg-orange-50 p-3 font-semibold text-orange-800">
+          {t(language, 'Grand Total', 'Jumla Kuu')}: TZS {currency(monthlyExpenseSummaryTotals.grandTotal)}
+        </div>
+      </div>
     </div>
   </div>
 ) : reportType === 'gas' ? (
@@ -9959,60 +10287,40 @@ const shopId =
 
 const loadBackgroundLayers = async () => {
   try {
-    setSyncMessage(
-      t(
-        language,
-        'You are seeing the last confirmed data. New information is loading in the background.',
-        'Unaona taarifa za mwisho zilizothibitishwa. Taarifa mpya zinaendelea kupakiwa.'
-      )
-    );
-
-    const monthLoaded = await readData({ preferFresh: true, salesMode: 'month' });
-    applyBackgroundData(monthLoaded);
+    setDashboardDataReady(false);
 
     setSyncMessage(
       t(
         language,
-        'New information is still loading. Please wait a little.',
-        'Taarifa mpya bado zinaendelea kupakiwa. Tafadhali subiri kidogo.'
+        'Loading confirmed dashboard information from Supabase. Please wait.',
+        'Inapakia taarifa zilizothibitishwa kutoka Supabase. Tafadhali subiri.'
       )
     );
 
-    const sixMonthsLoaded = await readData({ preferFresh: true, salesMode: 'sixMonths' });
-    applyBackgroundData(sixMonthsLoaded);
+    const confirmedDashboardData = await readData({ preferFresh: true, salesMode: 'year' });
+    applyBackgroundData(confirmedDashboardData);
+
+    setDashboardDataReady(true);
 
     setSyncMessage(
       t(
         language,
-        'New information is still loading. Please wait a little.',
-        'Taarifa mpya bado zinaendelea kupakiwa. Tafadhali subiri kidogo.'
+        'Confirmed information is complete. You can now change periods instantly.',
+        'Taarifa zilizothibitishwa zimekamilika. Sasa unaweza kubadilisha vipindi bila kusubiri.'
       )
     );
-
-    const yearLoaded = await readData({ preferFresh: true, salesMode: 'year' });
-applyBackgroundData(yearLoaded);
-
-setDashboardDataReady(true);
-
-setSyncMessage(
-  t(
-    language,
-    'New information is complete. Please continue.',
-    'Taarifa mpya zimekamilika. Tafadhali endelea.'
-  )
-);
   } catch (error) {
-    console.error('Background layered history loading failed:', error);
+    console.error('Confirmed dashboard loading failed:', error);
 
-setDashboardDataReady(true);
+    setDashboardDataReady(false);
 
-setSyncMessage(
-  t(
-    language,
-    'Some information is still loading. Please continue carefully.',
-    'Baadhi ya taarifa bado zinapakiwa. Tafadhali endelea kwa umakini.'
-  )
-);
+    setSyncMessage(
+      t(
+        language,
+        'Confirmed information failed to load. Please check internet connection and try again.',
+        'Taarifa zilizothibitishwa zimeshindwa kupakiwa. Tafadhali angalia intaneti kisha jaribu tena.'
+      )
+    );
   }
 };
 
