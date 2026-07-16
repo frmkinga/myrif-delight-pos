@@ -2060,7 +2060,16 @@ setAppData(nextData);
   setNewPasswordInput('');
   setConfirmPasswordInput('');
 };
-    const shouldLoadOldOwnerSalesFromSupabase = false;
+    const shouldLoadOldOwnerSalesFromSupabase =
+    ownerPeriod === 'today' ||
+    ownerPeriod === 'yesterday' ||
+    ownerPeriod === 'week' ||
+    ownerPeriod === 'month' ||
+    ownerPeriod === 'lastweek' ||
+    ownerPeriod === 'lastmonth' ||
+    ownerPeriod === '3months' ||
+    ownerPeriod === '6months' ||
+    ownerPeriod === 'year';
 
   useEffect(() => {
     if (!shouldLoadOldOwnerSalesFromSupabase) {
@@ -10287,38 +10296,58 @@ const shopId =
 
 const loadBackgroundLayers = async () => {
   try {
-    setDashboardDataReady(false);
+    setSyncMessage(
+      t(
+        language,
+        'You are seeing the last confirmed data. New information is loading in the background.',
+        'Unaona taarifa za mwisho zilizothibitishwa. Taarifa mpya zinaendelea kupakiwa.'
+      )
+    );
+
+    const monthLoaded = await readData({ preferFresh: true, salesMode: 'month' });
+    applyBackgroundData(monthLoaded);
 
     setSyncMessage(
       t(
         language,
-        'Loading confirmed dashboard information from Supabase. Please wait.',
-        'Inapakia taarifa zilizothibitishwa kutoka Supabase. Tafadhali subiri.'
+        'New information is still loading. Please wait a little.',
+        'Taarifa mpya bado zinaendelea kupakiwa. Tafadhali subiri kidogo.'
       )
     );
 
-    const confirmedDashboardData = await readData({ preferFresh: true, salesMode: 'year' });
-    applyBackgroundData(confirmedDashboardData);
+    const sixMonthsLoaded = await readData({ preferFresh: true, salesMode: 'sixMonths' });
+    applyBackgroundData(sixMonthsLoaded);
+
+    setSyncMessage(
+      t(
+        language,
+        'New information is still loading. Please wait a little.',
+        'Taarifa mpya bado zinaendelea kupakiwa. Tafadhali subiri kidogo.'
+      )
+    );
+
+    const yearLoaded = await readData({ preferFresh: true, salesMode: 'year' });
+    applyBackgroundData(yearLoaded);
 
     setDashboardDataReady(true);
 
     setSyncMessage(
       t(
         language,
-        'Confirmed information is complete. You can now change periods instantly.',
-        'Taarifa zilizothibitishwa zimekamilika. Sasa unaweza kubadilisha vipindi bila kusubiri.'
+        'New information is complete. Please continue.',
+        'Taarifa mpya zimekamilika. Tafadhali endelea.'
       )
     );
   } catch (error) {
-    console.error('Confirmed dashboard loading failed:', error);
+    console.error('Background layered history loading failed:', error);
 
-    setDashboardDataReady(false);
+    setDashboardDataReady(true);
 
     setSyncMessage(
       t(
         language,
-        'Confirmed information failed to load. Please check internet connection and try again.',
-        'Taarifa zilizothibitishwa zimeshindwa kupakiwa. Tafadhali angalia intaneti kisha jaribu tena.'
+        'Some information is still loading. Please continue carefully.',
+        'Baadhi ya taarifa bado zinapakiwa. Tafadhali endelea kwa umakini.'
       )
     );
   }
