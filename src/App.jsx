@@ -1359,20 +1359,7 @@ function Login({ onLogin, users, language, setLanguage }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const loginTheme = getWeeklyLoginTheme();
-    const loginWelcomeNames = {
-    shop1: 'Anko Rashidi / Odo Fatma',
-    shop2: 'Anko Mudi / Odo',
-    shop3: 'Anko Sele',
-    shop4: 'Anko Fredy',
-    shop5: 'Odo Arafa',
-  };
-
-  const typedLoginUsername = String(username || '').trim().toLowerCase();
-  const loginWelcomeName = loginWelcomeNames[typedLoginUsername] || '';
-
-  const loginWelcomeMessage = loginWelcomeName
-    ? t(language, `Karibu ${loginWelcomeName}`, `Karibu ${loginWelcomeName}`)
-    : '';
+  const loginWelcomeMessage = '';
 
  const submit = async (e) => {
   e.preventDefault();
@@ -2704,13 +2691,7 @@ function ShopDashboard({ shop, data, saveData, backToOwner, logout, canBack, lan
   const [activeTab, setActiveTab] = useState('dashboard');
   const [quickSearch, setQuickSearch] = useState('');
   const dashboardLoadingText = 'Inapakia taarifa...';
-    const shopWorkspaceLabel = {
-    'shop-1': t(language, 'Welcome Anko Rashidi / Odo Fatma', 'Karibu Anko Rashidi / Odo Fatma'),
-    'shop-2': t(language, 'Welcome Anko Mudi / Odo', 'Karibu Anko Mudi / Odo'),
-    'shop-3': t(language, 'Welcome Anko Sele', 'Karibu Anko Sele'),
-    'shop-4': t(language, 'Welcome Anko Fredy', 'Karibu Anko Fredy'),
-    'shop-5': t(language, 'Welcome Odo Arafa', 'Karibu Odo Arafa'),
-  }[String(shop.id)] || t(language, 'Shop Workspace', 'Eneo la Kazi la Duka');
+  const shopWorkspaceLabel = t(language, 'Shop Workspace', 'Eneo la Kazi la Duka');
   const monthlySalesGoal = getFixedShopMonthlySalesTarget(data, shop.id);
 
   const today = startOfDay(new Date());
@@ -6359,12 +6340,6 @@ banks: mobileMoneyForm.banks.map((b) => ({
   color="bg-rose-300"
 />
 
-<StatCard
-  title={t(language, 'Low Stock Alerts', 'Bidhaa zinazohitaji kuongezwa')}
-  value={`${lowStockCount}`}
-  icon={AlertTriangle}
-  color="bg-amber-300"
-/>
 
 <StatCard
   title={t(language, 'Mobile Money Capital', 'Mtaji wa Simu')}
