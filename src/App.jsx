@@ -776,6 +776,21 @@ const emptyGasForm = {
   smallGasSellPrice: '',
   bigGasBuyPrice: '',
   bigGasSellPrice: '',
+
+  completeSmallCylinderSoldToday: '',
+  completeBigCylinderSoldToday: '',
+  completeSmallCylinderBuyPrice: '',
+  completeSmallCylinderSellPrice: '',
+  completeBigCylinderBuyPrice: '',
+  completeBigCylinderSellPrice: '',
+
+  gasBurnerSoldToday: '',
+  gasBurnerBuyPrice: '',
+  gasBurnerSellPrice: '',
+
+  mafigaSoldToday: '',
+  mafigaBuyPrice: '',
+  mafigaSellPrice: '',
 };
 const emptyGasSaleRow = {
   id: '',
@@ -1613,6 +1628,40 @@ function getLatestEntryForShop(entries, shopId) {
   return shopEntries[0] || null;
 }
 
+function getGasEntryProfitTotal(entry) {
+  const smallRefillProfit =
+    (Number(entry.smallGasSellPrice || 0) - Number(entry.smallGasBuyPrice || 0)) *
+    Number(entry.smallGasSoldToday || 0);
+
+  const bigRefillProfit =
+    (Number(entry.bigGasSellPrice || 0) - Number(entry.bigGasBuyPrice || 0)) *
+    Number(entry.bigGasSoldToday || 0);
+
+  const completeSmallCylinderProfit =
+    (Number(entry.completeSmallCylinderSellPrice || 0) - Number(entry.completeSmallCylinderBuyPrice || 0)) *
+    Number(entry.completeSmallCylinderSoldToday || 0);
+
+  const completeBigCylinderProfit =
+    (Number(entry.completeBigCylinderSellPrice || 0) - Number(entry.completeBigCylinderBuyPrice || 0)) *
+    Number(entry.completeBigCylinderSoldToday || 0);
+
+  const gasBurnerProfit =
+    (Number(entry.gasBurnerSellPrice || 0) - Number(entry.gasBurnerBuyPrice || 0)) *
+    Number(entry.gasBurnerSoldToday || 0);
+
+  const mafigaProfit =
+    (Number(entry.mafigaSellPrice || 0) - Number(entry.mafigaBuyPrice || 0)) *
+    Number(entry.mafigaSoldToday || 0);
+
+  return (
+    smallRefillProfit +
+    bigRefillProfit +
+    completeSmallCylinderProfit +
+    completeBigCylinderProfit +
+    gasBurnerProfit +
+    mafigaProfit
+  );
+}
 function buildShopDailySalesGoal(data, shopId) {
   const today = startOfDay(new Date());
   const todayIso = todayISO(today);
@@ -2190,17 +2239,7 @@ console.log('TOTAL CHECK', {
 const totalProfit = totalRetailProfit - totalExpenses;
 const totalGasProfit = (data.gasEntries || [])
   .filter((x) => filterByPreset([x], ownerPeriod, todayISO()).length > 0)
-  .reduce((a, x) => {
-    const small =
-      (Number(x.smallGasSellPrice || 0) - Number(x.smallGasBuyPrice || 0)) *
-      Number(x.smallGasSoldToday || 0);
-
-    const big =
-      (Number(x.bigGasSellPrice || 0) - Number(x.bigGasBuyPrice || 0)) *
-      Number(x.bigGasSoldToday || 0);
-
-    return a + small + big;
-  }, 0);
+  .reduce((a, x) => a + getGasEntryProfitTotal(x), 0);
 
 const commissionMonthMatchesOwnerPeriod = (record) => {
   if (!record?.commissionMonth) return false;
@@ -2446,41 +2485,41 @@ const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(e
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
   <StatCard
-    title={`${t(language, 'Total Sales', 'Jumla ya Mauzo')} ${ownerPeriodLabel}`}
-    value={ownerConfirmedPeriodReady ? `TZS ${currency(totalSales)}` : ownerDashboardLoadingText}
-    icon={ShoppingCart}
-    color="from-fuchsia-500 to-purple-600"
-  />
+  title={`${t(language, 'Total Sales', 'Jumla ya Mauzo')} ${ownerPeriodLabel}`}
+  value={`TZS ${currency(totalSales)}`}
+  icon={ShoppingCart}
+  color="from-fuchsia-500 to-purple-600"
+/>
 
   <StatCard
-    title={`${t(language, 'Total Expenses', 'Jumla ya Matumizi')} ${ownerPeriodLabel}`}
-    value={ownerConfirmedPeriodReady ? `TZS ${currency(totalExpenses)}` : ownerDashboardLoadingText}
-    icon={AlertTriangle}
-    color="from-orange-400 to-pink-500"
-  />
+  title={`${t(language, 'Total Expenses', 'Jumla ya Matumizi')} ${ownerPeriodLabel}`}
+  value={`TZS ${currency(totalExpenses)}`}
+  icon={AlertTriangle}
+  color="from-orange-400 to-pink-500"
+/>
 
   <StatCard
-    title={`${t(language, 'Profit', 'Faida ya')} ${ownerPeriodLabel}`}
-    value={ownerConfirmedPeriodReady ? `TZS ${currency(totalProfit)}` : ownerDashboardLoadingText}
-    icon={Wallet}
-    color="from-violet-500 to-indigo-700"
-  />
+  title={`${t(language, 'Profit', 'Faida ya')} ${ownerPeriodLabel}`}
+  value={`TZS ${currency(totalProfit)}`}
+  icon={Wallet}
+  color="from-violet-500 to-indigo-700"
+/>
 
   <StatCard
-    title={t(language, 'Current Mobile Money Capital', 'Mtaji wa Sasa wa Simu')}
-    value={ownerConfirmedPeriodReady ? `TZS ${currency(totalMobileCapital)}` : ownerDashboardLoadingText}
-    subtitle={t(language, 'Based on latest entry per shop', 'Kutokana na rekodi ya mwisho ya kila duka')}
-    icon={HandCoins}
-    color="from-blue-500 to-cyan-600"
-  />
+  title={t(language, 'Current Mobile Money Capital', 'Mtaji wa Sasa wa Simu')}
+  value={`TZS ${currency(totalMobileCapital)}`}
+  subtitle={t(language, 'Based on latest entry per shop', 'Kutokana na rekodi ya mwisho ya kila duka')}
+  icon={HandCoins}
+  color="from-blue-500 to-cyan-600"
+/>
 
   <StatCard
-    title={t(language, 'Current Bank Capital', 'Mtaji wa Sasa wa Benki')}
-    value={ownerConfirmedPeriodReady ? `TZS ${currency(totalBankCapital)}` : ownerDashboardLoadingText}
-    subtitle={t(language, 'Based on latest entry per shop', 'Kutokana na rekodi ya mwisho ya kila duka')}
-    icon={Building2}
-    color="from-indigo-500 to-blue-700"
-  />
+  title={t(language, 'Current Bank Capital', 'Mtaji wa Sasa wa Benki')}
+  value={`TZS ${currency(totalBankCapital)}`}
+  subtitle={t(language, 'Based on latest entry per shop', 'Kutokana na rekodi ya mwisho ya kila duka')}
+  icon={Building2}
+  color="from-indigo-500 to-blue-700"
+/>
 </div>
 
 <Card className="mt-6 border-white/40 bg-white/70 shadow-lg backdrop-blur-md">
@@ -2491,27 +2530,27 @@ const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(e
   <CardContent>
   <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6 text-sm">
     <div className="rounded-2xl bg-gradient-to-r from-fuchsia-500/15 to-purple-600/15 p-3 font-medium">
-      {t(language, 'Retail Profit after Expenses', 'Faida ya Duka baada ya Matumizi')}: {dashboardDataReady ? `TZS ${currency(totalProfit)}` : ownerDashboardLoadingText}
+      {t(language, 'Retail Profit after Expenses', 'Faida ya Duka baada ya Matumizi')}: TZS {currency(totalProfit)}
     </div>
 
     <div className="rounded-2xl bg-gradient-to-r from-orange-400/15 to-pink-500/15 p-3 font-medium">
-      {t(language, 'Gas Profit', 'Faida ya Gesi')}: {dashboardDataReady ? `TZS ${currency(totalGasProfit)}` : ownerDashboardLoadingText}
+      {t(language, 'Gas Profit', 'Faida ya Gesi')}: TZS {currency(totalGasProfit)}
     </div>
 
     <div className="rounded-2xl bg-gradient-to-r from-cyan-500/15 to-sky-600/15 p-3 font-medium">
-      {t(language, 'Mobile Money Commission', 'Kamisheni za Simu')}: {dashboardDataReady ? `TZS ${currency(totalMobileWakalaCommission)}` : ownerDashboardLoadingText}
+      {t(language, 'Mobile Money Commission', 'Kamisheni za Simu')}: TZS {currency(totalMobileWakalaCommission)}
     </div>
 
     <div className="rounded-2xl bg-gradient-to-r from-blue-500/15 to-indigo-600/15 p-3 font-medium">
-      {t(language, 'Bank Commission', 'Kamisheni za Benki')}: {dashboardDataReady ? `TZS ${currency(totalBankWakalaCommission)}` : ownerDashboardLoadingText}
+      {t(language, 'Bank Commission', 'Kamisheni za Benki')}: TZS {currency(totalBankWakalaCommission)}
     </div>
 
     <div className="rounded-2xl bg-gradient-to-r from-emerald-500/15 to-teal-600/15 p-3 font-medium">
-      {t(language, 'Total Wakala Commission', 'Jumla ya Kamisheni ya Wakala')}: {dashboardDataReady ? `TZS ${currency(totalWakalaCommission)}` : ownerDashboardLoadingText}
+      {t(language, 'Total Wakala Commission', 'Jumla ya Kamisheni ya Wakala')}: TZS {currency(totalWakalaCommission)}
     </div>
 
     <div className="rounded-2xl bg-gradient-to-r from-violet-500/20 to-indigo-700/20 p-3 font-semibold">
-      {t(language, 'Total Business Profit', 'Jumla ya Faida za Biashara')}: {dashboardDataReady ? `TZS ${currency(totalBusinessProfit)}` : ownerDashboardLoadingText}
+      {t(language, 'Total Business Profit', 'Jumla ya Faida za Biashara')}: TZS {currency(totalBusinessProfit)}
     </div>
   </div>
 </CardContent>
@@ -2531,7 +2570,7 @@ const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(e
               {ownerPeriod === 'lastmonth' ? t(language, 'Last month sales', 'Mauzo ya mwezi uliopita') : t(language, 'Sales so far', 'Mauzo hadi sasa')}
             </div>
             <div className="mt-1 text-2xl font-black text-slate-900">
-  {dashboardDataReady ? `TZS ${currency(ownerMonthlyActual)}` : ownerDashboardLoadingText}
+  {`TZS ${currency(ownerMonthlyActual)}`}
 </div>
           </div>
 
@@ -2540,23 +2579,19 @@ const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(e
               {t(language, 'Monthly target', 'Lengo la mwezi')}
             </div>
             <div className="mt-1 text-2xl font-black text-slate-900">
-  {dashboardDataReady ? `TZS ${currency(ownerMonthlyGoal)}` : ownerDashboardLoadingText}
+  {`TZS ${currency(ownerMonthlyGoal)}`}
 </div>
           </div>
         </div>
 
        <div className="mt-3 text-sm font-bold text-slate-700">
-  {dashboardDataReady
-    ? `${t(language, 'Reached', 'Umefikia')}: ${ownerMonthlyProgress.toFixed(0)}%`
-    : ownerDashboardLoadingText}
+  {`${t(language, 'Reached', 'Umefikia')}: ${ownerMonthlyProgress.toFixed(0)}%`}
 </div>
 
 <div className="mt-1 text-sm font-bold text-slate-700">
-  {dashboardDataReady
-    ? ownerMonthlyExceededAmount > 0
-      ? `${t(language, 'Exceeded target by', 'Umezidi lengo kwa')}: TZS ${currency(ownerMonthlyExceededAmount)}`
-      : `${t(language, 'Remaining to target', 'Bado kufikia lengo')}: TZS ${currency(ownerMonthlyRemainingAmount)}`
-    : ownerDashboardLoadingText}
+  {ownerMonthlyExceededAmount > 0
+    ? `${t(language, 'Exceeded target by', 'Umezidi lengo kwa')}: TZS ${currency(ownerMonthlyExceededAmount)}`
+    : `${t(language, 'Remaining to target', 'Bado kufikia lengo')}: TZS ${currency(ownerMonthlyRemainingAmount)}`}
 </div>
       </div>
 
@@ -2566,7 +2601,7 @@ const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(e
         </div>
 
         <div className="mt-2 text-2xl font-black text-emerald-700">
-  {dashboardDataReady ? `TZS ${currency(ownerMonthlyRewardAmount)}` : ownerDashboardLoadingText}
+  {`TZS ${currency(ownerMonthlyRewardAmount)}`}
 </div>
 
         <div className="mt-1 max-w-[260px] text-xs font-semibold leading-5 text-slate-600">
@@ -2583,10 +2618,8 @@ const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(e
   <div
     className="h-full rounded-full bg-emerald-600 transition-all"
     style={{
-      width: dashboardDataReady
-        ? `${Math.min(100, ownerMonthlyProgress)}%`
-        : '0%',
-    }}
+  width: `${Math.min(100, ownerMonthlyProgress)}%`,
+}}
   />
 </div>
   </div>
@@ -3119,6 +3152,21 @@ const editGas = (entry) => {
     smallGasSellPrice: String(entry.smallGasSellPrice || ''),
     bigGasBuyPrice: String(entry.bigGasBuyPrice || ''),
     bigGasSellPrice: String(entry.bigGasSellPrice || ''),
+
+    completeSmallCylinderSoldToday: String(entry.completeSmallCylinderSoldToday || ''),
+    completeBigCylinderSoldToday: String(entry.completeBigCylinderSoldToday || ''),
+    completeSmallCylinderBuyPrice: String(entry.completeSmallCylinderBuyPrice || ''),
+    completeSmallCylinderSellPrice: String(entry.completeSmallCylinderSellPrice || ''),
+    completeBigCylinderBuyPrice: String(entry.completeBigCylinderBuyPrice || ''),
+    completeBigCylinderSellPrice: String(entry.completeBigCylinderSellPrice || ''),
+
+    gasBurnerSoldToday: String(entry.gasBurnerSoldToday || ''),
+    gasBurnerBuyPrice: String(entry.gasBurnerBuyPrice || ''),
+    gasBurnerSellPrice: String(entry.gasBurnerSellPrice || ''),
+
+    mafigaSoldToday: String(entry.mafigaSoldToday || ''),
+    mafigaBuyPrice: String(entry.mafigaBuyPrice || ''),
+    mafigaSellPrice: String(entry.mafigaSellPrice || ''),
   });
 
   // 👇 ADD THIS (very important for visibility)
@@ -3679,20 +3727,8 @@ const todaySales = dashboardFilteredSales.reduce(
 );
 const todayExpenses = filterByPreset(expenses, reportPreset, dashboardDateValue).reduce((a, e) => a + Number(e.amount || 0), 0);
 
-const todayGasProfit = (data.gasEntries || [])
-  .filter((x) => String(x.shop_id || '') === String(shop.id))
-  .filter((x) => filterByPreset([x], reportPreset, dashboardDateValue).length > 0)
-  .reduce((a, x) => {
-    const small =
-      (Number(x.smallGasSellPrice || 0) - Number(x.smallGasBuyPrice || 0)) *
-      Number(x.smallGasSoldToday || 0);
-
-    const big =
-      (Number(x.bigGasSellPrice || 0) - Number(x.bigGasBuyPrice || 0)) *
-      Number(x.bigGasSoldToday || 0);
-
-    return a + small + big;
-  }, 0);
+const todayGasProfit = filterByPreset(gasEntries, reportPreset, dashboardDateValue)
+  .reduce((a, x) => a + getGasEntryProfitTotal(x), 0);
 
 const totalSales = filteredSales.reduce((a, s) => a + Number(s.total || 0), 0);
 const totalExpenses = filteredExpenses.reduce((a, e) => a + Number(e.amount || 0), 0);
@@ -6016,22 +6052,46 @@ banks: mobileMoneyForm.banks.map((b) => ({
       }));
 
 
-    } else if (reportType === 'gas') {
-      const filteredGas = filterByPreset(gasEntries, reportPreset, reportDateValue);
-      rows = filteredGas.map((row) => ({
-        Date: row.date || '',
-        GasType: row.gasType || '',
-        CylinderSize: row.cylinderSize || '',
-        TotalCylinders: Number(row.totalCylinders || 0),
-        SmallCylindersTotal: Number(row.smallCylindersTotal || 0),
-        BigCylindersTotal: Number(row.bigCylindersTotal || 0),
-        SmallGasSoldToday: Number(row.smallGasSoldToday || 0),
-        BigGasSoldToday: Number(row.bigGasSoldToday || 0),
-        SmallGasBuyPrice: Number(row.smallGasBuyPrice || 0),
-        SmallGasSellPrice: Number(row.smallGasSellPrice || 0),
-        BigGasBuyPrice: Number(row.bigGasBuyPrice || 0),
-        BigGasSellPrice: Number(row.bigGasSellPrice || 0),
-      }));
+   } else if (reportType === 'gas') {
+  const filteredGas = filterByPreset(gasEntries, reportPreset, reportDateValue);
+
+  rows = filteredGas.map((row) => ({
+    Date: row.date || '',
+    GasType: row.gasType || '',
+    CylinderSize: row.cylinderSize || '',
+
+    TotalCylinders: Number(row.totalCylinders || 0),
+    SmallCylindersTotal: Number(row.smallCylindersTotal || 0),
+    BigCylindersTotal: Number(row.bigCylindersTotal || 0),
+    SmallCylindersWithGas: Number(row.smallCylindersWithGas || 0),
+    BigCylindersWithGas: Number(row.bigCylindersWithGas || 0),
+    SmallEmptyCylinders: Number(row.smallEmptyCylinders || 0),
+    BigEmptyCylinders: Number(row.bigEmptyCylinders || 0),
+
+    SmallRefillSold: Number(row.smallGasSoldToday || 0),
+    BigRefillSold: Number(row.bigGasSoldToday || 0),
+    SmallRefillBuyPrice: Number(row.smallGasBuyPrice || 0),
+    SmallRefillSellPrice: Number(row.smallGasSellPrice || 0),
+    BigRefillBuyPrice: Number(row.bigGasBuyPrice || 0),
+    BigRefillSellPrice: Number(row.bigGasSellPrice || 0),
+
+    CompleteSmallCylindersSold: Number(row.completeSmallCylinderSoldToday || 0),
+    CompleteBigCylindersSold: Number(row.completeBigCylinderSoldToday || 0),
+    CompleteSmallCylinderBuyPrice: Number(row.completeSmallCylinderBuyPrice || 0),
+    CompleteSmallCylinderSellPrice: Number(row.completeSmallCylinderSellPrice || 0),
+    CompleteBigCylinderBuyPrice: Number(row.completeBigCylinderBuyPrice || 0),
+    CompleteBigCylinderSellPrice: Number(row.completeBigCylinderSellPrice || 0),
+
+    GasBurnersSold: Number(row.gasBurnerSoldToday || 0),
+    GasBurnerBuyPrice: Number(row.gasBurnerBuyPrice || 0),
+    GasBurnerSellPrice: Number(row.gasBurnerSellPrice || 0),
+
+    MafigaSold: Number(row.mafigaSoldToday || 0),
+    MafigaBuyPrice: Number(row.mafigaBuyPrice || 0),
+    MafigaSellPrice: Number(row.mafigaSellPrice || 0),
+
+    TotalGasBusinessProfit: Number(getGasEntryProfitTotal(row) || 0),
+  }));
     } else if (reportType === 'monthlyExpensesReport') {
       rows = monthlyExpenseShopRows.map((row) => ({
         ShopName: row.shopName,
@@ -6365,21 +6425,21 @@ banks: mobileMoneyForm.banks.map((b) => ({
   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
     <StatCard
   title={`${t(language, 'Sales', 'Mauzo')} - ${shopPeriodLabel}`}
-  value={dashboardDataReady ? `TZS ${currency(todaySales)}` : dashboardLoadingText}
+  value={`TZS ${currency(todaySales)}`}
   icon={ShoppingCart}
   color="bg-orange-300"
 />
 
 <StatCard
   title={`${t(language, 'Expenses', 'Matumizi')} - ${shopPeriodLabel}`}
-  value={dashboardDataReady ? `TZS ${currency(todayExpenses)}` : dashboardLoadingText}
+  value={`TZS ${currency(todayExpenses)}`}
   icon={AlertTriangle}
   color="bg-red-300"
 />
 
 <StatCard
   title={`${t(language, 'Profit', 'Faida')} - ${shopPeriodLabel}`}
-  value={dashboardDataReady ? `TZS ${currency(todayProfit)}` : dashboardLoadingText}
+  value={`TZS ${currency(todayProfit)}`}
   icon={Wallet}
   color="bg-green-300"
 />
@@ -6444,7 +6504,7 @@ banks: mobileMoneyForm.banks.map((b) => ({
               {t(language, 'Sales this month', 'Mauzo ya mwezi huu')}
             </div>
             <div className="mt-1 text-2xl font-black text-slate-900">
-  {dashboardDataReady ? `TZS ${currency(monthlySalesGoal.actual)}` : dashboardLoadingText}
+  {`TZS ${currency(monthlySalesGoal.actual)}`}
 </div>
           </div>
 
@@ -6453,23 +6513,19 @@ banks: mobileMoneyForm.banks.map((b) => ({
               {t(language, 'Monthly target', 'Lengo la mwezi')}
             </div>
             <div className="mt-1 text-2xl font-black text-slate-900">
-  {dashboardDataReady ? `TZS ${currency(monthlySalesGoal.goal)}` : dashboardLoadingText}
+  {`TZS ${currency(monthlySalesGoal.goal)}`}
 </div>
           </div>
         </div>
 
         <div className="mt-3 text-sm font-bold text-slate-700">
-  {dashboardDataReady
-    ? `${t(language, 'Reached', 'Umefikia')}: ${monthlySalesGoal.progress.toFixed(0)}%`
-    : dashboardLoadingText}
+  {`${t(language, 'Reached', 'Umefikia')}: ${monthlySalesGoal.progress.toFixed(0)}%`}
 </div>
 
 <div className="mt-1 text-sm font-bold text-slate-700">
-  {dashboardDataReady
-    ? monthlySalesGoal.exceededAmount > 0
-      ? `${t(language, 'Exceeded target by', 'Umezidi lengo kwa')}: TZS ${currency(monthlySalesGoal.exceededAmount)}`
-      : `${t(language, 'Remaining to target', 'Bado kufikia lengo')}: TZS ${currency(monthlySalesGoal.remainingAmount)}`
-    : dashboardLoadingText}
+  {monthlySalesGoal.exceededAmount > 0
+  ? `${t(language, 'Exceeded target by', 'Umezidi lengo kwa')}: TZS ${currency(monthlySalesGoal.exceededAmount)}`
+  : `${t(language, 'Remaining to target', 'Bado kufikia lengo')}: TZS ${currency(monthlySalesGoal.remainingAmount)}`}
 </div>
 
         <div className="mt-1 text-xs font-semibold text-slate-500">
@@ -6483,7 +6539,7 @@ banks: mobileMoneyForm.banks.map((b) => ({
         </div>
 
         <div className="mt-2 text-2xl font-black text-emerald-700">
-  {dashboardDataReady ? `TZS ${currency(monthlySalesGoal.rewardAmount)}` : dashboardLoadingText}
+  {`TZS ${currency(monthlySalesGoal.rewardAmount)}`}
 </div>
 
         <div className="mt-1 max-w-[240px] text-xs font-semibold leading-5 text-slate-600">
@@ -6506,10 +6562,8 @@ banks: mobileMoneyForm.banks.map((b) => ({
   <div
     className="h-full rounded-full bg-emerald-600 transition-all"
     style={{
-      width: dashboardDataReady
-        ? `${monthlySalesGoal.cappedProgress}%`
-        : '0%',
-    }}
+  width: `${monthlySalesGoal.cappedProgress}%`,
+}}
   />
 </div>
   </div>
