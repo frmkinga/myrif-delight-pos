@@ -4024,6 +4024,9 @@ export default function CEODecisionCentre({
   lockedShopId = '',
   titleOverride = '',
   ownerPeriod = '',
+  selectedPeriod = '',
+  customStartDate = '',
+  customEndDate = '',
 }) {
   const t = useT(language);
   const sw = language !== 'en';
@@ -4031,14 +4034,27 @@ export default function CEODecisionCentre({
 const isOwnerScope = !isShopScope;
 const initialShopFilter = isShopScope && lockedShopId ? String(lockedShopId) : 'all';
 
-  const [period, setPeriod] = React.useState(ownerPeriod || 'month');
-    React.useEffect(() => {
-    if (ownerPeriod) {
-      setPeriod(ownerPeriod);
+  const externalPeriod = selectedPeriod || ownerPeriod || '';
+
+  const [period, setPeriod] = React.useState(externalPeriod || 'month');
+  const [customStart, setCustomStart] = React.useState(customStartDate || toISO(addDays(new Date(), -29)));
+  const [customEnd, setCustomEnd] = React.useState(customEndDate || toISO(new Date()));
+
+  React.useEffect(() => {
+    if (externalPeriod) {
+      setPeriod(externalPeriod);
     }
-  }, [ownerPeriod]);
-  const [customStart, setCustomStart] = React.useState(toISO(addDays(new Date(), -29)));
-  const [customEnd, setCustomEnd] = React.useState(toISO(new Date()));
+  }, [externalPeriod]);
+
+  React.useEffect(() => {
+    if (customStartDate) {
+      setCustomStart(customStartDate);
+    }
+
+    if (customEndDate) {
+      setCustomEnd(customEndDate);
+    }
+  }, [customStartDate, customEndDate]);
   const [viewMode, setViewMode] = React.useState('summary');
   const [summaryView, setSummaryView] = React.useState('owner-summary');
   const [opportunityView, setOpportunityView] = React.useState('stock-transfer');

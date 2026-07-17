@@ -1995,7 +1995,23 @@ async function fetchShopSalesForTarget(shopId) {
     confirmed: true,
   }));
 }
-function OwnerDashboard({ data, setAppData, openShop, logout, exportBackup, importBackup, ownerPeriod, setOwnerPeriod, language, setLanguage, dashboardDataReady }) {
+function OwnerDashboard({
+  data,
+  setAppData,
+  openShop,
+  logout,
+  exportBackup,
+  importBackup,
+  ownerPeriod,
+  setOwnerPeriod,
+  ownerCustomStartDate,
+  setOwnerCustomStartDate,
+  ownerCustomEndDate,
+  setOwnerCustomEndDate,
+  language,
+  setLanguage,
+  dashboardDataReady,
+}) {
 const ownerDashboardLoadingText = 'Inapakia taarifa...';
 const [currentPasswordInput, setCurrentPasswordInput] = useState('');
 const [newPasswordInput, setNewPasswordInput] = useState('');
@@ -2047,16 +2063,7 @@ setAppData(nextData);
   setNewPasswordInput('');
   setConfirmPasswordInput('');
 };
-    const shouldLoadOldOwnerSalesFromSupabase =
-    ownerPeriod === 'today' ||
-    ownerPeriod === 'yesterday' ||
-    ownerPeriod === 'week' ||
-    ownerPeriod === 'month' ||
-    ownerPeriod === 'lastweek' ||
-    ownerPeriod === 'lastmonth' ||
-    ownerPeriod === '3months' ||
-    ownerPeriod === '6months' ||
-    ownerPeriod === 'year';
+    const shouldLoadOldOwnerSalesFromSupabase = false;
 
   useEffect(() => {
     if (!shouldLoadOldOwnerSalesFromSupabase) {
@@ -2152,14 +2159,19 @@ setAppData(nextData);
 
   const ownerSalesBase = data.sales;
 
-  const salesPeriod = filterByPreset(ownerSalesBase, ownerPeriod, todayISO());
+  const ownerDateValue =
+    ownerPeriod === 'date'
+      ? { start: ownerCustomStartDate, end: ownerCustomEndDate }
+      : todayISO();
+
+  const salesPeriod = filterByPreset(ownerSalesBase, ownerPeriod, ownerDateValue);
 console.log('OWNER STATE CHECK', {
   ownerPeriod,
   totalSalesInState: Array.isArray(ownerSalesBase) ? ownerSalesBase.length : 0,
   filteredSalesCount: Array.isArray(salesPeriod) ? salesPeriod.length : 0,
   firstThreeSales: Array.isArray(ownerSalesBase) ? ownerSalesBase.slice(0, 3) : [],
 });
- const expensesPeriod = filterByPreset(data.expenses, ownerPeriod, todayISO());
+ const expensesPeriod = filterByPreset(data.expenses, ownerPeriod, ownerDateValue);
   const totalSales = salesPeriod.reduce((a, s) => a + Number(s.total || 0), 0);
 console.log('TOTAL CHECK', {
   totalSales,
@@ -2375,17 +2387,42 @@ const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(e
             <option value="sw">Kiswahili</option>
             <option value="en">English</option>
           </select>
-         <select className="rounded-xl border border-slate-200 px-3 py-2 text-sm" value={ownerPeriod} onChange={(e) => setOwnerPeriod(e.target.value)}>
-  <option value="today">{t(language, 'Today', 'Leo')}</option>
-  <option value="yesterday">{t(language, 'Yesterday', 'Jana')}</option>
-  <option value="week">{t(language, 'This week to date', 'Wiki hii hadi leo')}</option>
-  <option value="lastweek">{t(language, 'Last week', 'Wiki iliyopita')}</option>
-  <option value="month">{t(language, 'This month to date', 'Mwezi huu hadi leo')}</option>
-  <option value="lastmonth">{t(language, 'Last month', 'Mwezi uliopita')}</option>
-  <option value="3months">{t(language, 'Last 3 months', 'Miezi 3 iliyopita')}</option>
-  <option value="6months">{t(language, 'Last 6 months', 'Miezi 6 iliyopita')}</option>
-  <option value="year">{t(language, 'This year', 'Mwaka huu')}</option>
-</select>
+         <div className="flex flex-wrap items-center gap-2">
+  <select
+    className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+    value={ownerPeriod}
+    onChange={(e) => setOwnerPeriod(e.target.value)}
+  >
+    <option value="today">{t(language, 'Today', 'Leo')}</option>
+    <option value="yesterday">{t(language, 'Yesterday', 'Jana')}</option>
+    <option value="week">{t(language, 'This week to date', 'Wiki hii hadi leo')}</option>
+    <option value="lastweek">{t(language, 'Last week', 'Wiki iliyopita')}</option>
+    <option value="month">{t(language, 'This month to date', 'Mwezi huu hadi leo')}</option>
+    <option value="lastmonth">{t(language, 'Last month', 'Mwezi uliopita')}</option>
+    <option value="3months">{t(language, 'Last 3 months', 'Miezi 3 iliyopita')}</option>
+    <option value="6months">{t(language, 'Last 6 months', 'Miezi 6 iliyopita')}</option>
+    <option value="year">{t(language, 'This year', 'Mwaka huu')}</option>
+    <option value="date">{t(language, 'Custom Date Range', 'Chagua tarehe')}</option>
+  </select>
+
+  {ownerPeriod === 'date' ? (
+    <>
+      <input
+        type="date"
+        className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+        value={ownerCustomStartDate}
+        onChange={(e) => setOwnerCustomStartDate(e.target.value)}
+      />
+
+      <input
+        type="date"
+        className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+        value={ownerCustomEndDate}
+        onChange={(e) => setOwnerCustomEndDate(e.target.value)}
+      />
+    </>
+  ) : null}
+</div>
           <Button variant="outline" onClick={exportBackup}>
   {t(language, 'Export Backup', 'Pakua Backup')}
 </Button>
@@ -2671,7 +2708,12 @@ const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(e
 
       <div className="mt-6">
   {dashboardDataReady && !ownerSalesLoading ? (
-    <CEODecisionCentre data={data} language={language} ownerPeriod={ownerPeriod} />
+    <CEODecisionCentre
+  data={data}
+  language={language}
+  ownerPeriod={ownerPeriod}
+  selectedPeriod={ownerPeriod}
+/>
   ) : (
     <Card>
       <CardContent className="pt-6 text-sm font-medium text-slate-600">
@@ -3435,16 +3477,7 @@ const reportDateValue =
     ? { start: reportStartDate, end: reportEndDate }
     : reportDate;
 
-const shouldLoadOldSalesFromSupabase =
-  reportType === 'salesReport' &&
-  (
-    reportPreset === 'lastweek' ||
-    reportPreset === 'lastmonth' ||
-    reportPreset === '3months' ||
-    reportPreset === '6months' ||
-    reportPreset === 'year' ||
-    (reportPreset === 'date' && reportStartDate < daysAgoISO(30))
-  );
+const shouldLoadOldSalesFromSupabase = false;
 
 useEffect(() => {
   if (!shouldLoadOldSalesFromSupabase) {
@@ -6183,6 +6216,7 @@ banks: mobileMoneyForm.banks.map((b) => ({
   onChange={(e) => setReportPreset(e.target.value)}
 >
   <option value="today">{t(language, 'Today', 'Leo')}</option>
+  <option value="date">{t(language, 'Custom Date Range', 'Chagua tarehe')}</option>
   <option value="yesterday">{t(language, 'Yesterday', 'Jana')}</option>
   <option value="week">{t(language, 'This week to date', 'Wiki hii hadi leo')}</option>
   <option value="lastweek">{t(language, 'Last week', 'Wiki iliyopita')}</option>
@@ -6192,6 +6226,23 @@ banks: mobileMoneyForm.banks.map((b) => ({
   <option value="6months">{t(language, 'Last 6 months', 'Miezi 6 iliyopita')}</option>
   <option value="year">{t(language, 'This year', 'Mwaka huu')}</option>
 </select>
+
+{reportPreset === 'date' ? (
+  <div className="flex gap-2">
+    <Input
+      type="date"
+      value={reportStartDate}
+      onChange={(e) => setReportStartDate(e.target.value)}
+      className="w-40"
+    />
+    <Input
+      type="date"
+      value={reportEndDate}
+      onChange={(e) => setReportEndDate(e.target.value)}
+      className="w-40"
+    />
+  </div>
+) : null}
 
               <Button variant="outline" className="bg-white shadow-sm" onClick={() => exportBackup()}>
                 {t(language, 'Export Backup', 'Pakua Backup')}
@@ -6492,12 +6543,15 @@ banks: mobileMoneyForm.banks.map((b) => ({
 
   <div className="mt-6">
     <CEODecisionCentre
-      data={buildShopOnlyData(data, shop.id)}
-      language={language}
-      scope="shop"
-      lockedShopId={shop.id}
-      titleOverride={t(language, 'Important Shop Information', 'Taarifa Muhimu za Duka Lako')}
-    />
+  data={buildShopOnlyData(data, shop.id)}
+  language={language}
+  scope="shop"
+  lockedShopId={shop.id}
+  selectedPeriod={reportPreset === 'date' ? 'custom' : reportPreset}
+  customStartDate={reportStartDate}
+  customEndDate={reportEndDate}
+  titleOverride={t(language, 'Important Shop Information', 'Taarifa Muhimu za Duka Lako')}
+/>
   </div>
 </TabsContent>
 
@@ -9206,6 +9260,8 @@ export default function MultiShopPOSFinal() {
   const [data, setData] = useState(seedData);
   const [activeShopId, setActiveShopId] = useState(null);
   const [ownerPeriod, setOwnerPeriod] = useState('today');
+const [ownerCustomStartDate, setOwnerCustomStartDate] = useState(todayISO());
+const [ownerCustomEndDate, setOwnerCustomEndDate] = useState(todayISO());
   const [language, setLanguage] = useState(DEFAULT_LANGUAGE);
 const [isOnline, setIsOnline] = useState(navigator.onLine);
 const [syncMessage, setSyncMessage] = useState('');
@@ -10530,6 +10586,10 @@ if (isHydrating) {
   importBackup={importBackup}
   ownerPeriod={ownerPeriod}
   setOwnerPeriod={setOwnerPeriod}
+  ownerCustomStartDate={ownerCustomStartDate}
+  setOwnerCustomStartDate={setOwnerCustomStartDate}
+  ownerCustomEndDate={ownerCustomEndDate}
+  setOwnerCustomEndDate={setOwnerCustomEndDate}
   language={language}
   setLanguage={setLanguage}
   dashboardDataReady={dashboardDataReady}
