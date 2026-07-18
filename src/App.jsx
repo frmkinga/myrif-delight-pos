@@ -3893,10 +3893,12 @@ const expiryStockValueRows = useMemo(
 };
       }
 
-      map[item.productId].soldQty += Number(item.quantity || 0);
-      map[item.productId].profit +=
-        Number(item.quantity || 0) *
-        (map[item.productId].sellPrice - map[item.productId].buyPrice);
+      const itemQty = Number(item.quantity || 0);
+const itemBuyPrice = Number(item.buyPrice ?? map[item.productId].buyPrice ?? 0);
+const itemSellPrice = Number(item.sellPrice ?? item.price ?? map[item.productId].sellPrice ?? 0);
+
+map[item.productId].soldQty += itemQty;
+map[item.productId].profit += itemQty * (itemSellPrice - itemBuyPrice);
     });
   });
 
