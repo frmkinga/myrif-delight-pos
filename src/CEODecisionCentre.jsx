@@ -724,7 +724,6 @@ function statusBadge(status) {
   return 'bg-slate-100 text-slate-600';
 }
 
-
 function formatShopForText(name, language) {
   const raw = String(name || '').trim();
   if (!raw) return '';
@@ -734,6 +733,38 @@ function formatShopForText(name, language) {
     .replace(/^duka\s+la\s+/i, '')
     .trim();
   return cleaned ? `duka la ${cleaned}` : raw;
+}
+
+function getSwahiliOrderedVerb(productName = '') {
+  const cleanName = String(productName || '').trim().toLowerCase();
+  const firstWord = cleanName.split(/\s+/)[0] || '';
+
+  if (!cleanName) return 'imeagizwa';
+
+  const yameWords = [
+    'mayai',
+    'maji',
+    'maziwa',
+    'mafuta',
+    'mafiga',
+    'magodoro',
+    'machungwa',
+    'maembe',
+  ];
+
+  if (yameWords.some((word) => cleanName.startsWith(word))) {
+    return 'yameagizwa';
+  }
+
+  if (firstWord.startsWith('vi') || firstWord.startsWith('vy')) {
+    return 'vimeagizwa';
+  }
+
+  if (firstWord.startsWith('ki') || firstWord.startsWith('ch')) {
+    return 'kimeagizwa';
+  }
+
+  return 'imeagizwa';
 }
 
 function recText(language, template, vars = {}) {
@@ -829,6 +860,7 @@ function buildAnalytics({ data, period, shopFilter, language, customStart, custo
   const allGasEntries = Array.isArray(data?.gasEntries) ? data.gasEntries : [];
 const range = getPeriodRange(period, customStart, customEnd);
 const selectedShopId = shopFilter === 'all' ? '' : String(shopFilter);
+const isShopUser = String(data?.currentUser?.role || '') === 'shop';
 
 const sameShop = (item) => !selectedShopId || String(item?.shop_id || item?.shopId || '') === selectedShopId;
 
@@ -1451,8 +1483,12 @@ const movementList = Object.values(movement).sort((a, b) => b.profit - a.profit)
             ? 'Reorder because current stock is low and recent/history sales confirm active demand.'
             : 'Ongeza stock kwa sababu stock iliyopo ni ndogo na historia ya mauzo inaonyesha bado ina uhitaji.',
           question: language === 'en'
-            ? `Confirm whether ${productName} has already been ordered.`
-            : `Muulize mhudumu kama ${productName} tayari imeagizwa.`,
+  ? isShopUser
+    ? `Confirm whether ${productName} has already been ordered. If not, consider ordering it now.`
+    : `Confirm whether ${productName} has already been ordered.`
+  : isShopUser
+    ? `Thibitisha kama ${productName} tayari ${getSwahiliOrderedVerb(productName)}. Kama bado, angalia uwezekano wa kuagiza sasa hivi.`
+    : `Muulize mhudumu kama ${productName} tayari ${getSwahiliOrderedVerb(productName)}.`,
         });
       }
 
