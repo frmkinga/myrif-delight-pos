@@ -3757,8 +3757,14 @@ const liveRemittancePosition =
     calculationDateKey: todayISO(),
   });
 
-const remittanceTodayExpenses = Number(
-  liveRemittancePosition?.cashAmountRequiredToSubmit || 0
+const remittanceNormalAmount = Number(
+  liveRemittancePosition?.normalAmountRequiredToSubmit ||
+    liveRemittancePosition?.amountRequiredToSubmit ||
+    0
+);
+
+const remittanceGasAmount = Number(
+  liveRemittancePosition?.gasDistributableAmount || 0
 );
 
 const todayExpenses = filterByPreset(
@@ -6478,11 +6484,15 @@ banks: mobileMoneyForm.banks.map((b) => ({
 
 <StatCard
   title={`${t(language, 'Expenses', 'Matumizi')} - ${shopPeriodLabel}`}
-  value={`TZS ${currency(
+  value={
     reportPreset === 'today'
-      ? remittanceTodayExpenses
-      : todayExpenses
-  )}`}
+      ? remittanceGasAmount > 0
+        ? `TZS ${currency(remittanceNormalAmount)} + TZS ${currency(
+            remittanceGasAmount
+          )}`
+        : `TZS ${currency(remittanceNormalAmount)}`
+      : `TZS ${currency(todayExpenses)}`
+  }
   icon={AlertTriangle}
   color="bg-red-300"
 />
@@ -10643,8 +10653,9 @@ if (isHydrating) {
 );
   }
 
-  const shop = data.shops.find((s) => s.id === selectedShopId) || data.shops[0];
-const shopDecisionData = buildShopOnlyData(data, selectedShopId);
+  const shop =
+  data.shops.find((s) => s.id === selectedShopId) ||
+  data.shops[0];
 
 return (
   <>

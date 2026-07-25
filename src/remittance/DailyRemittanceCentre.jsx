@@ -1269,25 +1269,131 @@ export const getLiveRemittanceShopPosition = ({
         String(record?.date || '') === todayKey
     );
 
-  return calculateShop({
-    id: selectedShopId,
-    name:
-      selectedShop?.name || selectedShopId,
-    sales: todaySalesPosition.sales,
-    replacement:
-      todaySalesPosition.replacement,
-    calculationDate: todayKey,
-    previousUnpaidExpenses,
-    previousUnpaidLocalExpenses,
-    previousUnpaidCentralExpenses,
-    submitted: Number(
-      todayRemittance?.amountSent || 0
-    ),
-    previous: previousBalance,
-    localConfirmed: Boolean(
-      todayRemittance?.localConfirmed
-    ),
-  });
+  const basePosition = calculateShop({
+  id: selectedShopId,
+  name:
+    selectedShop?.name || selectedShopId,
+  sales: todaySalesPosition.sales,
+  replacement:
+    todaySalesPosition.replacement,
+  calculationDate: todayKey,
+  previousUnpaidExpenses,
+  previousUnpaidLocalExpenses,
+  previousUnpaidCentralExpenses,
+  submitted: Number(
+    todayRemittance?.amountSent || 0
+  ),
+  previous: previousBalance,
+  localConfirmed: Boolean(
+    todayRemittance?.localConfirmed
+  ),
+});
+
+const todayShopGasEntries = (
+  Array.isArray(safeData.gasEntries)
+    ? safeData.gasEntries
+    : []
+).filter((entry) => {
+  const entryShopId = String(
+    entry?.shop_id ||
+      entry?.shopId ||
+      ''
+  );
+
+  const entryDateKey = String(
+    entry?.date ||
+      entry?.created_at ||
+      ''
+  ).slice(0, 10);
+
+  return (
+    entryShopId === selectedShopId &&
+    entryDateKey === todayKey &&
+    entry?.confirmed !== false
+  );
+});
+
+const todayGasSummary = getGasDashboardSummary(
+  todayShopGasEntries
+);
+
+const gasProfitToday = Math.max(
+  0,
+  Number(todayGasSummary?.totalProfit || 0)
+);
+
+const gasReserveAmount = gasProfitToday * 0.2;
+const gasDistributableAmount = gasProfitToday * 0.8;
+
+const gasUsedForArrears = Math.min(
+  gasDistributableAmount,
+  Number(basePosition.expensesStillOutstanding || 0)
+);
+
+const gasBalanceAfterArrears = Math.max(
+  0,
+  gasDistributableAmount - gasUsedForArrears
+);
+
+const gasOwnerProfit =
+  gasBalanceAfterArrears * 0.5;
+
+const gasHomeExpensesContribution =
+  gasBalanceAfterArrears * 0.5;
+
+const normalAmountRequiredToSubmit = Number(
+  basePosition.amountRequiredToSubmit || 0
+);
+
+const amountRequiredToSubmit =
+  normalAmountRequiredToSubmit +
+  gasDistributableAmount;
+
+const cashAmountRequiredToSubmit =
+  roundToCashStep(amountRequiredToSubmit);
+
+const cashRoundingAdjustment = Math.max(
+  0,
+  cashAmountRequiredToSubmit -
+    amountRequiredToSubmit
+);
+
+const expensesStillOutstanding = Math.max(
+  0,
+  Number(basePosition.expensesStillOutstanding || 0) -
+    gasUsedForArrears
+);
+
+const expectedHome =
+  Number(basePosition.expectedHome || 0) +
+  gasDistributableAmount;
+
+const outstanding = Math.max(
+  0,
+  expectedHome -
+    Number(basePosition.submitted || 0)
+);
+
+return {
+  ...basePosition,
+
+  gasProfitToday,
+  gasReserveAmount,
+  gasDistributableAmount,
+  gasUsedForArrears,
+  gasBalanceAfterArrears,
+  gasOwnerProfit,
+  gasHomeExpensesContribution,
+
+  normalAmountRequiredToSubmit,
+  amountRequiredToSubmit,
+  cashAmountRequiredToSubmit,
+  cashRoundingAdjustment,
+
+  expensesStillOutstanding,
+  expectedHome,
+  outstanding,
+};
 };
 function Badge({ children, tone = 'blue' }) {
   const classes = {
@@ -3287,6 +3393,68 @@ const periodNetProfit = Math.max(
 const periodOwnerProfit = periodNetProfit * 0.7;
 const periodShopReserve = periodNetProfit * 0.3;
 
+const selectedPeriodShopGasEntries = (
+  Array.isArray(data?.gasEntries)
+    ? data.gasEntries
+    : []
+).filter((entry) => {
+  const entryShopId = String(
+    entry?.shop_id ||
+      entry?.shopId ||
+      ''
+  );
+
+  const entryDateKey = String(
+    entry?.date ||
+      entry?.created_at ||
+      ''
+  ).slice(0, 10);
+
+  return (
+    entryShopId === shopId &&
+    selectedPeriodDateKeys.includes(entryDateKey) &&
+    entry?.confirmed !== false
+  );
+});
+
+const selectedPeriodGasSummary =
+  getGasDashboardSummary(
+    selectedPeriodShopGasEntries
+  );
+
+const gasProfit = Math.max(
+  0,
+  Number(selectedPeriodGasSummary?.totalProfit || 0)
+);
+
+const gasReserveAmount = gasProfit * 0.2;
+
+const gasDistributableAmount = gasProfit * 0.8;
+
+const normalOutstandingExpenses =
+  Number(
+    selectedPeriodExpensePosition.localOutstanding || 0
+  ) +
+  Number(
+    selectedPeriodExpensePosition.centralOutstanding || 0
+  );
+
+const gasUsedForArrears = Math.min(
+  gasDistributableAmount,
+  normalOutstandingExpenses
+);
+
+const gasBalanceAfterArrears = Math.max(
+  0,
+  gasDistributableAmount - gasUsedForArrears
+);
+
+const gasOwnerProfit =
+  gasBalanceAfterArrears * 0.5;
+
+const gasHomeExpensesContribution =
+  gasBalanceAfterArrears * 0.5;
+
 return {
   ...calculatedPeriodShop,
 
@@ -3326,25 +3494,77 @@ return {
     Number(selectedPeriodExpensePosition.localFunded || 0) +
     Number(selectedPeriodExpensePosition.centralFunded || 0),
 
-  expensesStillOutstanding:
-    Number(selectedPeriodExpensePosition.localOutstanding || 0) +
-    Number(selectedPeriodExpensePosition.centralOutstanding || 0),
+  expensesStillOutstanding: Math.max(
+  0,
+  Number(selectedPeriodExpensePosition.localOutstanding || 0) +
+    Number(selectedPeriodExpensePosition.centralOutstanding || 0) -
+    gasUsedForArrears
+),
 
-  netProfit: periodNetProfit,
-  ownerProfit: periodOwnerProfit,
-  shopReserve: periodShopReserve,
+netProfit: periodNetProfit,
+ownerProfit: periodOwnerProfit,
+shopReserve: periodShopReserve,
 
-  amountRequiredToSubmit:
+gasProfit,
+gasReserveAmount,
+gasDistributableAmount,
+gasUsedForArrears,
+gasBalanceAfterArrears,
+gasOwnerProfit,
+gasHomeExpensesContribution,
+
+normalAmountRequiredToSubmit:
+  Number(selectedPeriodExpensePosition.centralFunded || 0) +
+  periodOwnerProfit,
+
+amountRequiredToSubmit:
+  Number(selectedPeriodExpensePosition.centralFunded || 0) +
+  periodOwnerProfit +
+  gasDistributableAmount,
+
+cashAmountRequiredToSubmit: roundToCashStep(
+  Number(selectedPeriodExpensePosition.centralFunded || 0) +
+    periodOwnerProfit +
+    gasDistributableAmount
+),
+
+cashRoundingAdjustment: Math.max(
+  0,
+  roundToCashStep(
     Number(selectedPeriodExpensePosition.centralFunded || 0) +
-    periodOwnerProfit,
+      periodOwnerProfit +
+      gasDistributableAmount
+  ) -
+    (
+      Number(selectedPeriodExpensePosition.centralFunded || 0) +
+      periodOwnerProfit +
+      gasDistributableAmount
+    )
+),
+
+expectedHome:
+  Number(selectedPeriodExpensePosition.centralFunded || 0) +
+  periodOwnerProfit +
+  gasDistributableAmount +
+  Number(previousBalance || 0),
+
+outstanding: Math.max(
+  0,
+  Number(selectedPeriodExpensePosition.centralFunded || 0) +
+    periodOwnerProfit +
+    gasDistributableAmount +
+    Number(previousBalance || 0) -
+    Number(todayRemittance?.amountSent || 0)
+),
 };
   });
 }, [
   data?.shops,
   data?.sales,
-  data?.products,
-  data?.dailyRemittances,
-  reportPreset,
+data?.products,
+data?.gasEntries,
+data?.dailyRemittances,
+reportPreset,
   reportDate,
   reportStartDate,
   reportEndDate,
@@ -3547,38 +3767,46 @@ const automaticShopHomeExpensesContribution = useMemo(() => {
     );
 }, [monthlyExpenseRows]);
 
-
 const combinedHomeExpensesFundingSummary = useMemo(() => {
-
-const shopContribution = Math.max(
-  0,
-  Number(
-    automaticShopHomeExpensesContribution || 0
-  )
-);
+  const shopContribution = Math.max(
+    0,
+    Number(
+      automaticShopHomeExpensesContribution || 0
+    )
+  );
 
   const remainingAfterShopContribution = Math.max(
-  0,
-  Number(HOME_EXPENSES_MONTHLY_BUDGET.target || 0) -
-    shopContribution
-);
-
-const gasContribution = Math.min(
-  remainingAfterShopContribution,
-  Math.max(
     0,
-    Number(currentMonthGasSummary?.totalProfit || 0) * 0.7
-  )
-);
+    Number(HOME_EXPENSES_MONTHLY_BUDGET.target || 0) -
+      shopContribution
+  );
+
+  const calculatedGasHomeExpensesContribution =
+    rows.reduce(
+      (total, row) =>
+        total +
+        Number(
+          row.gasHomeExpensesContribution || 0
+        ),
+      0
+    );
+
+  const gasContribution = Math.min(
+    remainingAfterShopContribution,
+    Math.max(
+      0,
+      calculatedGasHomeExpensesContribution
+    )
+  );
 
   const combinedCommissionContribution = 0;
 
   const totalConfirmedFunding = Math.min(
-  Number(HOME_EXPENSES_MONTHLY_BUDGET.target || 0),
-  shopContribution +
-    gasContribution +
-    combinedCommissionContribution
-);
+    Number(HOME_EXPENSES_MONTHLY_BUDGET.target || 0),
+    shopContribution +
+      gasContribution +
+      combinedCommissionContribution
+  );
 
   const remainingBalance = Math.max(
     0,
@@ -3609,7 +3837,7 @@ const gasContribution = Math.min(
   };
 }, [
   automaticShopHomeExpensesContribution,
-  currentMonthGasSummary,
+  rows,
   previousMonthCombinedCommissionAllocation,
 ]);
 const homeExpensesFullyFunded =
@@ -4735,7 +4963,141 @@ language === 'sw'
 </td>
     </tr>
   ))}
+
+  {rows.length > 0 ? (
+    <tr className="border-t-2 border-slate-500 bg-slate-100 font-black">
+      <td className="px-4 py-4">
+        {language === 'sw' ? 'JUMLA' : 'TOTAL'}
+      </td>
+
+      <td className="px-4 py-4">
+        TZS {money(totals.sales)}
+      </td>
+
+      <td className="px-4 py-4">
+        TZS {money(totals.replacement)}
+      </td>
+
+      <td className="px-4 py-4">
+        TZS {money(totals.gross)}
+      </td>
+
+      <td className="px-4 py-4">
+        TZS {money(totals.previousUnpaidExpenses)}
+      </td>
+
+      <td className="px-4 py-4">
+        TZS {money(totals.todayFixedExpenses)}
+      </td>
+
+      <td className="px-4 py-4 text-emerald-700">
+        TZS {money(totals.expensesFundedAutomatically)}
+      </td>
+
+      <td className="px-4 py-4 text-red-700">
+        TZS {money(totals.expensesStillOutstanding)}
+      </td>
+
+      <td className="px-4 py-4">
+        TZS {money(totals.cashAmountRequiredToSubmit)}
+      </td>
+
+      <td className="px-4 py-4">—</td>
+    </tr>
+  ) : null}
 </tbody>
+                  </table>
+                </div>
+
+                <div className="overflow-x-auto rounded-2xl border border-orange-200 bg-white shadow-sm">
+                  <div className="border-b border-orange-200 bg-orange-50 px-5 py-4">
+                    <h3 className="text-lg font-black text-orange-950">
+                      {language === 'sw'
+                        ? 'Mgawanyo wa Faida ya Gesi'
+                        : 'Gas Profit Breakdown'}
+                    </h3>
+
+                    <p className="mt-1 text-sm text-orange-900">
+                      {language === 'sw'
+                        ? 'Jedwali hili linaonyesha jinsi faida ya gesi ya kila duka ilivyogawanywa.'
+                        : 'This table shows how each shop’s gas profit has been allocated.'}
+                    </p>
+                  </div>
+
+                  <table className="min-w-[1400px] w-full text-left text-sm">
+                    <thead className="bg-slate-100 text-xs uppercase text-slate-600">
+                      <tr>
+                        {[
+                          language === 'sw' ? 'Duka' : 'Shop',
+                          language === 'sw'
+                            ? 'Faida halisi ya gesi'
+                            : 'Actual gas profit',
+                          language === 'sw'
+                            ? '20% inayobaki kwenye gesi'
+                            : '20% gas reserve',
+                          language === 'sw'
+                            ? '80% ya kupelekwa nyumbani'
+                            : '80% distributable',
+                          language === 'sw'
+                            ? 'Iliyotumika kulipa matumizi ya nyuma'
+                            : 'Used to clear arrears',
+                          language === 'sw'
+                            ? 'Salio baada ya matumizi ya nyuma'
+                            : 'Balance after arrears',
+                          language === 'sw'
+                            ? 'Faida ya gesi ya mmiliki'
+                            : 'Owner gas profit',
+                          language === 'sw'
+                            ? 'Mchango wa ziada wa Matumizi ya Nyumbani'
+                            : 'Additional Home Expenses contribution',
+                        ].map((heading) => (
+                          <th key={heading} className="px-4 py-3">
+                            {heading}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {rows.map((row) => (
+                        <tr
+                          key={`${row.id}-gas-breakdown`}
+                          className="border-t border-slate-100"
+                        >
+                          <td className="px-4 py-3 font-bold">
+                            {row.name}
+                          </td>
+
+                          <td className="px-4 py-3">
+                            TZS {money(row.gasProfit)}
+                          </td>
+
+                          <td className="px-4 py-3">
+                            TZS {money(row.gasReserveAmount)}
+                          </td>
+
+                          <td className="px-4 py-3 font-black text-orange-700">
+                            TZS {money(row.gasDistributableAmount)}
+                          </td>
+
+                          <td className="px-4 py-3 font-bold text-red-700">
+                            TZS {money(row.gasUsedForArrears)}
+                          </td>
+
+                          <td className="px-4 py-3">
+                            TZS {money(row.gasBalanceAfterArrears)}
+                          </td>
+
+                          <td className="px-4 py-3 font-bold text-blue-700">
+                            TZS {money(row.gasOwnerProfit)}
+                          </td>
+
+                          <td className="px-4 py-3 font-bold text-emerald-700">
+                            TZS {money(row.gasHomeExpensesContribution)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
                   </table>
                 </div>
               </div>
