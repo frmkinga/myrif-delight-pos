@@ -4,6 +4,11 @@ import { supabase } from './supabaseClient';
 import { GasBusinessSection, GasDashboardCard, GasReportBlock, buildGasRecord, getGasDashboardSummary } from './GasBusinessSection';
 import RentalPropertySection from './RentalPropertySection';
 import CEODecisionCentre from './CEODecisionCentre';
+import DailyRemittanceCentre, {
+  calculateShop,
+  getLiveRemittanceShopPosition,
+  AUTOMATIC_EXPENSE_PILOT_START_DATE,
+} from './remittance/DailyRemittanceCentre';
 import {
   ShoppingCart,
   AlertTriangle,
@@ -905,8 +910,19 @@ function normalizeData(parsed = {}) {
     purchases: Array.isArray(parsed.purchases) ? parsed.purchases : [],
     mobileMoneyEntries: Array.isArray(parsed.mobileMoneyEntries) ? parsed.mobileMoneyEntries : [],
     monthlyWakalaCommissions: Array.isArray(parsed.monthlyWakalaCommissions) ? parsed.monthlyWakalaCommissions : [],
-    monthlySalesTargets: Array.isArray(parsed.monthlySalesTargets) ? parsed.monthlySalesTargets : [],
-    gasEntries: Array.isArray(parsed.gasEntries) ? parsed.gasEntries : [],
+    monthlySalesTargets: Array.isArray(parsed.monthlySalesTargets)
+  ? parsed.monthlySalesTargets
+  : [],
+dailyRemittances: Array.isArray(parsed.dailyRemittances)
+  ? parsed.dailyRemittances
+  : [],
+remittanceExpenseFunds: Array.isArray(parsed.remittanceExpenseFunds)
+  ? parsed.remittanceExpenseFunds
+  : [],
+remittanceFundAllocations: Array.isArray(parsed.remittanceFundAllocations)
+  ? parsed.remittanceFundAllocations
+  : [],
+gasEntries: Array.isArray(parsed.gasEntries) ? parsed.gasEntries : [],
     houses: Array.isArray(parsed.houses) ? parsed.houses : [],
     meters: Array.isArray(parsed.meters) ? parsed.meters : [],
     serviceCharges: Array.isArray(parsed.serviceCharges) ? parsed.serviceCharges : [],
@@ -936,6 +952,9 @@ function buildShopOnlyData(data, shopId) {
     mobileMoneyEntries: (data.mobileMoneyEntries || []).filter(sameShop),
     monthlyWakalaCommissions: (data.monthlyWakalaCommissions || []).filter(sameShop),
     monthlySalesTargets: (data.monthlySalesTargets || []).filter(sameShop),
+    dailyRemittances: (data.dailyRemittances || []).filter(sameShop),
+    remittanceExpenseFunds: (data.remittanceExpenseFunds || []).filter(sameShop),
+    remittanceFundAllocations: (data.remittanceFundAllocations || []).filter(sameShop),
     gasEntries: (data.gasEntries || []).filter(sameShop),
     houses: (data.houses || []).filter(sameShop),
     meters: (data.meters || []).filter(sameShop),
@@ -2890,6 +2909,11 @@ const isRecurringExpenseSavedForDate = (item, idx, dateValue) => {
 
 const autoSaveRecurringExpensesForToday = async () => {
   const today = todayISO();
+
+  if (today >= AUTOMATIC_EXPENSE_PILOT_START_DATE) {
+    return;
+  }
+
   const autoSaveKey = `${shop.id}-${today}`;
 
   if (recurringAutoSaveRef.current === autoSaveKey) return;
@@ -3725,7 +3749,26 @@ const todaySales = dashboardFilteredSales.reduce(
   (a, s) => a + Number(s.total || 0),
   0
 );
-const todayExpenses = filterByPreset(expenses, reportPreset, dashboardDateValue).reduce((a, e) => a + Number(e.amount || 0), 0);
+
+const liveRemittancePosition =
+  getLiveRemittanceShopPosition({
+    data,
+    shopId: shop.id,
+    calculationDateKey: todayISO(),
+  });
+
+const remittanceTodayExpenses = Number(
+  liveRemittancePosition?.cashAmountRequiredToSubmit || 0
+);
+
+const todayExpenses = filterByPreset(
+  expenses,
+  reportPreset,
+  dashboardDateValue
+).reduce(
+  (a, e) => a + Number(e.amount || 0),
+  0
+);
 
 const todayGasProfit = filterByPreset(gasEntries, reportPreset, dashboardDateValue)
   .reduce((a, x) => a + getGasEntryProfitTotal(x), 0);
@@ -5043,8 +5086,8 @@ const saveExpenseRows = () => {
     alert(
       t(
         language,
-        'This is a fixed daily expense and is saved automatically. Please enter only additional expenses here.',
-        'Hili ni matumizi ya kudumu ya kila siku na linahifadhiwa moja kwa moja. Tafadhali ingiza matumizi ya ziada tu hapa.'
+        'This fixed expense is now controlled by the Remittance section. Please enter only additional expenses here.',
+        'Hili ni matumizi ya kudumu yanayosimamiwa sasa na sehemu ya Remittance. Tafadhali ingiza matumizi ya ziada tu hapa.'
       )
     );
     setExpenseRows([{ ...emptyExpenseRow }]);
@@ -6403,8 +6446,9 @@ banks: mobileMoneyForm.banks.map((b) => ({
       ['products', t(language, 'Record Products', 'Sajili Bidhaa')],
       ['purchases', t(language, 'Record Purchases', 'Sajili Manunuzi')],
       ['pos', t(language, 'Sales', 'Mauzo')],
-      ['expenses', t(language, 'Expenses', 'Matumizi')],
-      ['credit', t(language, 'Credit', 'Madeni')],
+['expenses', t(language, 'Expenses', 'Matumizi')],
+['remittance', t(language, 'Remittance & Expense Funds', 'Makusanyo na Fedha za Matumizi')],
+['credit', t(language, 'Credit', 'Madeni')],
       ['change', t(language, 'Customer Change', 'Chenji ya Mteja')],
       ['mobilemoney', t(language, 'Mobile Money', 'Wakala')],
       ['gas', t(language, 'Gas Business', 'Biashara ya Gesi')],
@@ -6434,7 +6478,11 @@ banks: mobileMoneyForm.banks.map((b) => ({
 
 <StatCard
   title={`${t(language, 'Expenses', 'Matumizi')} - ${shopPeriodLabel}`}
-  value={`TZS ${currency(todayExpenses)}`}
+  value={`TZS ${currency(
+    reportPreset === 'today'
+      ? remittanceTodayExpenses
+      : todayExpenses
+  )}`}
   icon={AlertTriangle}
   color="bg-red-300"
 />
@@ -7277,6 +7325,20 @@ banks: mobileMoneyForm.banks.map((b) => ({
 
  
         </div>
+      </TabsContent>
+
+      <TabsContent value="remittance" activeValue={activeTab}>
+      <DailyRemittanceCentre
+  data={data}
+  saveData={saveData}
+  currentUser={data.currentUser}
+  language={language}
+  lockedShopId={shop.id}
+  reportPreset={reportPreset}
+  reportDate={reportDate}
+  reportStartDate={reportStartDate}
+  reportEndDate={reportEndDate}
+/>
       </TabsContent>
 
       <TabsContent value="credit" activeValue={activeTab}>
@@ -10458,95 +10520,22 @@ const openShopDashboard = async (shopId) => {
     return;
   }
 
-  if (navigator.onLine) {
-    try {
-      setSyncMessage(
-        t(
-          language,
-          'Loading shop sales history before opening...',
-          'Inapakia historia ya mauzo ya duka kabla ya kufungua...'
-        )
-      );
-
-      const pageSize = 1000;
-      let from = 0;
-      let allShopSales = [];
-      let keepLoading = true;
-
-      while (keepLoading) {
-        const { data: pageRows, error } = await supabase
-          .from('sales')
-          .select('*')
-          .eq('shop_id', selectedShopId)
-          .gte('date', daysAgoISO(180))
-          .order('created_at', { ascending: false })
-          .range(from, from + pageSize - 1);
-
-        if (error) throw error;
-
-        const rows = Array.isArray(pageRows) ? pageRows : [];
-        allShopSales = [...allShopSales, ...rows];
-
-        keepLoading = rows.length === pageSize;
-        from += pageSize;
-      }
-
-      const normalizedShopSales = allShopSales.map((sale) => ({
-        ...sale,
-        shop_id: String(sale?.shop_id || '').trim(),
-        date: sale?.date || (sale?.created_at ? String(sale.created_at).slice(0, 10) : todayISO()),
-        confirmed: true,
-      }));
-
-      setData((prev) => {
-        const salesById = new Map();
-
-        (prev.sales || []).forEach((sale) => {
-          if (sale?.id) {
-            salesById.set(String(sale.id), sale);
-          }
-        });
-
-        normalizedShopSales.forEach((sale) => {
-          if (sale?.id) {
-            salesById.set(String(sale.id), {
-              ...(salesById.get(String(sale.id)) || {}),
-              ...sale,
-            });
-          }
-        });
-
-        const salesWithoutId = (prev.sales || []).filter((sale) => !sale?.id);
-
-        return {
-          ...prev,
-          sales: [...salesWithoutId, ...Array.from(salesById.values())],
-        };
-      });
-
-      setSyncMessage(
-        t(
-          language,
-          'Shop history loaded from Supabase.',
-          'Historia ya duka imepakiwa kutoka Supabase.'
-        )
-      );
-    } catch (error) {
-      console.error('Failed to load shop history before opening:', error);
-
-      setSyncMessage(
-        t(
-          language,
-          'Shop opened, but history refresh failed. Using available data.',
-          'Duka limefunguliwa, lakini historia haijapakiwa upya. Inatumia taarifa zilizopo.'
-        )
-      );
-    }
+  if (!dashboardDataReady) {
+    setSyncMessage(
+      t(
+        language,
+        'Confirmed Supabase data is still being prepared. Please wait until loading is complete.',
+        'Taarifa zilizothibitishwa kutoka Supabase bado zinaandaliwa. Tafadhali subiri mpaka upakiaji ukamilike.'
+      )
+    );
+    return;
   }
 
-  await ensureCurrentMonthSalesTargets(selectedShopId);
-
   setActiveShopId(selectedShopId);
+
+ensureCurrentMonthSalesTargets(selectedShopId).catch((error) => {
+  console.error('Monthly sales target background check failed:', error);
+});
 };
 const logout = async () => {
   writeStorage(STORAGE_SESSION_KEY, null);
