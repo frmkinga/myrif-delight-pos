@@ -23,6 +23,7 @@ const translations = {
     tabLocal: 'Local Shop Funds',
     tabSetup: 'Add / Edit Expense',
     tabReports: 'Reports',
+    tabAccountability: 'Central Funds & Accountability',
     addExpense: 'Add a flexible expense',
     expenseName: 'Expense name',
     amount: 'Amount',
@@ -121,6 +122,7 @@ tabDaily: 'Makusanyo ya Leo',
     tabLocal: 'Fedha Zinazobaki Dukani',
     tabSetup: 'Ongeza / Badili Matumizi',
     tabReports: 'Ripoti',
+    tabAccountability: 'Fedha Kuu na Uwajibikaji',
     addExpense: 'Ongeza matumizi mapya',
     expenseName: 'Jina la matumizi',
     amount: 'Kiasi',
@@ -710,42 +712,96 @@ const daysInMonth = new Date(
   0
 ).getDate();
 
+const getDailyExpenseAmount = (expense) => {
+  const amount = Number(expense?.amount || 0);
 
-  const getDailyExpenseAmount = (expense) => {
-    const amount = Number(expense?.amount || 0);
-if (!automaticExpensesAreActive) {
-  return 0;
-}
-    if (expense?.frequency === 'daily') {
-      return amount;
-    }
-
-    if (expense?.frequency === 'monthly') {
-      return amount / daysInMonth;
-    }
-
-    if (expense?.frequency === 'six_months') {
-      return amount / (daysInMonth * 6);
-    }
-
+  if (!automaticExpensesAreActive) {
     return 0;
-  };
+  }
 
-  const localExpenseBreakdown = Object.entries(expenseSetup)
-    .filter(([, expense]) => expense.location === 'shop')
-    .map(([key, expense]) => ({
-      key,
-      name: expense.name,
-      requiredToday: getDailyExpenseAmount(expense),
-    }));
+  if (expense?.frequency === 'daily') {
+    return amount;
+  }
 
-  const centralExpenseBreakdown = Object.entries(expenseSetup)
-    .filter(([, expense]) => expense.location === 'owner')
-    .map(([key, expense]) => ({
-      key,
-      name: expense.name,
-      requiredToday: getDailyExpenseAmount(expense),
-    }));
+  if (expense?.frequency === 'monthly') {
+    return amount / daysInMonth;
+  }
+
+  if (expense?.frequency === 'six_months') {
+    return amount / (daysInMonth * 6);
+  }
+
+  if (expense?.frequency === 'one_time') {
+    return amount;
+  }
+
+  return 0;
+};
+
+const fixedExpenseEntries = Object.entries(expenseSetup).map(
+  ([key, expense]) => ({
+    key,
+    name: expense.name,
+    location: expense.location,
+    requiredToday: getDailyExpenseAmount(expense),
+    isManual: false,
+  })
+);
+
+const manualExpenseEntries = (
+  Array.isArray(shop.manualExpenseFunds)
+    ? shop.manualExpenseFunds
+    : []
+)
+  .filter((fund) => {
+    const remainingAmount = Math.max(
+      0,
+      Number(fund?.target || 0) -
+        Number(fund?.funded || 0)
+    );
+
+    const createdDateKey = String(
+      fund?.created_at || fund?.createdAt || ''
+    ).slice(0, 10);
+
+    return (
+      String(fund?.shop_id || fund?.shopId || '') ===
+        String(shop.id || '') &&
+      remainingAmount > 0 &&
+      (!createdDateKey ||
+        createdDateKey <= calculationDateKey)
+    );
+  })
+  .map((fund) => ({
+    key: `manual-${fund.id}`,
+    fundId: fund.id,
+    name: fund.expense || 'Manual Expense',
+    location:
+      fund.location === 'shop' ? 'shop' : 'owner',
+    requiredToday: getDailyExpenseAmount({
+      amount: Math.max(
+        0,
+        Number(fund.target || 0) -
+          Number(fund.funded || 0)
+      ),
+      frequency: 'one_time',
+    }),
+    due: fund.due || '',
+    isManual: true,
+  }));
+
+const allExpenseEntries = [
+  ...fixedExpenseEntries,
+  ...manualExpenseEntries,
+];
+
+const localExpenseBreakdown = allExpenseEntries.filter(
+  (expense) => expense.location === 'shop'
+);
+
+const centralExpenseBreakdown = allExpenseEntries.filter(
+  (expense) => expense.location === 'owner'
+);
 
   const localRequired = localExpenseBreakdown.reduce(
     (sum, expense) => sum + Number(expense.requiredToday || 0),
@@ -893,8 +949,15 @@ const centralExpensesStillOutstanding = Math.max(
 const netProfit = afterCentral;
 
 
-const ownerProfit = netProfit * 0.7;
-const shopReserve = netProfit * 0.3;
+const exactOwnerProfit = netProfit * 0.7;
+
+const ownerProfit =
+  Math.floor(exactOwnerProfit / 50) * 50;
+
+const shopReserve = Math.max(
+  0,
+  netProfit - ownerProfit
+);
 
 const todayFixedExpenses =
   localRequired + centralRequired;
@@ -1208,7 +1271,6 @@ export const getLiveRemittanceShopPosition = ({
         centralUnpaid: 0,
       }
     );
-
   const previousUnpaidLocalExpenses =
     Number(
       previousUnpaidExpensePosition.localUnpaid ||
@@ -1254,7 +1316,7 @@ export const getLiveRemittanceShopPosition = ({
 
       return Math.max(
         0,
-        balance + expected - submitted
+        expected - submitted
       );
     }, 0);
 
@@ -1277,6 +1339,11 @@ export const getLiveRemittanceShopPosition = ({
   replacement:
     todaySalesPosition.replacement,
   calculationDate: todayKey,
+  manualExpenseFunds: Array.isArray(
+    safeData.remittanceExpenseFunds
+  )
+    ? safeData.remittanceExpenseFunds
+    : [],
   previousUnpaidExpenses,
   previousUnpaidLocalExpenses,
   previousUnpaidCentralExpenses,
@@ -1445,8 +1512,29 @@ export default function DailyRemittanceCentre({
 
   const language = appLanguage;
   const rolePreview = resolvedRole;
-  const [activeTab, setActiveTab] = useState('daily');
-  const [activeReport, setActiveReport] = useState('daily-remittance');
+ const [activeTab, setActiveTab] = useState('daily');
+
+const [
+  activeAccountabilitySection,
+  setActiveAccountabilitySection,
+] = useState('summary');
+
+const [
+  ledgerShopFilter,
+  setLedgerShopFilter,
+] = useState('all');
+
+const [
+  showOwnerDrawingForm,
+  setShowOwnerDrawingForm,
+] = useState(false);
+
+const [
+  showEmergencyBorrowingForm,
+  setShowEmergencyBorrowingForm,
+] = useState(false);
+
+const [activeReport, setActiveReport] = useState('daily-remittance');
   
   const [selectedShopId, setSelectedShopId] = useState(
     resolvedShopId || 'shop-1'
@@ -1469,6 +1557,93 @@ useEffect(() => {
   const [amountSent, setAmountSent] = useState('');
 const [paymentMethod, setPaymentMethod] = useState('cash');
 const [paymentReference, setPaymentReference] = useState('');
+const [ownerDrawingAmount, setOwnerDrawingAmount] =
+  useState('');
+
+const [ownerDrawingPurpose, setOwnerDrawingPurpose] =
+  useState('');
+
+const [
+  ownerDrawingPaymentMethod,
+  setOwnerDrawingPaymentMethod,
+] = useState('cash');
+
+const [
+  ownerDrawingPaymentReference,
+  setOwnerDrawingPaymentReference,
+] = useState('');
+
+const [ownerDrawingSaving, setOwnerDrawingSaving] =
+  useState(false);
+  const [
+  emergencySourceFundKey,
+  setEmergencySourceFundKey,
+] = useState('');
+
+const [
+  emergencyDestinationFundKey,
+  setEmergencyDestinationFundKey,
+] = useState('');
+
+const [emergencyBorrowingAmount, setEmergencyBorrowingAmount] =
+  useState('');
+
+const [emergencyBorrowingDueDate, setEmergencyBorrowingDueDate] =
+  useState('');
+
+const [emergencyBorrowingPurpose, setEmergencyBorrowingPurpose] =
+  useState('');
+
+const [
+  emergencyBorrowingReference,
+  setEmergencyBorrowingReference,
+] = useState('');
+
+const [
+  emergencyBorrowingSaving,
+  setEmergencyBorrowingSaving,
+] = useState(false);
+const [
+  expensePaymentFundKey,
+  setExpensePaymentFundKey,
+] = useState('');
+
+const [
+  expensePaymentAmount,
+  setExpensePaymentAmount,
+] = useState('');
+
+const [
+  expensePaymentDate,
+  setExpensePaymentDate,
+] = useState(
+  new Date().toISOString().slice(0, 10)
+);
+
+const [
+  expensePaymentPayee,
+  setExpensePaymentPayee,
+] = useState('');
+
+const [
+  expensePaymentPurpose,
+  setExpensePaymentPurpose,
+] = useState('');
+
+const [
+  expensePaymentMethod,
+  setExpensePaymentMethod,
+] = useState('cash');
+
+const [
+  expensePaymentReference,
+  setExpensePaymentReference,
+] = useState('');
+
+const [
+  expensePaymentSaving,
+  setExpensePaymentSaving,
+] = useState(false);
 const [shortReason, setShortReason] = useState('');
 const [otherReason, setOtherReason] = useState('');
   const [localConfirmed, setLocalConfirmed] = useState(false);
@@ -1508,6 +1683,1785 @@ const remittanceRecords = Array.isArray(data?.dailyRemittances)
 )
   ? data.remittanceFundAllocations
   : [];
+
+  const centralFundSummary = useMemo(() => {
+  const remittances = Array.isArray(data?.dailyRemittances)
+    ? data.dailyRemittances
+    : [];
+
+  const transactions = Array.isArray(
+    data?.centralFundTransactions
+  )
+    ? data.centralFundTransactions
+    : [];
+
+  const formatSummaryDateKey = (date) =>
+    `${date.getFullYear()}-${String(
+      date.getMonth() + 1
+    ).padStart(2, '0')}-${String(
+      date.getDate()
+    ).padStart(2, '0')}`;
+
+  const startOfSummaryDay = (value) => {
+    const date =
+      value instanceof Date
+        ? new Date(value)
+        : new Date(value);
+
+    date.setHours(0, 0, 0, 0);
+    return date;
+  };
+
+  const addSummaryDays = (date, numberOfDays) => {
+    const copy = new Date(date);
+    copy.setDate(copy.getDate() + numberOfDays);
+    return copy;
+  };
+
+  const now = startOfSummaryDay(new Date());
+
+  let summaryPeriodStart = now;
+  let summaryPeriodEnd = now;
+
+  if (reportPreset === 'yesterday') {
+    summaryPeriodStart = addSummaryDays(now, -1);
+    summaryPeriodEnd = addSummaryDays(now, -1);
+  } else if (reportPreset === 'week') {
+    const dayOfWeek = now.getDay();
+    const daysFromMonday =
+      dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+
+    summaryPeriodStart = addSummaryDays(
+      now,
+      -daysFromMonday
+    );
+  } else if (reportPreset === 'lastweek') {
+    const dayOfWeek = now.getDay();
+    const daysFromMonday =
+      dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+
+    const currentWeekStart = addSummaryDays(
+      now,
+      -daysFromMonday
+    );
+
+    summaryPeriodStart = addSummaryDays(
+      currentWeekStart,
+      -7
+    );
+
+    summaryPeriodEnd = addSummaryDays(
+      currentWeekStart,
+      -1
+    );
+  } else if (reportPreset === 'month') {
+    summaryPeriodStart = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      1
+    );
+  } else if (reportPreset === 'lastmonth') {
+    summaryPeriodStart = new Date(
+      now.getFullYear(),
+      now.getMonth() - 1,
+      1
+    );
+
+    summaryPeriodEnd = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      0
+    );
+  } else if (reportPreset === '3months') {
+    summaryPeriodStart = addSummaryDays(now, -89);
+  } else if (reportPreset === '6months') {
+    summaryPeriodStart = addSummaryDays(now, -179);
+  } else if (reportPreset === 'year') {
+    summaryPeriodStart = new Date(
+      now.getFullYear(),
+      0,
+      1
+    );
+  } else if (
+    reportPreset === 'date' &&
+    reportStartDate &&
+    reportEndDate
+  ) {
+    summaryPeriodStart = startOfSummaryDay(
+      `${reportStartDate}T00:00:00`
+    );
+
+    summaryPeriodEnd = startOfSummaryDay(
+      `${reportEndDate}T00:00:00`
+    );
+  }
+
+  const summaryStartKey =
+    formatSummaryDateKey(summaryPeriodStart);
+
+  const summaryEndKey =
+    formatSummaryDateKey(summaryPeriodEnd);
+
+  const todayKey = formatSummaryDateKey(now);
+
+  const cumulativeDateKeys =
+    getExpenseDateKeys(
+      AUTOMATIC_EXPENSE_ACTIVATION_DATE,
+      summaryEndKey
+    );
+
+  const calculateCentralCollectionForDates = (
+    dateKeys
+  ) =>
+    dateKeys.reduce((periodTotal, dateKey) => {
+      const dateTotal = (
+        Array.isArray(data?.shops)
+          ? data.shops
+          : []
+      ).reduce((shopTotal, shop) => {
+        const shopId = String(
+          shop?.id || ''
+        ).trim();
+
+        if (!shopId) return shopTotal;
+
+        const livePosition =
+          getLiveRemittanceShopPosition({
+            data,
+            shopId,
+            calculationDateKey: dateKey,
+          });
+
+        return (
+          shopTotal +
+          Math.max(
+            0,
+            Number(
+  livePosition
+    ?.cashAmountRequiredToSubmit || 0
+)
+          )
+        );
+      }, 0);
+
+      return periodTotal + dateTotal;
+    }, 0);
+
+  const selectedPeriodDateKeys =
+    getExpenseDateKeys(
+      summaryStartKey <
+        AUTOMATIC_EXPENSE_ACTIVATION_DATE
+        ? AUTOMATIC_EXPENSE_ACTIVATION_DATE
+        : summaryStartKey,
+      summaryEndKey
+    );
+
+  const selectedPeriodReceived =
+    calculateCentralCollectionForDates(
+      selectedPeriodDateKeys
+    );
+
+  const cumulativeReceivedThroughPeriodEnd =
+    calculateCentralCollectionForDates(
+      cumulativeDateKeys
+    );
+
+  const confirmedTransactions = transactions.filter(
+    (transaction) => {
+      const transactionStatus = String(
+        transaction?.status || ''
+      ).toLowerCase();
+
+      const transactionDate = String(
+        transaction?.transactionDate ||
+          transaction?.transaction_date ||
+          ''
+      ).slice(0, 10);
+
+      return (
+        transactionStatus === 'confirmed' &&
+        transactionDate &&
+        transactionDate >=
+          AUTOMATIC_EXPENSE_ACTIVATION_DATE &&
+        transactionDate <= summaryEndKey
+      );
+    }
+  );
+    const selectedPeriodTransactions =
+    confirmedTransactions.filter(
+      (transaction) => {
+        const transactionDate = String(
+          transaction?.transactionDate ||
+            transaction?.transaction_date ||
+            ''
+        ).slice(0, 10);
+
+        return (
+          transactionDate >= summaryStartKey &&
+          transactionDate <= summaryEndKey
+        );
+      }
+    );
+
+  const withdrawalTypes = new Set([
+    'expense_payment',
+    'owner_drawing',
+    'refund',
+  ]);
+
+  const cumulativeWithdrawals =
+    confirmedTransactions.reduce((sum, transaction) => {
+      const transactionType = String(
+        transaction?.transactionType ||
+          transaction?.transaction_type ||
+          ''
+      ).toLowerCase();
+
+      const amount = Math.max(
+        0,
+        Number(transaction?.amount || 0)
+      );
+
+      if (withdrawalTypes.has(transactionType)) {
+        return sum + amount;
+      }
+
+      if (transactionType === 'reversal') {
+        return sum - amount;
+      }
+
+      return sum;
+    }, 0);
+      const selectedPeriodWithdrawals =
+    selectedPeriodTransactions.reduce(
+      (sum, transaction) => {
+        const transactionType = String(
+          transaction?.transactionType ||
+            transaction?.transaction_type ||
+            ''
+        ).toLowerCase();
+
+        const amount = Math.max(
+          0,
+          Number(transaction?.amount || 0)
+        );
+
+        if (withdrawalTypes.has(transactionType)) {
+          return sum + amount;
+        }
+
+        if (transactionType === 'reversal') {
+          return sum - amount;
+        }
+
+        return sum;
+      },
+      0
+    );
+  const ownerProfitAccumulated =
+  cumulativeDateKeys.reduce(
+    (periodTotal, dateKey) => {
+      const dateOwnerProfit = (
+        Array.isArray(data?.shops)
+          ? data.shops
+          : []
+      ).reduce((shopTotal, shop) => {
+        const shopId = String(
+          shop?.id || ''
+        ).trim();
+
+        if (!shopId) return shopTotal;
+
+        const livePosition =
+          getLiveRemittanceShopPosition({
+            data,
+            shopId,
+            calculationDateKey: dateKey,
+          });
+
+        const ordinaryOwnerProfit =
+          Math.max(
+            0,
+            Number(
+              livePosition?.ownerProfit || 0
+            )
+          );
+
+        const gasOwnerProfit =
+  Math.max(
+    0,
+    Number(
+      livePosition?.gasOwnerProfit || 0
+    )
+  );
+
+const cashRoundingAdjustment =
+  Math.max(
+    0,
+    Number(
+      livePosition?.cashRoundingAdjustment || 0
+    )
+  );
+
+return (
+  shopTotal +
+  ordinaryOwnerProfit +
+  gasOwnerProfit +
+  cashRoundingAdjustment
+);
+      }, 0);
+
+      return periodTotal + dateOwnerProfit;
+    },
+    0
+  );
+
+  const ownerDrawingsTaken =
+    confirmedTransactions.reduce((sum, transaction) => {
+      const transactionType = String(
+        transaction?.transactionType ||
+          transaction?.transaction_type ||
+          ''
+      ).toLowerCase();
+
+      if (transactionType !== 'owner_drawing') {
+        return sum;
+      }
+
+      return (
+        sum + Math.max(0, Number(transaction?.amount || 0))
+      );
+    }, 0);
+
+  const ownerProfitAvailable = Math.max(
+    0,
+    ownerProfitAccumulated - ownerDrawingsTaken
+  );
+
+  const totalEmergencyBorrowed =
+    confirmedTransactions.reduce((sum, transaction) => {
+      const transactionType = String(
+        transaction?.transactionType ||
+          transaction?.transaction_type ||
+          ''
+      ).toLowerCase();
+
+      if (transactionType !== 'emergency_borrowing') {
+        return sum;
+      }
+
+      return (
+        sum +
+        Math.max(
+          0,
+          Number(
+            transaction?.borrowedAmount ||
+              transaction?.borrowed_amount ||
+              transaction?.amount ||
+              0
+          )
+        )
+      );
+    }, 0);
+
+  const totalEmergencyRepaid =
+    confirmedTransactions.reduce((sum, transaction) => {
+      const transactionType = String(
+        transaction?.transactionType ||
+          transaction?.transaction_type ||
+          ''
+      ).toLowerCase();
+
+      if (transactionType !== 'emergency_repayment') {
+        return sum;
+      }
+
+      return (
+        sum + Math.max(0, Number(transaction?.amount || 0))
+      );
+    }, 0);
+
+  const centralFundsHeld = Math.max(
+    0,
+    cumulativeReceivedThroughPeriodEnd -
+      cumulativeWithdrawals
+  );
+
+  const outstandingEmergencyBorrowing = Math.max(
+    0,
+    totalEmergencyBorrowed - totalEmergencyRepaid
+  );
+
+  return {
+    selectedPeriodReceived,
+
+    selectedPeriodWithdrawals: Math.max(
+      0,
+      selectedPeriodWithdrawals
+    ),
+
+    cumulativeReceivedThroughPeriodEnd,
+    cumulativeWithdrawals: Math.max(
+      0,
+      cumulativeWithdrawals
+    ),
+
+    centralFundsHeld,
+
+    ownerProfitAccumulated,
+    ownerDrawingsTaken,
+    ownerProfitAvailable,
+
+    outstandingEmergencyBorrowing,
+  };
+}, [
+  data,
+  data?.shops,
+  data?.sales,
+  data?.products,
+  data?.gasEntries,
+  data?.dailyRemittances,
+  data?.centralFundTransactions,
+  reportPreset,
+  reportStartDate,
+  reportEndDate,
+]);
+const automaticHistoricalExpenseFunding = useMemo(() => {
+  const shops = Array.isArray(data?.shops)
+    ? data.shops
+    : [];
+
+  const sales = Array.isArray(data?.sales)
+    ? data.sales
+    : [];
+
+  const products = Array.isArray(data?.products)
+    ? data.products
+    : [];
+
+  const productById = new Map(
+    products.map((product) => [
+      String(product?.id || ''),
+      product,
+    ])
+  );
+
+  const formatDateKey = (date) =>
+    `${date.getFullYear()}-${String(
+      date.getMonth() + 1
+    ).padStart(2, '0')}-${String(
+      date.getDate()
+    ).padStart(2, '0')}`;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  const finalHistoryDateKey =
+    formatDateKey(yesterday);
+
+  if (
+    finalHistoryDateKey <
+    AUTOMATIC_EXPENSE_ACTIVATION_DATE
+  ) {
+    return new Map();
+  }
+
+  const historyDateKeys = getExpenseDateKeys(
+    AUTOMATIC_EXPENSE_ACTIVATION_DATE,
+    finalHistoryDateKey
+  );
+
+  const fundingByFundKey = new Map();
+
+  const getGrossProfitForDate = (
+    shopId,
+    dateKey
+  ) => {
+    const dateSales = sales.filter((sale) => {
+      const saleShopId = String(
+        sale?.shop_id ||
+          sale?.shopId ||
+          sale?.shopid ||
+          ''
+      ).trim();
+
+      const saleDateKey = String(
+        sale?.date ||
+          sale?.created_at ||
+          ''
+      ).slice(0, 10);
+
+      return (
+        saleShopId === String(shopId) &&
+        saleDateKey === dateKey
+      );
+    });
+
+    const salesAmount = dateSales.reduce(
+      (sum, sale) =>
+        sum + Number(sale?.total || 0),
+      0
+    );
+
+    const replacementAmount =
+      dateSales.reduce((saleTotal, sale) => {
+        const items = Array.isArray(sale?.items)
+          ? sale.items
+          : [];
+
+        return (
+          saleTotal +
+          items.reduce((itemTotal, item) => {
+            const product = productById.get(
+              String(item?.productId || '')
+            );
+
+            const quantity = Number(
+              item?.quantity || 0
+            );
+
+            const buyingPrice = Number(
+              item?.buyPrice ||
+                product?.buyPrice ||
+                product?.buyingprice ||
+                0
+            );
+
+            return (
+              itemTotal +
+              quantity * buyingPrice
+            );
+          }, 0)
+        );
+      }, 0);
+
+    return Math.max(
+      0,
+      salesAmount - replacementAmount
+    );
+  };
+
+  shops.forEach((shop) => {
+    const shopId = String(
+      shop?.id || ''
+    ).trim();
+
+    if (!shopId) return;
+
+    const expenseEntries = Object.entries(
+      MASTER_EXPENSE_SETUP[shopId]
+        ?.expenses || {}
+    );
+
+    const localExpenseEntries =
+      expenseEntries.filter(
+        ([, expense]) =>
+          expense?.location === 'shop'
+      );
+
+    const centralExpenseEntries =
+      expenseEntries.filter(
+        ([, expense]) =>
+          expense?.location === 'owner'
+      );
+
+    const localArrears = new Map(
+      localExpenseEntries.map(
+        ([expenseKey]) => [expenseKey, 0]
+      )
+    );
+
+    const centralArrears = new Map(
+      centralExpenseEntries.map(
+        ([expenseKey]) => [expenseKey, 0]
+      )
+    );
+
+    historyDateKeys.forEach((dateKey) => {
+      let availableGross =
+        getGrossProfitForDate(
+          shopId,
+          dateKey
+        );
+
+      const payArrears = (
+        expenseEntriesToPay,
+        arrearsMap,
+        recordCentralFunding
+      ) => {
+        expenseEntriesToPay.forEach(
+          ([expenseKey]) => {
+            if (availableGross <= 0) return;
+
+            const outstandingAmount =
+              Math.max(
+                0,
+                Number(
+                  arrearsMap.get(
+                    expenseKey
+                  ) || 0
+                )
+              );
+
+            const amountPaid = Math.min(
+              availableGross,
+              outstandingAmount
+            );
+
+            if (amountPaid <= 0) return;
+
+            availableGross -= amountPaid;
+
+            arrearsMap.set(
+              expenseKey,
+              outstandingAmount -
+                amountPaid
+            );
+
+            if (recordCentralFunding) {
+              const fundKey =
+                `${shopId}-${expenseKey}`;
+
+              fundingByFundKey.set(
+                fundKey,
+                Number(
+                  fundingByFundKey.get(
+                    fundKey
+                  ) || 0
+                ) + amountPaid
+              );
+            }
+          }
+        );
+      };
+
+      const addTodayObligations = (
+        expenseEntriesToAdd,
+        arrearsMap
+      ) => {
+        expenseEntriesToAdd.forEach(
+          ([expenseKey, expense]) => {
+            const requiredToday =
+              getExpenseRequiredAmountForDate(
+                expense,
+                dateKey
+              );
+
+            arrearsMap.set(
+              expenseKey,
+              Number(
+                arrearsMap.get(
+                  expenseKey
+                ) || 0
+              ) +
+                Math.max(
+                  0,
+                  Number(
+                    requiredToday || 0
+                  )
+                )
+            );
+          }
+        );
+      };
+
+      /*
+       * Funding order already agreed:
+       * 1. Previous local arrears
+       * 2. Today's local obligations
+       * 3. Previous central arrears
+       * 4. Today's central obligations
+       */
+
+      payArrears(
+        localExpenseEntries,
+        localArrears,
+        false
+      );
+
+      addTodayObligations(
+        localExpenseEntries,
+        localArrears
+      );
+
+      payArrears(
+        localExpenseEntries,
+        localArrears,
+        false
+      );
+
+      payArrears(
+        centralExpenseEntries,
+        centralArrears,
+        true
+      );
+
+      addTodayObligations(
+        centralExpenseEntries,
+        centralArrears
+      );
+
+      payArrears(
+        centralExpenseEntries,
+        centralArrears,
+        true
+      );
+    });
+  });
+
+  return fundingByFundKey;
+}, [
+  data?.shops,
+  data?.sales,
+  data?.products,
+]);
+const automaticGasExpenseFunding = useMemo(() => {
+  const shops = Array.isArray(data?.shops)
+    ? data.shops
+    : [];
+
+  const sales = Array.isArray(data?.sales)
+    ? data.sales
+    : [];
+
+  const products = Array.isArray(data?.products)
+    ? data.products
+    : [];
+
+  const gasEntries = Array.isArray(data?.gasEntries)
+    ? data.gasEntries
+    : [];
+
+  const productById = new Map(
+    products.map((product) => [
+      String(product?.id || ''),
+      product,
+    ])
+  );
+
+  const formatDateKey = (date) =>
+    `${date.getFullYear()}-${String(
+      date.getMonth() + 1
+    ).padStart(2, '0')}-${String(
+      date.getDate()
+    ).padStart(2, '0')}`;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const finalDateKey = formatDateKey(today);
+
+  if (
+    finalDateKey <
+    AUTOMATIC_EXPENSE_ACTIVATION_DATE
+  ) {
+    return new Map();
+  }
+
+  const replayDateKeys = getExpenseDateKeys(
+    AUTOMATIC_EXPENSE_ACTIVATION_DATE,
+    finalDateKey
+  );
+
+  const gasFundingByFundKey = new Map();
+
+  const getGrossProfitForDate = (
+    shopId,
+    dateKey
+  ) => {
+    const dateSales = sales.filter((sale) => {
+      const saleShopId = String(
+        sale?.shop_id ||
+          sale?.shopId ||
+          sale?.shopid ||
+          ''
+      ).trim();
+
+      const saleDateKey = String(
+        sale?.date ||
+          sale?.created_at ||
+          ''
+      ).slice(0, 10);
+
+      return (
+        saleShopId === String(shopId) &&
+        saleDateKey === dateKey
+      );
+    });
+
+    const salesAmount = dateSales.reduce(
+      (sum, sale) =>
+        sum + Number(sale?.total || 0),
+      0
+    );
+
+    const replacementAmount =
+      dateSales.reduce((saleTotal, sale) => {
+        const items = Array.isArray(sale?.items)
+          ? sale.items
+          : [];
+
+        return (
+          saleTotal +
+          items.reduce((itemTotal, item) => {
+            const product = productById.get(
+              String(item?.productId || '')
+            );
+
+            const quantity = Number(
+              item?.quantity || 0
+            );
+
+            const buyingPrice = Number(
+              item?.buyPrice ||
+                product?.buyPrice ||
+                product?.buyingprice ||
+                0
+            );
+
+            return (
+              itemTotal +
+              quantity * buyingPrice
+            );
+          }, 0)
+        );
+      }, 0);
+
+    return Math.max(
+      0,
+      salesAmount - replacementAmount
+    );
+  };
+
+  const getGasDistributableForDate = (
+    shopId,
+    dateKey
+  ) => {
+    const matchingGasEntries = gasEntries.filter(
+      (entry) => {
+        const entryShopId = String(
+          entry?.shop_id ||
+            entry?.shopId ||
+            ''
+        ).trim();
+
+        const entryDateKey = String(
+          entry?.date ||
+            entry?.created_at ||
+            ''
+        ).slice(0, 10);
+
+        return (
+          entryShopId === String(shopId) &&
+          entryDateKey === dateKey &&
+          entry?.confirmed !== false
+        );
+      }
+    );
+
+    const gasSummary = getGasDashboardSummary(
+      matchingGasEntries
+    );
+
+    const gasProfit = Math.max(
+      0,
+      Number(gasSummary?.totalProfit || 0)
+    );
+
+    return gasProfit * 0.8;
+  };
+
+  shops.forEach((shop) => {
+    const shopId = String(
+      shop?.id || ''
+    ).trim();
+
+    if (!shopId) return;
+
+    const expenseEntries = Object.entries(
+      MASTER_EXPENSE_SETUP[shopId]
+        ?.expenses || {}
+    );
+
+    const localExpenseEntries =
+      expenseEntries.filter(
+        ([, expense]) =>
+          expense?.location === 'shop'
+      );
+
+    const centralExpenseEntries =
+      expenseEntries.filter(
+        ([, expense]) =>
+          expense?.location === 'owner'
+      );
+
+    const localArrears = new Map(
+      localExpenseEntries.map(
+        ([expenseKey]) => [expenseKey, 0]
+      )
+    );
+
+    const centralArrears = new Map(
+      centralExpenseEntries.map(
+        ([expenseKey]) => [expenseKey, 0]
+      )
+    );
+
+    replayDateKeys.forEach((dateKey) => {
+      let ordinaryGross =
+        getGrossProfitForDate(
+          shopId,
+          dateKey
+        );
+
+      const addObligations = (
+        entries,
+        arrearsMap
+      ) => {
+        entries.forEach(
+          ([expenseKey, expense]) => {
+            const requiredAmount =
+              getExpenseRequiredAmountForDate(
+                expense,
+                dateKey
+              );
+
+            arrearsMap.set(
+              expenseKey,
+              Number(
+                arrearsMap.get(expenseKey) ||
+                  0
+              ) +
+                Math.max(
+                  0,
+                  Number(requiredAmount || 0)
+                )
+            );
+          }
+        );
+      };
+
+      const payUsingOrdinaryGross = (
+        entries,
+        arrearsMap
+      ) => {
+        entries.forEach(([expenseKey]) => {
+          if (ordinaryGross <= 0) return;
+
+          const outstandingAmount =
+            Math.max(
+              0,
+              Number(
+                arrearsMap.get(expenseKey) ||
+                  0
+              )
+            );
+
+          const amountPaid = Math.min(
+            ordinaryGross,
+            outstandingAmount
+          );
+
+          if (amountPaid <= 0) return;
+
+          ordinaryGross -= amountPaid;
+
+          arrearsMap.set(
+            expenseKey,
+            outstandingAmount - amountPaid
+          );
+        });
+      };
+
+      /*
+       * Ordinary shop sales continue using
+       * the existing agreed funding order.
+       */
+
+      payUsingOrdinaryGross(
+        localExpenseEntries,
+        localArrears
+      );
+
+      addObligations(
+        localExpenseEntries,
+        localArrears
+      );
+
+      payUsingOrdinaryGross(
+        localExpenseEntries,
+        localArrears
+      );
+
+      payUsingOrdinaryGross(
+        centralExpenseEntries,
+        centralArrears
+      );
+
+      addObligations(
+        centralExpenseEntries,
+        centralArrears
+      );
+
+      payUsingOrdinaryGross(
+        centralExpenseEntries,
+        centralArrears
+      );
+
+      let gasAvailable =
+        getGasDistributableForDate(
+          shopId,
+          dateKey
+        );
+
+      /*
+       * Gas clears local outstanding expenses
+       * before central outstanding expenses,
+       * following the same existing rule.
+       */
+
+      localExpenseEntries.forEach(
+        ([expenseKey]) => {
+          if (gasAvailable <= 0) return;
+
+          const outstandingAmount =
+            Math.max(
+              0,
+              Number(
+                localArrears.get(
+                  expenseKey
+                ) || 0
+              )
+            );
+
+          const amountPaid = Math.min(
+            gasAvailable,
+            outstandingAmount
+          );
+
+          if (amountPaid <= 0) return;
+
+          gasAvailable -= amountPaid;
+
+          localArrears.set(
+            expenseKey,
+            outstandingAmount - amountPaid
+          );
+        }
+      );
+
+      centralExpenseEntries.forEach(
+        ([expenseKey]) => {
+          if (gasAvailable <= 0) return;
+
+          const outstandingAmount =
+            Math.max(
+              0,
+              Number(
+                centralArrears.get(
+                  expenseKey
+                ) || 0
+              )
+            );
+
+          const amountPaid = Math.min(
+            gasAvailable,
+            outstandingAmount
+          );
+
+          if (amountPaid <= 0) return;
+
+          gasAvailable -= amountPaid;
+
+          centralArrears.set(
+            expenseKey,
+            outstandingAmount - amountPaid
+          );
+
+          const fundKey =
+            `${shopId}-${expenseKey}`;
+
+          gasFundingByFundKey.set(
+            fundKey,
+            Number(
+              gasFundingByFundKey.get(
+                fundKey
+              ) || 0
+            ) + amountPaid
+          );
+        }
+      );
+
+      /*
+       * After all outstanding expenses are
+       * cleared, half of the remaining gas
+       * amount enters Home Expenses.
+       */
+
+      const homeExpensesContribution =
+        Math.max(0, gasAvailable) * 0.5;
+
+      const ownerGasProfit =
+        Math.max(0, gasAvailable) * 0.5;
+
+      if (ownerGasProfit > 0) {
+        gasFundingByFundKey.set(
+          'owner-profit',
+          Number(
+            gasFundingByFundKey.get(
+              'owner-profit'
+            ) || 0
+          ) + ownerGasProfit
+        );
+      }
+
+      if (homeExpensesContribution > 0) {
+        const homeExpensesFundKey =
+          `${shopId}-homeExpenses`;
+
+        gasFundingByFundKey.set(
+          homeExpensesFundKey,
+          Number(
+            gasFundingByFundKey.get(
+              homeExpensesFundKey
+            ) || 0
+          ) + homeExpensesContribution
+        );
+      }
+    });
+  });
+
+  return gasFundingByFundKey;
+}, [
+  data?.shops,
+  data?.sales,
+  data?.products,
+  data?.gasEntries,
+]);
+const centralFundAccounts = useMemo(() => {
+  const expenseFunds = Array.isArray(
+    data?.remittanceExpenseFunds
+  )
+    ? data.remittanceExpenseFunds
+    : [];
+
+  const remittances = Array.isArray(
+    data?.dailyRemittances
+  )
+    ? data.dailyRemittances
+    : [];
+
+  const transactions = Array.isArray(
+    data?.centralFundTransactions
+  )
+    ? data.centralFundTransactions
+    : [];
+
+  const accountsMap = new Map();
+
+  const today = new Date();
+
+  const todayKey = `${today.getFullYear()}-${String(
+    today.getMonth() + 1
+  ).padStart(2, '0')}-${String(
+    today.getDate()
+  ).padStart(2, '0')}`;
+
+  const liveShopExpenseFunding = new Map();
+
+  (Array.isArray(data?.shops) ? data.shops : []).forEach(
+    (shop) => {
+      const shopId = String(shop?.id || '').trim();
+
+      if (!shopId) return;
+
+      const livePosition = getLiveRemittanceShopPosition({
+        data,
+        shopId,
+        calculationDateKey: todayKey,
+      });
+
+      const fundingBreakdown = Array.isArray(
+        livePosition?.centralExpenseFundingBreakdown
+      )
+        ? livePosition.centralExpenseFundingBreakdown
+        : [];
+
+      fundingBreakdown.forEach((expense) => {
+        const fundKey = `${shopId}-${expense.key}`;
+
+        liveShopExpenseFunding.set(
+          fundKey,
+          Math.max(
+            0,
+            Number(expense?.amountFunded || 0)
+          )
+        );
+      });
+    }
+  );
+
+  Object.entries(MASTER_EXPENSE_SETUP).forEach(
+    ([shopId, shopSetup]) => {
+      Object.entries(
+        shopSetup?.expenses || {}
+      )
+        .filter(
+          ([, expense]) =>
+            expense?.location === 'owner'
+        )
+        .forEach(([expenseKey, expense]) => {
+          const fundKey = `${shopId}-${expenseKey}`;
+
+          const historicalAllocations =
+            fundAllocationRecords.filter(
+              (allocation) => {
+                const allocationFundKey = String(
+                  allocation?.fund_id ||
+                    allocation?.fundId ||
+                    ''
+                ).trim();
+
+                const allocationDate = String(
+                  allocation?.allocationDate ||
+                    allocation?.allocation_date ||
+                    ''
+                ).slice(0, 10);
+
+                return (
+                  allocationFundKey === fundKey &&
+                  allocationDate &&
+                  allocationDate < todayKey
+                );
+              }
+            );
+
+          const historicalFundingTotal =
+            historicalAllocations.reduce(
+              (sum, allocation) =>
+                sum +
+                Math.max(
+                  0,
+                  Number(allocation?.amount || 0)
+                ),
+              0
+            );
+
+          const liveFundingToday = Math.max(
+            0,
+            Number(
+              liveShopExpenseFunding.get(fundKey) || 0
+            )
+          );
+
+          const savedFund = expenseFunds.find(
+            (fund) =>
+              String(fund?.id || '').trim() ===
+                fundKey ||
+              (
+                String(fund?.shop_id || '') ===
+                  String(shopId) &&
+                String(fund?.expense || '') ===
+                  String(expense?.name || '')
+              )
+          );
+
+          const savedHistoricalBalance = Math.max(
+            0,
+            Number(savedFund?.funded || 0)
+          );
+
+          const automaticallyFundedBeforeToday =
+            Math.max(
+              0,
+              Number(
+                automaticHistoricalExpenseFunding.get(
+                  fundKey
+                ) || 0
+              )
+            );
+
+          const accumulatedBeforeToday =
+            automaticallyFundedBeforeToday > 0
+              ? automaticallyFundedBeforeToday
+              : historicalAllocations.length > 0
+                ? historicalFundingTotal
+                : savedHistoricalBalance;
+
+          const automaticGasFunding =
+  Math.max(
+    0,
+    Number(
+      automaticGasExpenseFunding.get(
+        fundKey
+      ) || 0
+    )
+  );
+
+const accumulatedAmount =
+  accumulatedBeforeToday +
+  liveFundingToday +
+  automaticGasFunding;
+
+          accountsMap.set(fundKey, {
+            key: fundKey,
+            type: 'expense_fund',
+            name:
+              expense?.name || 'Expense Fund',
+            shopId,
+            shopName:
+              shopSetup?.shopName || shopId,
+            baseAmount: accumulatedAmount,
+            moneyOut: 0,
+            moneyIn: 0,
+          });
+        });
+    }
+  );
+
+  expenseFunds
+    .filter(
+      (fund) =>
+        String(fund?.location || 'owner') ===
+          'owner' &&
+        !accountsMap.has(
+          String(fund?.id || '').trim()
+        )
+    )
+    .forEach((fund) => {
+      const fundKey = String(fund?.id || '').trim();
+
+      if (!fundKey) return;
+
+      const matchingAllocations =
+        fundAllocationRecords.filter(
+          (allocation) =>
+            String(
+              allocation?.fund_id ||
+                allocation?.fundId ||
+                ''
+            ).trim() === fundKey
+        );
+
+      const allocationHistoryTotal =
+        matchingAllocations.reduce(
+          (sum, allocation) =>
+            sum +
+            Math.max(
+              0,
+              Number(allocation?.amount || 0)
+            ),
+          0
+        );
+
+      accountsMap.set(fundKey, {
+        key: fundKey,
+        type: 'expense_fund',
+        name:
+          fund?.expense || 'Expense Fund',
+        shopId: String(
+          fund?.shop_id || ''
+        ).trim(),
+        shopName: fund?.shop || '',
+        baseAmount:
+          matchingAllocations.length > 0
+            ? allocationHistoryTotal
+            : Math.max(
+                0,
+                Number(fund?.funded || 0)
+              ),
+        moneyOut: 0,
+        moneyIn: 0,
+      });
+    });
+
+  const ordinaryOwnerProfitAccumulated =
+    remittances.reduce(
+      (sum, record) =>
+        sum +
+        Math.max(
+          0,
+          Number(record?.ownerProfit || 0)
+        ),
+      0
+    );
+
+  const automaticGasOwnerProfit = Math.max(
+    0,
+    Number(
+      automaticGasExpenseFunding.get(
+        'owner-profit'
+      ) || 0
+    )
+  );
+
+  const ownerProfitAccumulated =
+  ordinaryOwnerProfitAccumulated +
+  automaticGasOwnerProfit;
+
+  accountsMap.set('owner-profit', {
+    key: 'owner-profit',
+    type: 'owner_profit',
+    name:
+      language === 'sw'
+        ? 'Faida ya Mmiliki'
+        : 'Owner Profit',
+    shopId: '',
+    shopName:
+      language === 'sw'
+        ? 'Mmiliki'
+        : 'Owner',
+    baseAmount: ownerProfitAccumulated,
+    moneyOut: 0,
+    moneyIn: 0,
+  });
+
+  const ensureAccount = ({
+    key,
+    type,
+    name,
+    shopId,
+    shopName,
+  }) => {
+    const cleanKey = String(key || '').trim();
+
+    if (!cleanKey) return null;
+
+    if (!accountsMap.has(cleanKey)) {
+      accountsMap.set(cleanKey, {
+        key: cleanKey,
+        type: type || 'expense_fund',
+        name: name || cleanKey,
+        shopId: String(shopId || '').trim(),
+        shopName: shopName || '',
+        baseAmount: 0,
+        moneyOut: 0,
+        moneyIn: 0,
+      });
+    }
+
+    return accountsMap.get(cleanKey);
+  };
+
+  transactions
+    .filter(
+      (transaction) =>
+        String(transaction?.status || '').toLowerCase() ===
+        'confirmed'
+    )
+    .forEach((transaction) => {
+      const transactionType = String(
+        transaction?.transactionType ||
+          transaction?.transaction_type ||
+          ''
+      ).toLowerCase();
+
+      const amount = Math.max(
+        0,
+        Number(transaction?.amount || 0)
+      );
+
+      if (!amount) return;
+
+      const sourceFundKey = String(
+        transaction?.sourceFundKey ||
+          transaction?.source_fund_key ||
+          ''
+      ).trim();
+
+      const destinationFundKey = String(
+        transaction?.destinationFundKey ||
+          transaction?.destination_fund_key ||
+          ''
+      ).trim();
+
+      if (
+        [
+          'expense_payment',
+          'owner_drawing',
+          'emergency_borrowing',
+          'emergency_repayment',
+          'fund_transfer',
+          'refund',
+        ].includes(transactionType)
+      ) {
+        const sourceAccount = ensureAccount({
+          key:
+            sourceFundKey ||
+            (transactionType === 'owner_drawing'
+              ? 'owner-profit'
+              : ''),
+          type:
+            transaction?.sourceFundType ||
+            transaction?.source_fund_type ||
+            '',
+          name:
+            transaction?.sourceFundName ||
+            transaction?.source_fund_name ||
+            '',
+          shopId:
+            transaction?.sourceShopId ||
+            transaction?.source_shop_id ||
+            '',
+          shopName:
+            transaction?.sourceShopName ||
+            transaction?.source_shop_name ||
+            '',
+        });
+
+        if (sourceAccount) {
+          sourceAccount.moneyOut += amount;
+        }
+      }
+
+      if (
+        [
+          'emergency_borrowing',
+          'emergency_repayment',
+          'fund_transfer',
+        ].includes(transactionType)
+      ) {
+        const destinationAccount = ensureAccount({
+          key: destinationFundKey,
+          type:
+            transaction?.destinationFundType ||
+            transaction?.destination_fund_type ||
+            '',
+          name:
+            transaction?.destinationFundName ||
+            transaction?.destination_fund_name ||
+            '',
+          shopId:
+            transaction?.destinationShopId ||
+            transaction?.destination_shop_id ||
+            '',
+          shopName:
+            transaction?.destinationShopName ||
+            transaction?.destination_shop_name ||
+            '',
+        });
+
+        if (destinationAccount) {
+          destinationAccount.moneyIn += amount;
+        }
+      }
+    });
+
+  return Array.from(accountsMap.values())
+    .map((account) => ({
+      ...account,
+
+      availableBalance:
+        Number(account.baseAmount || 0) +
+        Number(account.moneyIn || 0) -
+        Number(account.moneyOut || 0),
+    }))
+    .sort((a, b) => {
+      if (a.type === 'owner_profit') return -1;
+      if (b.type === 'owner_profit') return 1;
+
+      return `${a.shopName}-${a.name}`.localeCompare(
+        `${b.shopName}-${b.name}`
+      );
+    });
+}, [
+  data,
+  data?.shops,
+  data?.sales,
+  data?.products,
+  data?.gasEntries,
+  data?.remittanceExpenseFunds,
+  data?.remittanceFundAllocations,
+  data?.dailyRemittances,
+  data?.centralFundTransactions,
+  automaticHistoricalExpenseFunding,
+automaticGasExpenseFunding,
+language,
+]);
+
+const emergencyBorrowingRecords = useMemo(() => {
+  const transactions = Array.isArray(
+    data?.centralFundTransactions
+  )
+    ? data.centralFundTransactions
+    : [];
+
+  const confirmedTransactions = transactions.filter(
+    (transaction) =>
+      String(transaction?.status || '').toLowerCase() ===
+      'confirmed'
+  );
+
+  const borrowingTransactions =
+    confirmedTransactions.filter(
+      (transaction) =>
+        String(
+          transaction?.transactionType ||
+            transaction?.transaction_type ||
+            ''
+        ).toLowerCase() === 'emergency_borrowing'
+    );
+
+  const repaymentTransactions =
+    confirmedTransactions.filter(
+      (transaction) =>
+        String(
+          transaction?.transactionType ||
+            transaction?.transaction_type ||
+            ''
+        ).toLowerCase() === 'emergency_repayment'
+    );
+
+  const todayKey = new Date().toISOString().slice(0, 10);
+
+  return borrowingTransactions
+    .map((borrowing) => {
+      const borrowingId = String(borrowing?.id || '');
+
+      const borrowedAmount = Math.max(
+        0,
+        Number(
+          borrowing?.borrowedAmount ||
+            borrowing?.borrowed_amount ||
+            borrowing?.amount ||
+            0
+        )
+      );
+
+      const repaymentTransactionsTotal =
+        repaymentTransactions
+          .filter(
+            (repayment) =>
+              String(
+                repayment?.relatedTransactionId ||
+                  repayment?.related_transaction_id ||
+                  ''
+              ) === borrowingId
+          )
+          .reduce(
+            (sum, repayment) =>
+              sum +
+              Math.max(
+                0,
+                Number(repayment?.amount || 0)
+              ),
+            0
+          );
+
+      const savedRepaidAmount = Math.max(
+        0,
+        Number(
+          borrowing?.repaidAmount ||
+            borrowing?.repaid_amount ||
+            0
+        )
+      );
+
+      const repaidAmount =
+        repaymentTransactionsTotal > 0
+          ? repaymentTransactionsTotal
+          : savedRepaidAmount;
+
+      const remainingAmount = Math.max(
+        0,
+        borrowedAmount - repaidAmount
+      );
+
+      const dueDate = String(
+        borrowing?.borrowingDueDate ||
+          borrowing?.borrowing_due_date ||
+          ''
+      ).slice(0, 10);
+
+      let reminderStatus = 'outstanding';
+      let daysRemaining = null;
+
+      if (remainingAmount <= 0) {
+        reminderStatus = 'fully_repaid';
+      } else if (dueDate) {
+        const todayDate = new Date(`${todayKey}T00:00:00`);
+        const dueDateValue = new Date(
+          `${dueDate}T00:00:00`
+        );
+
+        daysRemaining = Math.ceil(
+          (dueDateValue.getTime() -
+            todayDate.getTime()) /
+            (1000 * 60 * 60 * 24)
+        );
+
+        if (daysRemaining < 0) {
+          reminderStatus = 'overdue';
+        } else if (daysRemaining === 0) {
+          reminderStatus = 'due_today';
+        } else if (daysRemaining <= 7) {
+          reminderStatus = 'due_soon';
+        }
+      }
+
+      return {
+        id: borrowingId,
+
+        sourceFundName:
+          borrowing?.sourceFundName ||
+          borrowing?.source_fund_name ||
+          '',
+
+        sourceShopName:
+          borrowing?.sourceShopName ||
+          borrowing?.source_shop_name ||
+          '',
+
+        destinationFundName:
+          borrowing?.destinationFundName ||
+          borrowing?.destination_fund_name ||
+          '',
+
+        destinationShopName:
+          borrowing?.destinationShopName ||
+          borrowing?.destination_shop_name ||
+          '',
+
+        borrowedAmount,
+        repaidAmount,
+        remainingAmount,
+        dueDate,
+        daysRemaining,
+        reminderStatus,
+
+        purpose: borrowing?.purpose || '',
+
+        transactionDate: String(
+          borrowing?.transactionDate ||
+            borrowing?.transaction_date ||
+            ''
+        ).slice(0, 10),
+      };
+    })
+    .sort((a, b) => {
+      if (
+        a.reminderStatus === 'overdue' &&
+        b.reminderStatus !== 'overdue'
+      ) {
+        return -1;
+      }
+
+      if (
+        b.reminderStatus === 'overdue' &&
+        a.reminderStatus !== 'overdue'
+      ) {
+        return 1;
+      }
+
+      return String(a.dueDate || '9999-12-31').localeCompare(
+        String(b.dueDate || '9999-12-31')
+      );
+    });
+}, [data?.centralFundTransactions]);
+
 useEffect(() => {
   if (
     homeFundingAllocationsCloudLoaded ||
@@ -2011,8 +3965,449 @@ const commissionRecords = Array.isArray(
   totalCommission,
 };
 }, [data?.monthlyWakalaCommissions]);
+const eligibleCurrentMonthCommissionSummary =
+  useMemo(() => {
+    const now = new Date();
 
+    const currentMonthKey =
+      `${now.getFullYear()}-${String(
+        now.getMonth() + 1
+      ).padStart(2, '0')}`;
 
+    const todayKey =
+      `${currentMonthKey}-${String(
+        now.getDate()
+      ).padStart(2, '0')}`;
+
+    const currentMonthStartKey =
+      `${currentMonthKey}-01`;
+
+    if (
+      currentMonthStartKey <
+      AUTOMATIC_EXPENSE_OFFICIAL_START_DATE
+    ) {
+      return {
+        commissionMonth: currentMonthKey,
+        totalCommission: 0,
+        isEligible: false,
+      };
+    }
+
+    const commissionRecords = Array.isArray(
+      data?.monthlyWakalaCommissions
+    )
+      ? data.monthlyWakalaCommissions
+      : [];
+
+    const totalCommission =
+      commissionRecords.reduce(
+        (recordTotal, record) => {
+          const mobileRows = Array.isArray(
+            record?.mobileCommissions
+          )
+            ? record.mobileCommissions
+            : [];
+
+          const bankRows = Array.isArray(
+            record?.bankCommissions
+          )
+            ? record.bankCommissions
+            : [];
+
+          const receivedRows = [
+            ...mobileRows,
+            ...bankRows,
+          ];
+
+          const receivedThisMonth =
+            receivedRows.reduce(
+              (rowTotal, row) => {
+                const receivedDate = String(
+                  row?.receivedDate || ''
+                ).slice(0, 10);
+
+                const wasActuallyReceived =
+                  row?.notReceived !== true &&
+                  Number(row?.amount || 0) > 0 &&
+                  receivedDate &&
+                  receivedDate >=
+                    AUTOMATIC_EXPENSE_OFFICIAL_START_DATE &&
+                  receivedDate.startsWith(
+                    currentMonthKey
+                  ) &&
+                  receivedDate <= todayKey;
+
+                if (!wasActuallyReceived) {
+                  return rowTotal;
+                }
+
+                return (
+                  rowTotal +
+                  Math.max(
+                    0,
+                    Number(row?.amount || 0)
+                  )
+                );
+              },
+              0
+            );
+
+          return (
+            recordTotal + receivedThisMonth
+          );
+        },
+        0
+      );
+
+    return {
+      commissionMonth: currentMonthKey,
+      totalCommission: Math.max(
+        0,
+        totalCommission
+      ),
+      isEligible: totalCommission > 0,
+    };
+  }, [data?.monthlyWakalaCommissions]);
+
+const eligibleCurrentMonthExpenseShortages =
+  useMemo(() => {
+    const commissionMonth = String(
+      eligibleCurrentMonthCommissionSummary
+        ?.commissionMonth || ''
+    );
+
+    const commissionIsEligible =
+      eligibleCurrentMonthCommissionSummary
+        ?.isEligible === true;
+
+    if (!commissionMonth || !commissionIsEligible) {
+      return {
+        commissionMonth,
+        rows: [],
+        totalShortage: 0,
+      };
+    }
+
+    const today = new Date();
+
+    const todayKey =
+      `${today.getFullYear()}-${String(
+        today.getMonth() + 1
+      ).padStart(2, '0')}-${String(
+        today.getDate()
+      ).padStart(2, '0')}`;
+
+    const monthStartKey =
+      `${commissionMonth}-01`;
+
+    const effectiveStartKey =
+      monthStartKey <
+      AUTOMATIC_EXPENSE_OFFICIAL_START_DATE
+        ? AUTOMATIC_EXPENSE_OFFICIAL_START_DATE
+        : monthStartKey;
+
+    const monthDateKeys = getExpenseDateKeys(
+      effectiveStartKey,
+      todayKey
+    );
+
+    const shops = Array.isArray(data?.shops)
+      ? data.shops
+      : [];
+
+    const shortageRows = [];
+
+    shops.forEach((shop) => {
+      const shopId = String(
+        shop?.id || ''
+      ).trim();
+
+      if (!shopId) return;
+
+      const expenseEntries = Object.entries(
+        MASTER_EXPENSE_SETUP[shopId]
+          ?.expenses || {}
+      ).filter(
+        ([, expense]) =>
+          expense?.location === 'owner'
+      );
+
+      const requiredByExpense = new Map(
+        expenseEntries.map(([expenseKey]) => [
+          expenseKey,
+          0,
+        ])
+      );
+
+      const fundedByExpense = new Map(
+        expenseEntries.map(([expenseKey]) => [
+          expenseKey,
+          0,
+        ])
+      );
+
+      monthDateKeys.forEach((dateKey) => {
+        expenseEntries.forEach(
+          ([expenseKey, expense]) => {
+            const requiredAmount =
+              getExpenseRequiredAmountForDate(
+                expense,
+                dateKey
+              );
+
+            requiredByExpense.set(
+              expenseKey,
+              Number(
+                requiredByExpense.get(
+                  expenseKey
+                ) || 0
+              ) +
+                Math.max(
+                  0,
+                  Number(requiredAmount || 0)
+                )
+            );
+          }
+        );
+
+        const livePosition =
+          getLiveRemittanceShopPosition({
+            data,
+            shopId,
+            calculationDateKey: dateKey,
+          });
+
+        const fundingBreakdown =
+          Array.isArray(
+            livePosition
+              ?.centralExpenseFundingBreakdown
+          )
+            ? livePosition
+                .centralExpenseFundingBreakdown
+            : [];
+
+        fundingBreakdown.forEach((expense) => {
+          const expenseKey = String(
+            expense?.key || ''
+          );
+
+          if (!fundedByExpense.has(expenseKey)) {
+            return;
+          }
+
+          fundedByExpense.set(
+            expenseKey,
+            Number(
+              fundedByExpense.get(
+                expenseKey
+              ) || 0
+            ) +
+              Math.max(
+                0,
+                Number(
+                  expense?.amountFunded || 0
+                )
+              )
+          );
+        });
+      });
+
+      expenseEntries.forEach(
+        ([expenseKey, expense]) => {
+          const requiredAmount = Math.max(
+            0,
+            Number(
+              requiredByExpense.get(
+                expenseKey
+              ) || 0
+            )
+          );
+
+          const fundedAmount = Math.min(
+            requiredAmount,
+            Math.max(
+              0,
+              Number(
+                fundedByExpense.get(
+                  expenseKey
+                ) || 0
+              )
+            )
+          );
+
+          const shortageAmount = Math.max(
+            0,
+            requiredAmount - fundedAmount
+          );
+
+          shortageRows.push({
+            fundKey:
+              `${shopId}-${expenseKey}`,
+            shopId,
+            shopName:
+              shop?.name ||
+              MASTER_EXPENSE_SETUP[shopId]
+                ?.shopName ||
+              shopId,
+            expenseKey,
+            expenseName:
+              expense?.name || expenseKey,
+            requiredAmount,
+            fundedAmount,
+            shortageAmount,
+          });
+        }
+      );
+    });
+
+    return {
+      commissionMonth,
+      rows: shortageRows,
+      totalShortage:
+        shortageRows.reduce(
+          (total, row) =>
+            total +
+            Math.max(
+              0,
+              Number(
+                row?.shortageAmount || 0
+              )
+            ),
+          0
+        ),
+    };
+  }, [
+    eligibleCurrentMonthCommissionSummary,
+    data,
+    data?.shops,
+    data?.sales,
+    data?.products,
+    data?.gasEntries,
+    data?.dailyRemittances,
+  ]);
+  const eligibleCurrentMonthCommissionAllocation=
+  useMemo(() => {
+    let commissionRemaining = Math.max(
+      0,
+      Number(
+        eligibleCurrentMonthCommissionSummary
+          ?.totalCommission || 0
+      )
+    );
+
+    const shortageRows = Array.isArray(
+      eligibleCurrentMonthExpenseShortages
+        ?.rows
+    )
+      ? eligibleCurrentMonthExpenseShortages
+          .rows
+      : [];
+
+    const allocationByFundKey = new Map();
+
+    const allocationRows = shortageRows.map(
+      (shortageRow) => {
+        const shortageAmount = Math.max(
+          0,
+          Number(
+            shortageRow?.shortageAmount || 0
+          )
+        );
+
+        const commissionAllocated = Math.min(
+          commissionRemaining,
+          shortageAmount
+        );
+
+        commissionRemaining = Math.max(
+          0,
+          commissionRemaining -
+            commissionAllocated
+        );
+
+        if (commissionAllocated > 0) {
+          allocationByFundKey.set(
+            shortageRow.fundKey,
+            commissionAllocated
+          );
+        }
+
+        return {
+          ...shortageRow,
+          commissionAllocated,
+          shortageAfterCommission: Math.max(
+            0,
+            shortageAmount -
+              commissionAllocated
+          ),
+        };
+      }
+    );
+
+    const totalCommission = Math.max(
+      0,
+      Number(
+        eligibleCurrentMonthCommissionSummary
+          ?.totalCommission || 0
+      )
+    );
+
+    const commissionUsedForExpenses =
+      allocationRows.reduce(
+        (total, row) =>
+          total +
+          Math.max(
+            0,
+            Number(
+              row?.commissionAllocated || 0
+            )
+          ),
+        0
+      );
+
+    const ownerProfitFromCommission =
+      Math.max(
+        0,
+        totalCommission -
+          commissionUsedForExpenses
+      );
+
+    return {
+      receiptMonth: String(
+        eligibleCurrentMonthCommissionSummary
+          ?.commissionMonth || ''
+      ),
+      totalCommission,
+      commissionUsedForExpenses,
+      ownerProfitFromCommission,
+      allocationByFundKey,
+      rows: allocationRows,
+      totalShortageBeforeCommission:
+        Math.max(
+          0,
+          Number(
+            eligibleCurrentMonthExpenseShortages
+              ?.totalShortage || 0
+          )
+        ),
+      totalShortageAfterCommission:
+        allocationRows.reduce(
+          (total, row) =>
+            total +
+            Math.max(
+              0,
+              Number(
+                row
+                  ?.shortageAfterCommission || 0
+              )
+            ),
+          0
+        ),
+    };
+  }, [
+    eligibleCurrentMonthCommissionSummary,
+    eligibleCurrentMonthExpenseShortages,
+  ]);
 const previousMonthGasSummary = useMemo(() => {
   const previousMonthKey = String(
     previousMonthCommissionSummary?.commissionMonth || ''
@@ -2302,7 +4697,206 @@ const previousMonthAutomaticShopContribution = useMemo(() => {
   data?.products,
 ]);
 
+const previousMonthAllExpenseShortages = useMemo(() => {
+  const commissionMonth = String(
+    previousMonthCommissionSummary?.commissionMonth || ''
+  );
 
+  if (!commissionMonth) {
+    return {
+      commissionMonth: '',
+      rows: [],
+      totalShortage: 0,
+    };
+  }
+
+  const [year, month] = commissionMonth
+    .split('-')
+    .map(Number);
+
+  if (!year || !month) {
+    return {
+      commissionMonth,
+      rows: [],
+      totalShortage: 0,
+    };
+  }
+
+  const monthStartKey =
+    `${year}-${String(month).padStart(2, '0')}-01`;
+
+  const monthEndKey =
+    `${year}-${String(month).padStart(2, '0')}-${String(
+      new Date(year, month, 0).getDate()
+    ).padStart(2, '0')}`;
+
+  const monthDateKeys = getExpenseDateKeys(
+    monthStartKey <
+      AUTOMATIC_EXPENSE_ACTIVATION_DATE
+      ? AUTOMATIC_EXPENSE_ACTIVATION_DATE
+      : monthStartKey,
+    monthEndKey
+  );
+
+  const shops = Array.isArray(data?.shops)
+    ? data.shops
+    : [];
+
+  const shortageRows = [];
+
+  shops.forEach((shop) => {
+    const shopId = String(shop?.id || '').trim();
+
+    if (!shopId) return;
+
+    const expenseEntries = Object.entries(
+      MASTER_EXPENSE_SETUP[shopId]?.expenses || {}
+    ).filter(
+      ([, expense]) =>
+        expense?.location === 'owner'
+    );
+
+    const requiredByExpense = new Map(
+      expenseEntries.map(([expenseKey]) => [
+        expenseKey,
+        0,
+      ])
+    );
+
+    const fundedByExpense = new Map(
+      expenseEntries.map(([expenseKey]) => [
+        expenseKey,
+        0,
+      ])
+    );
+
+    monthDateKeys.forEach((dateKey) => {
+      expenseEntries.forEach(
+        ([expenseKey, expense]) => {
+          const requiredAmount =
+            getExpenseRequiredAmountForDate(
+              expense,
+              dateKey
+            );
+
+          requiredByExpense.set(
+            expenseKey,
+            Number(
+              requiredByExpense.get(expenseKey) || 0
+            ) +
+              Math.max(
+                0,
+                Number(requiredAmount || 0)
+              )
+          );
+        }
+      );
+
+      const livePosition =
+        getLiveRemittanceShopPosition({
+          data,
+          shopId,
+          calculationDateKey: dateKey,
+        });
+
+      const normalFundingBreakdown =
+        Array.isArray(
+          livePosition
+            ?.centralExpenseFundingBreakdown
+        )
+          ? livePosition
+              .centralExpenseFundingBreakdown
+          : [];
+
+      normalFundingBreakdown.forEach(
+        (expense) => {
+          const expenseKey = String(
+            expense?.key || ''
+          );
+
+          if (!requiredByExpense.has(expenseKey)) {
+            return;
+          }
+
+          fundedByExpense.set(
+            expenseKey,
+            Number(
+              fundedByExpense.get(expenseKey) || 0
+            ) +
+              Math.max(
+                0,
+                Number(expense?.amountFunded || 0)
+              )
+          );
+        }
+      );
+    });
+
+    expenseEntries.forEach(
+      ([expenseKey, expense]) => {
+        const requiredAmount = Math.max(
+          0,
+          Number(
+            requiredByExpense.get(expenseKey) || 0
+          )
+        );
+
+        const fundedAmount = Math.min(
+          requiredAmount,
+          Math.max(
+            0,
+            Number(
+              fundedByExpense.get(expenseKey) || 0
+            )
+          )
+        );
+
+        const shortageAmount = Math.max(
+          0,
+          requiredAmount - fundedAmount
+        );
+
+        shortageRows.push({
+          fundKey: `${shopId}-${expenseKey}`,
+          shopId,
+          shopName:
+            shop?.name ||
+            MASTER_EXPENSE_SETUP[shopId]
+              ?.shopName ||
+            shopId,
+          expenseKey,
+          expenseName:
+            expense?.name || expenseKey,
+          requiredAmount,
+          fundedAmount,
+          shortageAmount,
+        });
+      }
+    );
+  });
+
+  return {
+    commissionMonth,
+    rows: shortageRows,
+    totalShortage: shortageRows.reduce(
+      (sum, row) =>
+        sum +
+        Math.max(
+          0,
+          Number(row?.shortageAmount || 0)
+        ),
+      0
+    ),
+  };
+}, [
+  previousMonthCommissionSummary,
+  data,
+  data?.shops,
+  data?.sales,
+  data?.products,
+  data?.gasEntries,
+  data?.dailyRemittances,
+]);
 const previousMonthHomeExpensesShortage = useMemo(() => {
   const monthlyTarget = Math.max(
     0,
@@ -2352,8 +4946,190 @@ const previousMonthHomeExpensesShortage = useMemo(() => {
   previousMonthCommissionSummary,
 ]);
 
+const automaticPreviousMonthCommissionAllocation =
+  useMemo(() => {
+    let commissionRemaining = Math.max(
+      0,
+      Number(
+        previousMonthCommissionSummary
+          ?.totalCommission || 0
+      )
+    );
 
+    const shortageRows = Array.isArray(
+      previousMonthAllExpenseShortages?.rows
+    )
+      ? previousMonthAllExpenseShortages.rows
+      : [];
 
+    const allocationByFundKey = new Map();
+
+    const allocationRows = shortageRows.map(
+      (shortageRow) => {
+        const shortageAmount = Math.max(
+          0,
+          Number(
+            shortageRow?.shortageAmount || 0
+          )
+        );
+
+        const commissionAllocated = Math.min(
+          commissionRemaining,
+          shortageAmount
+        );
+
+        commissionRemaining = Math.max(
+          0,
+          commissionRemaining -
+            commissionAllocated
+        );
+
+        if (commissionAllocated > 0) {
+          allocationByFundKey.set(
+            shortageRow.fundKey,
+            commissionAllocated
+          );
+        }
+
+        return {
+          ...shortageRow,
+          commissionAllocated,
+          shortageAfterCommission: Math.max(
+            0,
+            shortageAmount -
+              commissionAllocated
+          ),
+        };
+      }
+    );
+
+    const totalCommission = Math.max(
+      0,
+      Number(
+        previousMonthCommissionSummary
+          ?.totalCommission || 0
+      )
+    );
+
+    const commissionUsedForExpenses =
+      allocationRows.reduce(
+        (sum, row) =>
+          sum +
+          Math.max(
+            0,
+            Number(
+              row?.commissionAllocated || 0
+            )
+          ),
+        0
+      );
+
+    const ownerProfitFromCommission =
+      Math.max(
+        0,
+        totalCommission -
+          commissionUsedForExpenses
+      );
+
+    return {
+      commissionMonth: String(
+        previousMonthAllExpenseShortages
+          ?.commissionMonth || ''
+      ),
+
+      totalCommission,
+
+      commissionUsedForExpenses,
+
+      ownerProfitFromCommission,
+
+      allocationByFundKey,
+
+      rows: allocationRows,
+
+      totalShortageBeforeCommission:
+        Math.max(
+          0,
+          Number(
+            previousMonthAllExpenseShortages
+              ?.totalShortage || 0
+          )
+        ),
+
+      totalShortageAfterCommission:
+        allocationRows.reduce(
+          (sum, row) =>
+            sum +
+            Math.max(
+              0,
+              Number(
+                row
+                  ?.shortageAfterCommission ||
+                  0
+              )
+            ),
+          0
+        ),
+    };
+
+    
+  }, [
+    previousMonthCommissionSummary,
+    previousMonthAllExpenseShortages,
+  ]);
+
+  const commissionAdjustedCentralFundAccounts =
+  useMemo(() => {
+    const commissionAllocationByFundKey =
+      eligibleCurrentMonthCommissionAllocation
+        ?.allocationByFundKey instanceof Map
+        ? eligibleCurrentMonthCommissionAllocation
+            .allocationByFundKey
+        : new Map();
+
+    const commissionOwnerProfit = Math.max(
+      0,
+      Number(
+        eligibleCurrentMonthCommissionAllocation
+          ?.ownerProfitFromCommission || 0
+      )
+    );
+
+    return centralFundAccounts.map((account) => {
+      const accountKey = String(
+        account?.key || ''
+      ).trim();
+
+      const commissionForExpense = Math.max(
+        0,
+        Number(
+          commissionAllocationByFundKey.get(
+            accountKey
+          ) || 0
+        )
+      );
+
+      const commissionForOwnerProfit =
+        accountKey === 'owner-profit'
+          ? commissionOwnerProfit
+          : 0;
+
+      const automaticCommissionAmount =
+        commissionForExpense +
+        commissionForOwnerProfit;
+
+      return {
+        ...account,
+        automaticCommissionAmount,
+        availableBalance:
+          Number(account?.availableBalance || 0) +
+          automaticCommissionAmount,
+      };
+    });
+  }, [
+    centralFundAccounts,
+    eligibleCurrentMonthCommissionAllocation,
+  ]);
 const previousMonthCommissionProposal = useMemo(() => {
   const availableCommission = Math.max(
     0,
@@ -3209,7 +5985,7 @@ const previousBalance = shopPreviousRecords.reduce(
     const expected = Number(record?.expectedAmount || 0);
     const submitted = Number(record?.amountSent || 0);
 
-    return Math.max(0, balance + expected - submitted);
+    return Math.max(0, expected - submitted);
   },
   0
 );
@@ -3369,6 +6145,11 @@ const calculatedPeriodShop = calculateShop({
   sales: salesTotal,
   replacement: replacementTotal,
   calculationDate: todayKey,
+  manualExpenseFunds: Array.isArray(
+    data?.remittanceExpenseFunds
+  )
+    ? data.remittanceExpenseFunds
+    : [],
   monthToDateCentralExpenseFunding,
   previousUnpaidExpenses,
   previousUnpaidLocalExpenses,
@@ -3781,15 +6562,21 @@ const combinedHomeExpensesFundingSummary = useMemo(() => {
       shopContribution
   );
 
-  const calculatedGasHomeExpensesContribution =
-    rows.reduce(
-      (total, row) =>
-        total +
-        Number(
-          row.gasHomeExpensesContribution || 0
-        ),
-      0
-    );
+  const calculatedGasHomeExpensesContribution = (
+  Array.isArray(data?.shops) ? data.shops : []
+).reduce((total, shop) => {
+  const shopId = String(shop?.id || '').trim();
+
+  if (!shopId) return total;
+
+  const shopGasContribution = Number(
+    automaticGasExpenseFunding.get(
+      `${shopId}-homeExpenses`
+    ) || 0
+  );
+
+  return total + Math.max(0, shopGasContribution);
+}, 0);
 
   const gasContribution = Math.min(
     remainingAfterShopContribution,
@@ -3799,7 +6586,27 @@ const combinedHomeExpensesFundingSummary = useMemo(() => {
     )
   );
 
-  const combinedCommissionContribution = 0;
+  const combinedCommissionContribution =
+  (
+    eligibleCurrentMonthCommissionAllocation
+      ?.rows || []
+  )
+    .filter(
+      (row) =>
+        String(row?.expenseKey || '') ===
+        'homeExpenses'
+    )
+    .reduce(
+      (total, row) =>
+        total +
+        Math.max(
+          0,
+          Number(
+            row?.commissionAllocated || 0
+          )
+        ),
+      0
+    );
 
   const totalConfirmedFunding = Math.min(
     Number(HOME_EXPENSES_MONTHLY_BUDGET.target || 0),
@@ -3906,17 +6713,33 @@ const localExpenseSummaryRows = useMemo(() => {
 
 const allocationRows = useMemo(() => {
   return rows.flatMap((shopRow) => {
-    const fundingBreakdown = Array.isArray(
+    const centralFundingBreakdown = Array.isArray(
       shopRow.centralExpenseFundingBreakdown
     )
       ? shopRow.centralExpenseFundingBreakdown
       : [];
 
+    const manualLocalFundingBreakdown = Array.isArray(
+      shopRow.localExpenseFundingBreakdown
+    )
+      ? shopRow.localExpenseFundingBreakdown.filter(
+          (expense) => expense.isManual
+        )
+      : [];
+
+    const fundingBreakdown = [
+      ...centralFundingBreakdown,
+      ...manualLocalFundingBreakdown,
+    ];
+
     return fundingBreakdown.map((expense) => ({
       id: `${shopRow.id}-${expense.key}`,
+      fundId: expense.fundId || '',
       shop_id: shopRow.id,
       shop: shopRow.name,
       expense: expense.name,
+      due: expense.due || '',
+      isManual: Boolean(expense.isManual),
       requiredToday: Number(
         expense.requiredToday || 0
       ),
@@ -3929,6 +6752,830 @@ const allocationRows = useMemo(() => {
     }));
   });
 }, [rows]);
+
+const saveOwnerDrawing = async () => {
+  const drawingAmount = Number(
+    String(ownerDrawingAmount || '').replace(/,/g, '')
+  );
+
+  const availableOwnerProfit = Number(
+    centralFundSummary.ownerProfitAvailable || 0
+  );
+
+  const centralCashAvailable = Number(
+    centralFundSummary.centralFundsHeld || 0
+  );
+
+  if (!drawingAmount || drawingAmount <= 0) {
+    alert(
+      language === 'sw'
+        ? 'Weka kiasi halali ambacho mmiliki anachukua.'
+        : 'Enter a valid owner-drawing amount.'
+    );
+    return;
+  }
+
+  if (!String(ownerDrawingPurpose || '').trim()) {
+    alert(
+      language === 'sw'
+        ? 'Eleza sababu au matumizi ya fedha ambayo mmiliki anachukua.'
+        : 'Enter the purpose of the owner drawing.'
+    );
+    return;
+  }
+
+  if (drawingAmount > availableOwnerProfit) {
+    alert(
+      language === 'sw'
+        ? `Kiasi hiki kinazidi faida ya mmiliki iliyopo. Faida inayopatikana ni TZS ${money(
+            availableOwnerProfit
+          )}.`
+        : `This amount exceeds the available owner profit. Available owner profit is TZS ${money(
+            availableOwnerProfit
+          )}.`
+    );
+    return;
+  }
+
+  if (drawingAmount > centralCashAvailable) {
+    alert(
+      language === 'sw'
+        ? `Kiasi hiki kinazidi fedha halisi zilizopo kwa msimamizi. Fedha zilizopo ni TZS ${money(
+            centralCashAvailable
+          )}.`
+        : `This amount exceeds the central funds currently held. Available central funds are TZS ${money(
+            centralCashAvailable
+          )}.`
+    );
+    return;
+  }
+
+  const confirmedAt = new Date().toISOString();
+
+  const transactionId = `owner-drawing-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
+
+  const transactionRow = {
+    id: transactionId,
+    transaction_type: 'owner_drawing',
+    transaction_date: confirmedAt.slice(0, 10),
+
+    source_fund_type: 'owner_profit',
+    source_fund_key: 'owner-profit',
+    source_fund_name: 'Owner Profit',
+
+    amount: drawingAmount,
+
+    payee:
+      currentUser?.name ||
+      currentUser?.username ||
+      'Owner',
+
+    purpose: String(ownerDrawingPurpose).trim(),
+
+    payment_method:
+      ownerDrawingPaymentMethod || 'cash',
+
+    payment_reference:
+      String(
+        ownerDrawingPaymentReference || ''
+      ).trim() || null,
+
+    status: 'confirmed',
+
+    recorded_by_user_id:
+      String(currentUser?.id || ''),
+
+    recorded_by_name:
+      currentUser?.name ||
+      currentUser?.username ||
+      'Owner',
+
+    recorded_by_role:
+      currentUser?.role || 'owner',
+
+    created_at: confirmedAt,
+    updated_at: confirmedAt,
+  };
+
+  setOwnerDrawingSaving(true);
+
+  const { data: savedRows, error } = await supabase
+    .from('centralFundTransactions')
+    .insert([transactionRow])
+    .select();
+
+  if (error) {
+    setOwnerDrawingSaving(false);
+
+    alert(
+      language === 'sw'
+        ? `Fedha ya mmiliki haijahifadhiwa: ${error.message}`
+        : `The owner drawing was not saved: ${error.message}`
+    );
+
+    return;
+  }
+
+  const savedRow = savedRows?.[0] || transactionRow;
+
+  const normalizedTransaction = {
+    id: savedRow.id || transactionId,
+    transactionType:
+      savedRow.transaction_type || 'owner_drawing',
+
+    transactionDate:
+      savedRow.transaction_date ||
+      confirmedAt.slice(0, 10),
+
+    sourceFundType:
+      savedRow.source_fund_type || 'owner_profit',
+
+    sourceFundKey:
+      savedRow.source_fund_key || 'owner-profit',
+
+    sourceFundName:
+      savedRow.source_fund_name || 'Owner Profit',
+
+    amount: Number(savedRow.amount || drawingAmount),
+
+    payee:
+      savedRow.payee ||
+      currentUser?.name ||
+      'Owner',
+
+    purpose:
+      savedRow.purpose ||
+      String(ownerDrawingPurpose).trim(),
+
+    paymentMethod:
+      savedRow.payment_method ||
+      ownerDrawingPaymentMethod,
+
+    paymentReference:
+      savedRow.payment_reference || '',
+
+    status: savedRow.status || 'confirmed',
+
+    recordedByUserId:
+      savedRow.recorded_by_user_id || '',
+
+    recordedByName:
+      savedRow.recorded_by_name || '',
+
+    recordedByRole:
+      savedRow.recorded_by_role || 'owner',
+
+    created_at:
+      savedRow.created_at || confirmedAt,
+
+    updated_at:
+      savedRow.updated_at || confirmedAt,
+  };
+
+  await saveData({
+    ...data,
+
+    centralFundTransactions: [
+      normalizedTransaction,
+      ...(Array.isArray(
+        data?.centralFundTransactions
+      )
+        ? data.centralFundTransactions
+        : []),
+    ],
+  });
+
+  setOwnerDrawingAmount('');
+  setOwnerDrawingPurpose('');
+  setOwnerDrawingPaymentMethod('cash');
+  setOwnerDrawingPaymentReference('');
+  setOwnerDrawingSaving(false);
+
+  alert(
+    language === 'sw'
+      ? 'Fedha ambayo mmiliki amechukua imehifadhiwa vizuri.'
+      : 'The owner drawing was recorded successfully.'
+  );
+};
+const saveEmergencyBorrowing = async () => {
+  const sourceAccount = centralFundAccounts.find(
+    (account) =>
+      String(account?.key || '') ===
+      String(emergencySourceFundKey || '')
+  );
+
+  const destinationAccount = centralFundAccounts.find(
+    (account) =>
+      String(account?.key || '') ===
+      String(emergencyDestinationFundKey || '')
+  );
+
+  const borrowingAmount = Number(
+    String(emergencyBorrowingAmount || '').replace(/,/g, '')
+  );
+
+  if (!sourceAccount) {
+    alert(
+      language === 'sw'
+        ? 'Chagua fungu linalotoa fedha.'
+        : 'Select the fund lending the money.'
+    );
+    return;
+  }
+
+  if (!destinationAccount) {
+    alert(
+      language === 'sw'
+        ? 'Chagua fungu linalopokea fedha.'
+        : 'Select the fund receiving the money.'
+    );
+    return;
+  }
+
+  if (sourceAccount.key === destinationAccount.key) {
+    alert(
+      language === 'sw'
+        ? 'Fungu linalotoa na linalopokea fedha haliwezi kuwa fungu moja.'
+        : 'The source and destination funds cannot be the same.'
+    );
+    return;
+  }
+
+  if (!borrowingAmount || borrowingAmount <= 0) {
+    alert(
+      language === 'sw'
+        ? 'Weka kiasi halali cha mkopo wa dharura.'
+        : 'Enter a valid emergency-borrowing amount.'
+    );
+    return;
+  }
+
+  if (
+    borrowingAmount >
+    Number(sourceAccount.availableBalance || 0)
+  ) {
+    alert(
+      language === 'sw'
+        ? `Kiasi hiki kinazidi salio la fungu linalotoa fedha. Salio linalopatikana ni TZS ${money(
+            sourceAccount.availableBalance
+          )}.`
+        : `This amount exceeds the source fund balance. The available balance is TZS ${money(
+            sourceAccount.availableBalance
+          )}.`
+    );
+    return;
+  }
+
+  if (!emergencyBorrowingDueDate) {
+    alert(
+      language === 'sw'
+        ? 'Weka tarehe ambayo fedha zinapaswa kurejeshwa.'
+        : 'Enter the repayment due date.'
+    );
+    return;
+  }
+
+  if (
+    emergencyBorrowingDueDate <
+    new Date().toISOString().slice(0, 10)
+  ) {
+    alert(
+      language === 'sw'
+        ? 'Tarehe ya kurejesha haiwezi kuwa tarehe iliyopita.'
+        : 'The repayment date cannot be in the past.'
+    );
+    return;
+  }
+
+  if (!String(emergencyBorrowingPurpose || '').trim()) {
+    alert(
+      language === 'sw'
+        ? 'Eleza sababu ya mkopo wa dharura.'
+        : 'Enter the reason for the emergency borrowing.'
+    );
+    return;
+  }
+
+  const confirmedAt = new Date().toISOString();
+
+  const transactionId = `emergency-borrowing-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
+
+  const transactionRow = {
+    id: transactionId,
+
+    transaction_type: 'emergency_borrowing',
+    transaction_date: confirmedAt.slice(0, 10),
+
+    source_fund_type: sourceAccount.type,
+    source_fund_key: sourceAccount.key,
+    source_fund_name: sourceAccount.name,
+    source_shop_id: sourceAccount.shopId || null,
+    source_shop_name: sourceAccount.shopName || null,
+
+    destination_fund_type: destinationAccount.type,
+    destination_fund_key: destinationAccount.key,
+    destination_fund_name: destinationAccount.name,
+    destination_shop_id:
+      destinationAccount.shopId || null,
+    destination_shop_name:
+      destinationAccount.shopName || null,
+
+    amount: borrowingAmount,
+
+    purpose: String(
+      emergencyBorrowingPurpose
+    ).trim(),
+
+    payment_reference:
+      String(
+        emergencyBorrowingReference || ''
+      ).trim() || null,
+
+    status: 'confirmed',
+
+    borrowing_due_date:
+      emergencyBorrowingDueDate,
+
+    borrowing_status: 'outstanding',
+
+    borrowed_amount: borrowingAmount,
+    repaid_amount: 0,
+
+    recorded_by_user_id:
+      String(currentUser?.id || ''),
+
+    recorded_by_name:
+      currentUser?.name ||
+      currentUser?.username ||
+      'Owner',
+
+    recorded_by_role:
+      currentUser?.role || 'owner',
+
+    created_at: confirmedAt,
+    updated_at: confirmedAt,
+  };
+
+  setEmergencyBorrowingSaving(true);
+
+  const { data: savedRows, error } = await supabase
+    .from('centralFundTransactions')
+    .insert([transactionRow])
+    .select();
+
+  if (error) {
+    setEmergencyBorrowingSaving(false);
+
+    alert(
+      language === 'sw'
+        ? `Mkopo wa dharura haujahifadhiwa: ${error.message}`
+        : `Emergency borrowing was not saved: ${error.message}`
+    );
+
+    return;
+  }
+
+  const savedRow = savedRows?.[0] || transactionRow;
+
+  const normalizedTransaction = {
+    id: savedRow.id || transactionId,
+
+    transactionType:
+      savedRow.transaction_type ||
+      'emergency_borrowing',
+
+    transactionDate:
+      savedRow.transaction_date ||
+      confirmedAt.slice(0, 10),
+
+    sourceFundType:
+      savedRow.source_fund_type ||
+      sourceAccount.type,
+
+    sourceFundKey:
+      savedRow.source_fund_key ||
+      sourceAccount.key,
+
+    sourceFundName:
+      savedRow.source_fund_name ||
+      sourceAccount.name,
+
+    sourceShopId:
+      savedRow.source_shop_id ||
+      sourceAccount.shopId ||
+      '',
+
+    sourceShopName:
+      savedRow.source_shop_name ||
+      sourceAccount.shopName ||
+      '',
+
+    destinationFundType:
+      savedRow.destination_fund_type ||
+      destinationAccount.type,
+
+    destinationFundKey:
+      savedRow.destination_fund_key ||
+      destinationAccount.key,
+
+    destinationFundName:
+      savedRow.destination_fund_name ||
+      destinationAccount.name,
+
+    destinationShopId:
+      savedRow.destination_shop_id ||
+      destinationAccount.shopId ||
+      '',
+
+    destinationShopName:
+      savedRow.destination_shop_name ||
+      destinationAccount.shopName ||
+      '',
+
+    amount: Number(
+      savedRow.amount || borrowingAmount
+    ),
+
+    purpose:
+      savedRow.purpose ||
+      String(emergencyBorrowingPurpose).trim(),
+
+    paymentReference:
+      savedRow.payment_reference || '',
+
+    status:
+      savedRow.status || 'confirmed',
+
+    borrowingDueDate:
+      savedRow.borrowing_due_date ||
+      emergencyBorrowingDueDate,
+
+    borrowingStatus:
+      savedRow.borrowing_status ||
+      'outstanding',
+
+    borrowedAmount: Number(
+      savedRow.borrowed_amount ||
+      borrowingAmount
+    ),
+
+    repaidAmount: Number(
+      savedRow.repaid_amount || 0
+    ),
+
+    recordedByUserId:
+      savedRow.recorded_by_user_id || '',
+
+    recordedByName:
+      savedRow.recorded_by_name || '',
+
+    recordedByRole:
+      savedRow.recorded_by_role || 'owner',
+
+    created_at:
+      savedRow.created_at || confirmedAt,
+
+    updated_at:
+      savedRow.updated_at || confirmedAt,
+  };
+
+  await saveData({
+    ...data,
+
+    centralFundTransactions: [
+      normalizedTransaction,
+
+      ...(Array.isArray(
+        data?.centralFundTransactions
+      )
+        ? data.centralFundTransactions
+        : []),
+    ],
+  });
+
+  setEmergencySourceFundKey('');
+  setEmergencyDestinationFundKey('');
+  setEmergencyBorrowingAmount('');
+  setEmergencyBorrowingDueDate('');
+  setEmergencyBorrowingPurpose('');
+  setEmergencyBorrowingReference('');
+  setEmergencyBorrowingSaving(false);
+
+  alert(
+    language === 'sw'
+      ? 'Mkopo wa dharura umehifadhiwa. Mfumo utaendelea kuonyesha kuwa fedha zinapaswa kurejeshwa.'
+      : 'Emergency borrowing was recorded. The system will continue showing that the money must be repaid.'
+  );
+};
+
+const saveExpensePayment = async () => {
+  const selectedFund = centralFundAccounts.find(
+    (account) =>
+      String(account?.key || '') ===
+      String(expensePaymentFundKey || '')
+  );
+
+  const paymentAmount = Number(
+    String(expensePaymentAmount || '').replace(
+      /,/g,
+      ''
+    )
+  );
+
+  if (!selectedFund) {
+    alert(
+      language === 'sw'
+        ? 'Chagua fungu la matumizi linalolipia fedha.'
+        : 'Select the expense fund making the payment.'
+    );
+    return;
+  }
+
+  if (selectedFund.type !== 'expense_fund') {
+    alert(
+      language === 'sw'
+        ? 'Malipo ya matumizi hayawezi kutolewa kwenye akaunti ya faida ya mmiliki.'
+        : 'A business expense cannot be paid from the owner-profit account.'
+    );
+    return;
+  }
+
+  if (!paymentAmount || paymentAmount <= 0) {
+    alert(
+      language === 'sw'
+        ? 'Weka kiasi halali kilicholipwa.'
+        : 'Enter a valid payment amount.'
+    );
+    return;
+  }
+
+  if (
+    paymentAmount >
+    Number(selectedFund.availableBalance || 0)
+  ) {
+    alert(
+      language === 'sw'
+        ? `Kiasi hiki kinazidi salio la fungu hili. Salio linalopatikana ni TZS ${money(
+            selectedFund.availableBalance
+          )}.`
+        : `This payment exceeds the selected fund balance. The available balance is TZS ${money(
+            selectedFund.availableBalance
+          )}.`
+    );
+    return;
+  }
+
+  if (
+    paymentAmount >
+    Number(centralFundSummary.centralFundsHeld || 0)
+  ) {
+    alert(
+      language === 'sw'
+        ? `Kiasi hiki kinazidi fedha halisi zilizopo kwa msimamizi. Fedha zilizopo ni TZS ${money(
+            centralFundSummary.centralFundsHeld
+          )}.`
+        : `This payment exceeds the physical central funds held. Available central funds are TZS ${money(
+            centralFundSummary.centralFundsHeld
+          )}.`
+    );
+    return;
+  }
+
+  if (!expensePaymentDate) {
+    alert(
+      language === 'sw'
+        ? 'Weka tarehe ya malipo.'
+        : 'Enter the payment date.'
+    );
+    return;
+  }
+
+  if (!String(expensePaymentPayee || '').trim()) {
+    alert(
+      language === 'sw'
+        ? 'Weka jina la mtu au taasisi iliyolipwa.'
+        : 'Enter the person or institution paid.'
+    );
+    return;
+  }
+
+  if (!String(expensePaymentPurpose || '').trim()) {
+    alert(
+      language === 'sw'
+        ? 'Eleza sababu ya malipo.'
+        : 'Enter the purpose of the payment.'
+    );
+    return;
+  }
+
+  const confirmedAt = new Date().toISOString();
+
+  const transactionId = `expense-payment-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
+
+  const transactionRow = {
+    id: transactionId,
+
+    transaction_type: 'expense_payment',
+    transaction_date: expensePaymentDate,
+
+    shop_id: selectedFund.shopId || null,
+    shop_name: selectedFund.shopName || null,
+
+    expense_key: selectedFund.key,
+    expense_name: selectedFund.name,
+
+    source_fund_type: 'expense_fund',
+    source_fund_key: selectedFund.key,
+    source_fund_name: selectedFund.name,
+
+    source_shop_id:
+      selectedFund.shopId || null,
+
+    source_shop_name:
+      selectedFund.shopName || null,
+
+    amount: paymentAmount,
+
+    payee: String(expensePaymentPayee).trim(),
+
+    purpose: String(
+      expensePaymentPurpose
+    ).trim(),
+
+    payment_method:
+      expensePaymentMethod || 'cash',
+
+    payment_reference:
+      String(
+        expensePaymentReference || ''
+      ).trim() || null,
+
+    status: 'confirmed',
+
+    recorded_by_user_id:
+      String(currentUser?.id || ''),
+
+    recorded_by_name:
+      currentUser?.name ||
+      currentUser?.username ||
+      'Owner',
+
+    recorded_by_role:
+      currentUser?.role || 'owner',
+
+    created_at: confirmedAt,
+    updated_at: confirmedAt,
+  };
+
+  setExpensePaymentSaving(true);
+
+  const { data: savedRows, error } = await supabase
+    .from('centralFundTransactions')
+    .insert([transactionRow])
+    .select();
+
+  if (error) {
+    setExpensePaymentSaving(false);
+
+    alert(
+      language === 'sw'
+        ? `Malipo hayajahifadhiwa: ${error.message}`
+        : `The expense payment was not saved: ${error.message}`
+    );
+
+    return;
+  }
+
+  const savedRow =
+    savedRows?.[0] || transactionRow;
+
+  const normalizedTransaction = {
+    id: savedRow.id || transactionId,
+
+    transactionType:
+      savedRow.transaction_type ||
+      'expense_payment',
+
+    transactionDate:
+      savedRow.transaction_date ||
+      expensePaymentDate,
+
+    shop_id:
+      savedRow.shop_id ||
+      selectedFund.shopId ||
+      '',
+
+    shopName:
+      savedRow.shop_name ||
+      selectedFund.shopName ||
+      '',
+
+    expenseKey:
+      savedRow.expense_key ||
+      selectedFund.key,
+
+    expenseName:
+      savedRow.expense_name ||
+      selectedFund.name,
+
+    sourceFundType:
+      savedRow.source_fund_type ||
+      'expense_fund',
+
+    sourceFundKey:
+      savedRow.source_fund_key ||
+      selectedFund.key,
+
+    sourceFundName:
+      savedRow.source_fund_name ||
+      selectedFund.name,
+
+    sourceShopId:
+      savedRow.source_shop_id ||
+      selectedFund.shopId ||
+      '',
+
+    sourceShopName:
+      savedRow.source_shop_name ||
+      selectedFund.shopName ||
+      '',
+
+    amount: Number(
+      savedRow.amount || paymentAmount
+    ),
+
+    payee:
+      savedRow.payee ||
+      String(expensePaymentPayee).trim(),
+
+    purpose:
+      savedRow.purpose ||
+      String(expensePaymentPurpose).trim(),
+
+    paymentMethod:
+      savedRow.payment_method ||
+      expensePaymentMethod,
+
+    paymentReference:
+      savedRow.payment_reference || '',
+
+    status:
+      savedRow.status || 'confirmed',
+
+    recordedByUserId:
+      savedRow.recorded_by_user_id || '',
+
+    recordedByName:
+      savedRow.recorded_by_name || '',
+
+    recordedByRole:
+      savedRow.recorded_by_role || 'owner',
+
+    created_at:
+      savedRow.created_at || confirmedAt,
+
+    updated_at:
+      savedRow.updated_at || confirmedAt,
+  };
+
+  await saveData({
+    ...data,
+
+    centralFundTransactions: [
+      normalizedTransaction,
+
+      ...(Array.isArray(
+        data?.centralFundTransactions
+      )
+        ? data.centralFundTransactions
+        : []),
+    ],
+  });
+
+  setExpensePaymentFundKey('');
+  setExpensePaymentAmount('');
+  setExpensePaymentDate(
+    new Date().toISOString().slice(0, 10)
+  );
+  setExpensePaymentPayee('');
+  setExpensePaymentPurpose('');
+  setExpensePaymentMethod('cash');
+  setExpensePaymentReference('');
+  setExpensePaymentSaving(false);
+
+  alert(
+    language === 'sw'
+      ? 'Malipo yamehifadhiwa na salio la fungu limepunguzwa.'
+      : 'The payment was recorded and the fund balance was reduced.'
+  );
+};
+
   const saveShopMonthlySettingToSupabase = async (
   shopId,
   localMonthlyAmount
@@ -3983,12 +7630,22 @@ const allocationRows = useMemo(() => {
   const allocationsToSave = allocationRows
     .filter((fund) => Number(fund.addedToday || 0) > 0)
     .map((fund) => {
-      const matchingFund = funds.find(
-        (item) =>
-          String(item?.shop_id || '') === String(fund?.shop_id || '') &&
-          String(item?.expense || '') === String(fund?.expense || '') &&
-          String(item?.due || '') === String(fund?.due || '')
-      );
+      const matchingFund =
+        funds.find(
+          (item) =>
+            Boolean(fund?.fundId) &&
+            String(item?.id || '') ===
+              String(fund.fundId)
+        ) ||
+        funds.find(
+          (item) =>
+            String(item?.shop_id || '') ===
+              String(fund?.shop_id || '') &&
+            String(item?.expense || '') ===
+              String(fund?.expense || '') &&
+            String(item?.due || '') ===
+              String(fund?.due || '')
+        );
 
       return {
         id: `fund-allocation-${Date.now()}-${matchingFund?.id || Math.random()}`,
@@ -4351,6 +8008,7 @@ alert(
     ['funds', t('tabFunds')],
     ['outstanding', t('tabOutstanding')],
     ['local', t('tabLocal')],
+    ['accountability', t('tabAccountability')],
     ['setup', t('tabSetup')],
     ['reports', t('tabReports')],
   ];
@@ -4647,40 +8305,17 @@ alert(
   </div>
 
   <div className="mt-4">
-    {previousMonthCombinedCommissionAllocation
-      ?.status === 'confirmed' ? (
-      <div className="rounded-xl bg-emerald-100 px-4 py-3 text-sm font-black text-emerald-800">
-        {language === 'sw'
-          ? `Imethibitishwa: TZS ${money(
-              previousMonthCombinedCommissionAllocation
-                ?.confirmedAmount || 0
-            )}`
-          : `Confirmed: TZS ${money(
-              previousMonthCombinedCommissionAllocation
-                ?.confirmedAmount || 0
-            )}`}
-      </div>
-    ) : (
-      <button
-        type="button"
-        onClick={
-          confirmPreviousMonthCommissionContribution
-        }
-        disabled={
-          !homeFundingAllocationsCloudLoaded ||
-          !previousMonthSalesCloudLoaded ||
-          Number(
-            previousMonthCommissionProposal
-              ?.proposedCommissionContribution || 0
-          ) <= 0
-        }
-        className="rounded-xl bg-cyan-700 px-5 py-3 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {language === 'sw'
-          ? 'Thibitisha Kamisheni ya Mwezi Uliopita'
-          : 'Confirm Previous Month Commission'}
-      </button>
-    )}
+   <div className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-800">
+  {language === 'sw'
+    ? `Imetengwa moja kwa moja: TZS ${money(
+        eligibleCurrentMonthCommissionAllocation
+          ?.totalCommission || 0
+      )}`
+    : `Automatically allocated: TZS ${money(
+        eligibleCurrentMonthCommissionAllocation
+          ?.totalCommission || 0
+      )}`}
+</div>
   </div>
 </div>
 <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
@@ -6100,8 +9735,1519 @@ alert(
               </div>
             ) : null}
 
-{activeTab === 'reports' ? (
-  <div className="space-y-5">
+{activeTab === 'accountability' ? (
+  <div className="grid gap-5 lg:grid-cols-[250px_minmax(0,1fr)] lg:items-start lg:[&>*:first-child]:col-span-2 lg:[&>*:nth-child(2)]:sticky lg:[&>*:nth-child(2)]:top-4 lg:[&>*:nth-child(2)]:flex-col lg:[&>*:nth-child(2)>button]:w-full lg:[&>*:nth-child(2)>button]:text-left lg:[&>*:nth-child(n+3)]:col-start-2">
+    <div className="rounded-3xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-teal-50 p-6 shadow-sm">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="text-sm font-black uppercase tracking-wide text-emerald-700">
+            {language === 'sw'
+              ? 'Mfumo wa Udhibiti wa Fedha'
+              : 'Central Funds Control'}
+          </div>
+
+          <h2 className="mt-2 text-2xl font-black text-slate-950">
+            {language === 'sw'
+              ? 'Fedha Kuu na Uwajibikaji'
+              : 'Central Funds & Accountability'}
+          </h2>
+
+          <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-700">
+            {language === 'sw'
+              ? 'Sehemu hii itasimamia fedha zinazokusanywa kutoka madukani, malipo ya matumizi, fedha ya mmiliki, mikopo ya dharura kati ya mafungu na marejesho yake.'
+              : 'This section will control funds collected from shops, expense payments, owner funds, emergency borrowing between funds and repayments.'}
+          </p>
+        </div>
+
+        <Badge tone="green">
+          {language === 'sw'
+            ? 'Mmiliki pekee'
+            : 'Owner only'}
+        </Badge>
+      </div>
+    </div>
+
+    <div className="flex flex-wrap gap-2 rounded-3xl border border-slate-200 bg-white p-3 shadow-sm">
+      {[
+        [
+          'summary',
+          language === 'sw'
+            ? 'Muhtasari'
+            : 'Summary',
+        ],
+       [
+  'funds',
+  language === 'sw'
+    ? 'Mafungu kwa Kila Duka'
+    : 'Funds by Shop',
+],
+[
+  'ledger',
+  language === 'sw'
+    ? 'Rejesta ya Fedha Zote'
+    : 'All Funds Register',
+],
+[
+  'owner',
+  language === 'sw'
+    ? 'Faida ya Mmiliki'
+    : 'Owner Profit',
+],
+[
+  'emergency',
+  language === 'sw'
+    ? 'Mikopo ya Dharura'
+    : 'Emergency Borrowing',
+],
+      ].map(([value, label]) => (
+        <button
+          key={value}
+          type="button"
+          onClick={() =>
+            setActiveAccountabilitySection(value)
+          }
+          className={`rounded-2xl px-5 py-3 text-sm font-black transition ${
+            activeAccountabilitySection === value
+              ? 'bg-emerald-600 text-white shadow-sm'
+              : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+
+    <div
+      className={`${
+        activeAccountabilitySection === 'summary'
+          ? 'grid'
+          : 'hidden'
+      } gap-4 sm:grid-cols-2 xl:grid-cols-4`}
+    >
+      <StatCard
+        label={
+          language === 'sw'
+            ? 'Jumla ya fedha zilizopokelewa'
+            : 'Total central funds received'
+        }
+        value={centralFundSummary.selectedPeriodReceived}
+      />
+
+      <StatCard
+        label={
+          language === 'sw'
+            ? 'Fedha zilizotumika'
+            : 'Confirmed withdrawals'
+        }
+        value={centralFundSummary.selectedPeriodWithdrawals}
+      />
+
+      <StatCard
+        label={
+          language === 'sw'
+            ? 'Fedha zilizopo kwa msimamizi'
+            : 'Central funds currently held'
+        }
+        value={centralFundSummary.centralFundsHeld}
+      />
+
+      <StatCard
+        label={
+          language === 'sw'
+            ? 'Mikopo ya dharura ambayo haijarejeshwa'
+            : 'Outstanding emergency borrowing'
+        }
+        value={
+          centralFundSummary.outstandingEmergencyBorrowing
+        }
+      />
+    </div>
+
+    <div
+  style={{
+    display:
+      activeAccountabilitySection === 'funds'
+        ? 'block'
+        : 'none',
+  }}
+  className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
+>
+  <div>
+  <h3 className="text-xl font-black text-slate-950">
+    {language === 'sw'
+      ? 'Fedha za Matumizi kwa Kila Duka'
+      : 'Expense Funds by Shop'}
+  </h3>
+    <p className="mt-1 text-sm leading-6 text-slate-600">
+      {language === 'sw'
+        ? 'Jedwali hili linaonyesha fedha iliyokusanywa katika kila fungu, fedha iliyotumika au kuhamishwa na salio linalopatikana.'
+        : 'This table shows the amount accumulated in each fund, money used or transferred and the remaining available balance.'}
+    </p>
+  </div>
+
+<div className="mt-5 space-y-6">
+  {Object.values(
+    commissionAdjustedCentralFundAccounts
+      .filter(
+        (account) => account.type === 'expense_fund'
+      )
+      .reduce((groupedShops, account) => {
+        const shopKey = String(
+          account.shopId ||
+            account.shopName ||
+            'owner'
+        );
+
+        if (!groupedShops[shopKey]) {
+          groupedShops[shopKey] = {
+            shopKey,
+            shopName:
+              account.shopName ||
+              (language === 'sw'
+                ? 'Mmiliki'
+                : 'Owner'),
+            accounts: [],
+          };
+        }
+
+        groupedShops[shopKey].accounts.push(account);
+
+        return groupedShops;
+      }, {})
+  ).map((shopGroup) => {
+    const totalReceived =
+      shopGroup.accounts.reduce(
+        (total, account) =>
+          total +
+          Number(account.baseAmount || 0) +
+          Number(account.moneyIn || 0) +
+          Number(
+            account.automaticCommissionAmount || 0
+          ),
+        0
+      );
+
+    const totalPaidOut =
+      shopGroup.accounts.reduce(
+        (total, account) =>
+          total + Number(account.moneyOut || 0),
+        0
+      );
+
+    const totalAvailable =
+      shopGroup.accounts.reduce(
+        (total, account) =>
+          total +
+          Number(account.availableBalance || 0),
+        0
+      );
+
+    const fundedAccounts =
+      shopGroup.accounts.filter(
+        (account) =>
+          Number(account.availableBalance || 0) > 0
+      ).length;
+
+    return (
+      <div
+        key={`shop-fund-group-${shopGroup.shopKey}`}
+        className="overflow-hidden rounded-3xl border border-emerald-200 bg-white shadow-sm"
+      >
+        <div className="border-b border-emerald-200 bg-emerald-50 p-5">
+          <h4 className="text-xl font-black uppercase text-slate-950">
+            {shopGroup.shopName}
+          </h4>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-2xl bg-white p-4">
+              <div className="text-xs font-bold uppercase text-slate-500">
+                {language === 'sw'
+                  ? 'Jumla iliyoingia'
+                  : 'Total received'}
+              </div>
+
+              <div className="mt-1 text-lg font-black text-slate-950">
+                TZS {money(totalReceived)}
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-white p-4">
+              <div className="text-xs font-bold uppercase text-slate-500">
+                {language === 'sw'
+                  ? 'Jumla iliyotoka'
+                  : 'Total paid out'}
+              </div>
+
+              <div className="mt-1 text-lg font-black text-rose-700">
+                TZS {money(totalPaidOut)}
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-white p-4">
+              <div className="text-xs font-bold uppercase text-slate-500">
+                {language === 'sw'
+                  ? 'Salio linalopatikana'
+                  : 'Available balance'}
+              </div>
+
+              <div className="mt-1 text-lg font-black text-emerald-700">
+                TZS {money(totalAvailable)}
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-white p-4">
+              <div className="text-xs font-bold uppercase text-slate-500">
+                {language === 'sw'
+                  ? 'Mafungu yenye fedha'
+                  : 'Funded accounts'}
+              </div>
+
+              <div className="mt-1 text-lg font-black text-slate-950">
+                {fundedAccounts} /{' '}
+                {shopGroup.accounts.length}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="min-w-[750px] w-full text-left text-sm">
+            <thead className="bg-slate-100 text-xs uppercase text-slate-600">
+              <tr>
+                <th className="px-5 py-3">
+                  {language === 'sw'
+                    ? 'Aina ya matumizi'
+                    : 'Expense'}
+                </th>
+
+                <th className="px-5 py-3 text-right">
+                  {language === 'sw'
+                    ? 'Jumla iliyoingia'
+                    : 'Total received'}
+                </th>
+
+                <th className="px-5 py-3 text-right">
+                  {language === 'sw'
+                    ? 'Iliyotoka'
+                    : 'Paid out'}
+                </th>
+
+                <th className="px-5 py-3 text-right">
+                  {language === 'sw'
+                    ? 'Salio'
+                    : 'Balance'}
+                </th>
+
+                <th className="px-5 py-3 text-center">
+                  {language === 'sw'
+                    ? 'Hali'
+                    : 'Status'}
+                </th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {shopGroup.accounts.map((account) => {
+                const balance = Number(
+                  account.availableBalance || 0
+                );
+
+                const received =
+                  Number(account.baseAmount || 0) +
+                  Number(account.moneyIn || 0) +
+                  Number(
+                    account.automaticCommissionAmount || 0
+                  );
+
+                return (
+                  <tr
+                    key={`grouped-fund-${account.key}`}
+                    className="border-t border-slate-200"
+                  >
+                    <td className="px-5 py-4 font-black text-slate-950">
+                      {account.name}
+                    </td>
+
+                    <td className="px-5 py-4 text-right font-bold text-slate-900">
+                      TZS {money(received)}
+                    </td>
+
+                    <td className="px-5 py-4 text-right font-bold text-rose-700">
+                      TZS {money(account.moneyOut)}
+                    </td>
+
+                    <td className="px-5 py-4 text-right font-black text-emerald-700">
+                      TZS {money(balance)}
+                    </td>
+
+                    <td className="px-5 py-4 text-center">
+                      <span
+                        className={`inline-flex rounded-full px-3 py-1 text-xs font-black ${
+                          balance < 0
+                            ? 'bg-rose-100 text-rose-800'
+                            : balance > 0
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-slate-200 text-slate-700'
+                        }`}
+                      >
+                        {balance < 0
+                          ? language === 'sw'
+                            ? 'Upungufu'
+                            : 'Shortfall'
+                          : balance > 0
+                            ? language === 'sw'
+                              ? 'Inapatikana'
+                              : 'Available'
+                            : language === 'sw'
+                              ? 'Hakuna salio'
+                              : 'No balance'}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  })}
+</div>
+</div>
+
+<div
+  style={{
+    display:
+      activeAccountabilitySection === 'ledger'
+        ? 'block'
+        : 'none',
+  }}
+  className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
+>
+  <div>
+   <h3 className="text-xl font-black text-slate-950">
+  {language === 'sw'
+    ? 'Rejesta ya Fedha Zote'
+    : 'All Funds Register'}
+</h3>
+
+    <p className="mt-1 text-sm leading-6 text-slate-600">
+  {language === 'sw'
+    ? 'Rejesta hii inaonyesha fedha zote za matumizi za kila duka pamoja na faida ya mmiliki, fedha iliyokusanywa, iliyohamishwa, iliyotumika na salio lililobaki.'
+    : 'This register shows every shop’s expense funds together with owner profit, money collected, transferred, used and the remaining balance.'}
+</p>
+
+<div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+  {Object.values(
+    commissionAdjustedCentralFundAccounts.reduce(
+      (totals, account) => {
+        const categoryName = String(
+          account?.name ||
+            (language === 'sw'
+              ? 'Fedha nyingine'
+              : 'Other funds')
+        ).trim();
+
+        const categoryKey = categoryName.toLowerCase();
+
+        if (!totals[categoryKey]) {
+          totals[categoryKey] = {
+            name: categoryName,
+            balance: 0,
+          };
+        }
+
+        totals[categoryKey].balance += Number(
+          account?.availableBalance || 0
+        );
+
+        return totals;
+      },
+      {}
+    )
+  ).map((category) => (
+    <div
+      key={`fund-category-total-${category.name}`}
+      className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4"
+    >
+      <div className="text-xs font-black uppercase text-slate-600">
+        {category.name}
+      </div>
+
+      <div className="mt-2 text-xl font-black text-emerald-800">
+        TZS {money(category.balance)}
+      </div>
+
+      <div className="mt-1 text-xs font-bold text-slate-500">
+        {language === 'sw'
+          ? 'Jumla inayopatikana'
+          : 'Total available'}
+      </div>
+    </div>
+    ))}
+</div>
+
+<div className="mt-5 flex flex-col gap-2 sm:max-w-sm">
+  <label className="text-sm font-black text-slate-700">
+    {language === 'sw'
+      ? 'Chagua duka unalotaka kuona'
+      : 'Select the shop to view'}
+  </label>
+
+  <select
+    value={ledgerShopFilter}
+    onChange={(event) =>
+      setLedgerShopFilter(event.target.value)
+    }
+    className="h-11 rounded-2xl border border-slate-300 bg-white px-4 text-sm font-bold text-slate-700 outline-none focus:border-emerald-500"
+  >
+    <option value="all">
+      {language === 'sw'
+        ? 'Maduka yote na Mmiliki'
+        : 'All shops and Owner'}
+    </option>
+
+    <option value="owner">
+      {language === 'sw'
+        ? 'Mmiliki pekee'
+        : 'Owner only'}
+    </option>
+
+    {(Array.isArray(data?.shops) ? data.shops : []).map(
+      (shop) => (
+        <option
+          key={`ledger-shop-option-${shop.id}`}
+          value={String(shop.id)}
+        >
+          {shop.name}
+        </option>
+      )
+    )}
+  </select>
+</div>
+</div>
+<div className="mt-5 overflow-x-auto rounded-2xl border border-slate-200">
+    <table className="min-w-[900px] w-full text-left text-sm">
+      <thead className="bg-slate-100 text-xs uppercase text-slate-600">
+        <tr>
+          <th className="px-4 py-3">
+            {language === 'sw'
+  ? 'Aina ya Fedha'
+  : 'Type of Funds'}
+          </th>
+
+          <th className="px-4 py-3">
+            {language === 'sw'
+              ? 'Duka / Mmiliki'
+              : 'Shop / Owner'}
+          </th>
+
+          <th className="px-4 py-3 text-right">
+            {language === 'sw'
+              ? 'Iliyokusanywa'
+              : 'Accumulated'}
+          </th>
+
+          <th className="px-4 py-3 text-right">
+            {language === 'sw'
+              ? 'Iliyoingia kutoka fungu jingine'
+              : 'Transferred in'}
+          </th>
+
+          <th className="px-4 py-3 text-right">
+            {language === 'sw'
+              ? 'Iliyotumika / kuhamishwa'
+              : 'Used / transferred out'}
+          </th>
+
+          <th className="px-4 py-3 text-right">
+            {language === 'sw'
+              ? 'Salio linalopatikana'
+              : 'Available balance'}
+          </th>
+        </tr>
+      </thead>
+
+      <tbody>
+        {commissionAdjustedCentralFundAccounts
+  .filter((account) => {
+    if (ledgerShopFilter === 'all') {
+      return true;
+    }
+
+    if (ledgerShopFilter === 'owner') {
+      return account.type === 'owner_profit';
+    }
+
+    return (
+      String(account?.shopId || '') ===
+      String(ledgerShopFilter)
+    );
+  })
+  .map((account) => (
+          <tr
+            key={account.key}
+            className="border-t border-slate-200"
+          >
+            <td className="px-4 py-3 font-bold text-slate-950">
+              {account.name}
+            </td>
+
+            <td className="px-4 py-3 text-slate-700">
+              {account.shopName || '—'}
+            </td>
+
+            <td className="px-4 py-3 text-right">
+              TZS {money(account.baseAmount)}
+            </td>
+
+            <td className="px-4 py-3 text-right text-emerald-700">
+              TZS {money(account.moneyIn)}
+            </td>
+
+            <td className="px-4 py-3 text-right text-rose-700">
+              TZS {money(account.moneyOut)}
+            </td>
+
+            <td
+              className={`px-4 py-3 text-right font-black ${
+                Number(account.availableBalance || 0) < 0
+                  ? 'text-rose-700'
+                  : 'text-emerald-700'
+              }`}
+            >
+              TZS {money(account.availableBalance)}
+            </td>
+          </tr>
+        ))}
+
+        {centralFundAccounts.length === 0 ? (
+          <tr>
+            <td
+              colSpan={6}
+              className="px-4 py-8 text-center text-slate-500"
+            >
+              {language === 'sw'
+                ? 'Hakuna akaunti ya fedha inayopatikana.'
+                : 'No fund account is available.'}
+            </td>
+          </tr>
+        ) : null}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div
+  className={`${
+    activeAccountabilitySection === 'summary'
+      ? 'block'
+      : 'hidden'
+  } rounded-3xl border border-emerald-200 bg-white p-6 shadow-sm`}
+>
+  <div>
+    <h3 className="text-xl font-black text-slate-950">
+      {language === 'sw'
+        ? 'Sajili Malipo ya Matumizi'
+        : 'Record Expense Payment'}
+    </h3>
+
+    <p className="mt-1 text-sm leading-6 text-slate-600">
+      {language === 'sw'
+        ? 'Chagua fungu halisi lililotumika. Malipo yatapunguza salio la fungu hilo pekee na fedha zilizopo kwa msimamizi.'
+        : 'Select the exact fund used. The payment will reduce only that fund and the physical central funds held.'}
+    </p>
+  </div>
+
+  <div className="mt-5 grid gap-4 md:grid-cols-2">
+    <label className="space-y-2 md:col-span-2">
+      <span className="text-sm font-bold text-slate-700">
+        {language === 'sw'
+          ? 'Fungu la matumizi'
+          : 'Expense fund'}
+      </span>
+
+      <select
+        value={expensePaymentFundKey}
+        onChange={(event) =>
+          setExpensePaymentFundKey(
+            event.target.value
+          )
+        }
+        className="h-11 w-full rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none focus:border-emerald-500"
+      >
+        <option value="">
+          {language === 'sw'
+            ? '-- Chagua fungu --'
+            : '-- Select fund --'}
+        </option>
+
+        {centralFundAccounts
+          .filter(
+            (account) =>
+              account.type === 'expense_fund' &&
+              Number(
+                account.availableBalance || 0
+              ) > 0
+          )
+          .map((account) => (
+            <option
+              key={account.key}
+              value={account.key}
+            >
+              {account.shopName
+                ? `${account.shopName} — `
+                : ''}
+              {account.name} — TZS{' '}
+              {money(account.availableBalance)}
+            </option>
+          ))}
+      </select>
+    </label>
+
+    <label className="space-y-2">
+      <span className="text-sm font-bold text-slate-700">
+        {language === 'sw'
+          ? 'Kiasi kilicholipwa'
+          : 'Amount paid'}
+      </span>
+
+      <input
+        type="text"
+        inputMode="decimal"
+        value={expensePaymentAmount}
+        onChange={(event) =>
+          setExpensePaymentAmount(
+            event.target.value.replace(
+              /[^\d,]/g,
+              ''
+            )
+          )
+        }
+        placeholder="0"
+        className="h-11 w-full rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none focus:border-emerald-500"
+      />
+    </label>
+
+    <label className="space-y-2">
+      <span className="text-sm font-bold text-slate-700">
+        {language === 'sw'
+          ? 'Tarehe ya malipo'
+          : 'Payment date'}
+      </span>
+
+      <input
+        type="date"
+        value={expensePaymentDate}
+        onChange={(event) =>
+          setExpensePaymentDate(
+            event.target.value
+          )
+        }
+        className="h-11 w-full rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none focus:border-emerald-500"
+      />
+    </label>
+
+    <label className="space-y-2">
+      <span className="text-sm font-bold text-slate-700">
+        {language === 'sw'
+          ? 'Aliyelipwa'
+          : 'Payee'}
+      </span>
+
+      <input
+        type="text"
+        value={expensePaymentPayee}
+        onChange={(event) =>
+          setExpensePaymentPayee(
+            event.target.value
+          )
+        }
+        placeholder={
+          language === 'sw'
+            ? 'Mfano: TRA'
+            : 'Example: TRA'
+        }
+        className="h-11 w-full rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none focus:border-emerald-500"
+      />
+    </label>
+
+    <label className="space-y-2">
+      <span className="text-sm font-bold text-slate-700">
+        {language === 'sw'
+          ? 'Njia ya malipo'
+          : 'Payment method'}
+      </span>
+
+      <select
+        value={expensePaymentMethod}
+        onChange={(event) =>
+          setExpensePaymentMethod(
+            event.target.value
+          )
+        }
+        className="h-11 w-full rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none focus:border-emerald-500"
+      >
+        <option value="cash">Cash</option>
+        <option value="mpesa">M-Pesa</option>
+        <option value="bank">
+          {language === 'sw'
+            ? 'Benki'
+            : 'Bank'}
+        </option>
+      </select>
+    </label>
+
+    <label className="space-y-2 md:col-span-2">
+      <span className="text-sm font-bold text-slate-700">
+        {language === 'sw'
+          ? 'Sababu ya malipo'
+          : 'Payment purpose'}
+      </span>
+
+      <textarea
+        value={expensePaymentPurpose}
+        onChange={(event) =>
+          setExpensePaymentPurpose(
+            event.target.value
+          )
+        }
+        rows={3}
+        placeholder={
+          language === 'sw'
+            ? 'Mfano: Malipo ya kodi ya TRA'
+            : 'Example: TRA tax payment'
+        }
+        className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-500"
+      />
+    </label>
+
+    <label className="space-y-2 md:col-span-2">
+      <span className="text-sm font-bold text-slate-700">
+        {language === 'sw'
+          ? 'Namba ya muamala au kumbukumbu — si lazima'
+          : 'Transaction or reference number — optional'}
+      </span>
+
+      <input
+        type="text"
+        value={expensePaymentReference}
+        onChange={(event) =>
+          setExpensePaymentReference(
+            event.target.value
+          )
+        }
+        className="h-11 w-full rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none focus:border-emerald-500"
+      />
+    </label>
+  </div>
+
+  <div className="mt-5 flex justify-end">
+    <button
+      type="button"
+      onClick={saveExpensePayment}
+      disabled={expensePaymentSaving}
+      className="rounded-2xl bg-emerald-700 px-5 py-3 text-sm font-black text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      {expensePaymentSaving
+        ? language === 'sw'
+          ? 'Inahifadhi...'
+          : 'Saving...'
+        : language === 'sw'
+          ? 'Thibitisha Malipo'
+          : 'Confirm Expense Payment'}
+    </button>
+  </div>
+</div>
+    <div
+  className={`${
+    activeAccountabilitySection === 'owner'
+      ? 'block'
+      : 'hidden'
+  } rounded-3xl border border-violet-200 bg-violet-50 p-6 shadow-sm`}
+>
+  <div className="mb-4">
+    <h3 className="text-xl font-black text-slate-950">
+      {language === 'sw'
+        ? 'Akaunti ya Faida ya Mmiliki'
+        : 'Owner Profit Account'}
+    </h3>
+
+        <p className="mt-1 text-sm text-slate-600">
+          {language === 'sw'
+            ? 'Fedha ya mmiliki inaonyeshwa tofauti na matumizi ya biashara.'
+            : 'Owner funds are shown separately from business expenses.'}
+        </p>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <StatCard
+          label={
+            language === 'sw'
+              ? 'Faida ya mmiliki iliyokusanywa'
+              : 'Owner profit accumulated'
+          }
+          value={
+  roundToCashStep(
+    centralFundSummary.ownerProfitAccumulated
+  )
+}
+        />
+
+        <StatCard
+          label={
+            language === 'sw'
+              ? 'Fedha ambazo mmiliki amechukua'
+              : 'Owner drawings taken'
+          }
+          value={
+            centralFundSummary.ownerDrawingsTaken
+          }
+        />
+
+        <StatCard
+          label={
+            language === 'sw'
+              ? 'Faida ya mmiliki iliyobaki'
+              : 'Owner profit available'
+          }
+          value={
+  roundToCashStep(
+    centralFundSummary.ownerProfitAvailable
+  )
+}
+        />
+      </div>
+    </div>
+{activeAccountabilitySection === 'owner' ? (
+  <div className="flex justify-end">
+    <button
+      type="button"
+      onClick={() =>
+        setShowOwnerDrawingForm(
+          (currentValue) => !currentValue
+        )
+      }
+      className="rounded-2xl bg-violet-700 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-violet-800"
+    >
+      {showOwnerDrawingForm
+        ? language === 'sw'
+          ? 'Funga Fomu'
+          : 'Close Form'
+        : language === 'sw'
+          ? 'Sajili Fedha Mpya'
+          : 'Record New Drawing'}
+    </button>
+  </div>
+) : null}
+
+<div
+  className={`${
+    activeAccountabilitySection === 'owner' &&
+    showOwnerDrawingForm
+      ? 'block'
+      : 'hidden'
+  } rounded-3xl border border-violet-200 bg-white p-6 shadow-sm`}
+>
+  <div>
+    <h3 className="text-xl font-black text-slate-950">
+      {language === 'sw'
+        ? 'Sajili Fedha Anayochukua Mmiliki'
+        : 'Record Owner Drawing'}
+    </h3>
+
+    <p className="mt-1 text-sm leading-6 text-slate-600">
+      {language === 'sw'
+        ? 'Fedha hii itapunguzwa kwenye faida ya mmiliki na fedha zilizopo kwa msimamizi. Haitahesabiwa kama matumizi ya biashara.'
+        : 'This amount will reduce owner profit and central funds held. It will not be recorded as a business expense.'}
+    </p>
+  </div>
+
+  <div className="mt-5 grid gap-4 md:grid-cols-2">
+    <label className="space-y-2">
+      <span className="text-sm font-bold text-slate-700">
+        {language === 'sw'
+          ? 'Kiasi anachochukua'
+          : 'Drawing amount'}
+      </span>
+
+      <input
+        type="text"
+        inputMode="decimal"
+        value={ownerDrawingAmount}
+        onChange={(event) =>
+          setOwnerDrawingAmount(
+            event.target.value.replace(/[^\d,]/g, '')
+          )
+        }
+        placeholder="0"
+        className="h-11 w-full rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none focus:border-violet-500"
+      />
+    </label>
+
+    <label className="space-y-2">
+      <span className="text-sm font-bold text-slate-700">
+        {language === 'sw'
+          ? 'Njia ya kuchukua fedha'
+          : 'Payment method'}
+      </span>
+
+      <select
+        value={ownerDrawingPaymentMethod}
+        onChange={(event) =>
+          setOwnerDrawingPaymentMethod(
+            event.target.value
+          )
+        }
+        className="h-11 w-full rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none focus:border-violet-500"
+      >
+        <option value="cash">Cash</option>
+        <option value="mpesa">M-Pesa</option>
+        <option value="bank">
+          {language === 'sw'
+            ? 'Benki'
+            : 'Bank'}
+        </option>
+      </select>
+    </label>
+
+    <label className="space-y-2 md:col-span-2">
+      <span className="text-sm font-bold text-slate-700">
+        {language === 'sw'
+          ? 'Sababu au matumizi ya fedha'
+          : 'Purpose'}
+      </span>
+
+      <textarea
+        value={ownerDrawingPurpose}
+        onChange={(event) =>
+          setOwnerDrawingPurpose(event.target.value)
+        }
+        rows={3}
+        placeholder={
+          language === 'sw'
+            ? 'Mfano: Matumizi binafsi'
+            : 'Example: Personal use'
+        }
+        className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-violet-500"
+      />
+    </label>
+
+    <label className="space-y-2 md:col-span-2">
+      <span className="text-sm font-bold text-slate-700">
+        {language === 'sw'
+          ? 'Namba ya muamala au kumbukumbu — si lazima'
+          : 'Transaction or reference number — optional'}
+      </span>
+
+      <input
+        type="text"
+        value={ownerDrawingPaymentReference}
+        onChange={(event) =>
+          setOwnerDrawingPaymentReference(
+            event.target.value
+          )
+        }
+        className="h-11 w-full rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none focus:border-violet-500"
+      />
+    </label>
+  </div>
+
+  <div className="mt-5 flex flex-col gap-3 rounded-2xl bg-violet-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+    <div className="text-sm text-violet-900">
+      <div>
+        {language === 'sw'
+          ? 'Faida ya mmiliki inayopatikana:'
+          : 'Available owner profit:'}{' '}
+        <strong>
+          TZS{' '}
+          {money(
+            centralFundSummary.ownerProfitAvailable
+          )}
+        </strong>
+      </div>
+
+      <div className="mt-1">
+        {language === 'sw'
+          ? 'Fedha zilizopo kwa msimamizi:'
+          : 'Central funds held:'}{' '}
+        <strong>
+          TZS{' '}
+          {money(
+            centralFundSummary.centralFundsHeld
+          )}
+        </strong>
+      </div>
+    </div>
+
+    <button
+      type="button"
+      onClick={saveOwnerDrawing}
+      disabled={ownerDrawingSaving}
+      className="rounded-2xl bg-violet-700 px-5 py-3 text-sm font-black text-white hover:bg-violet-800 disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      {ownerDrawingSaving
+        ? language === 'sw'
+          ? 'Inahifadhi...'
+          : 'Saving...'
+        : language === 'sw'
+          ? 'Thibitisha Fedha ya Mmiliki'
+          : 'Confirm Owner Drawing'}
+    </button>
+  </div>
+</div>
+<div
+  className={`${
+    activeAccountabilitySection === 'emergency'
+      ? 'block'
+      : 'hidden'
+  } rounded-3xl border border-rose-200 bg-rose-50 p-6 shadow-sm`}
+>
+  <div>
+    <h3 className="text-xl font-black text-slate-950">
+      {language === 'sw'
+        ? 'Mikopo ya Dharura na Vikumbusho'
+        : 'Emergency Borrowing and Reminders'}
+    </h3>
+
+    <p className="mt-1 text-sm leading-6 text-slate-600">
+      {language === 'sw'
+        ? 'Mfumo utaendelea kuonyesha fedha zilizokopwa mpaka zitakaporejeshwa kikamilifu.'
+        : 'The system will continue showing borrowed funds until they are fully restored.'}
+    </p>
+  </div>
+
+  <div className="mt-5 overflow-x-auto rounded-2xl border border-slate-200">
+    <table className="min-w-[1150px] w-full text-left text-sm">
+      <thead className="bg-slate-100 text-xs uppercase text-slate-600">
+        <tr>
+          <th className="px-4 py-3">
+            {language === 'sw'
+              ? 'Fungu lililotoa'
+              : 'Source fund'}
+          </th>
+
+          <th className="px-4 py-3">
+            {language === 'sw'
+              ? 'Fungu lililopokea'
+              : 'Destination fund'}
+          </th>
+
+          <th className="px-4 py-3 text-right">
+            {language === 'sw'
+              ? 'Kiasi kilichokopwa'
+              : 'Borrowed'}
+          </th>
+
+          <th className="px-4 py-3 text-right">
+            {language === 'sw'
+              ? 'Kilichorejeshwa'
+              : 'Repaid'}
+          </th>
+
+          <th className="px-4 py-3 text-right">
+            {language === 'sw'
+              ? 'Bado kurejeshwa'
+              : 'Remaining'}
+          </th>
+
+          <th className="px-4 py-3">
+            {language === 'sw'
+              ? 'Tarehe ya kurejesha'
+              : 'Due date'}
+          </th>
+
+          <th className="px-4 py-3">
+            {language === 'sw'
+              ? 'Kumbusho'
+              : 'Reminder'}
+          </th>
+
+          <th className="px-4 py-3">
+            {language === 'sw'
+              ? 'Sababu'
+              : 'Purpose'}
+          </th>
+        </tr>
+      </thead>
+
+      <tbody>
+        {emergencyBorrowingRecords.map((record) => {
+          const statusText = {
+            fully_repaid:
+              language === 'sw'
+                ? 'Imerejeshwa kikamilifu'
+                : 'Fully repaid',
+
+            overdue:
+              language === 'sw'
+                ? `Imechelewa siku ${Math.abs(
+                    Number(record.daysRemaining || 0)
+                  )}`
+                : `Overdue by ${Math.abs(
+                    Number(record.daysRemaining || 0)
+                  )} days`,
+
+            due_today:
+              language === 'sw'
+                ? 'Inatakiwa kurejeshwa leo'
+                : 'Due today',
+
+            due_soon:
+              language === 'sw'
+                ? `Imebaki siku ${record.daysRemaining}`
+                : `${record.daysRemaining} days remaining`,
+
+            outstanding:
+              language === 'sw'
+                ? 'Bado haijarejeshwa'
+                : 'Still outstanding',
+          }[record.reminderStatus];
+
+          const statusClass = {
+            fully_repaid:
+              'bg-emerald-100 text-emerald-800',
+
+            overdue:
+              'bg-rose-100 text-rose-800',
+
+            due_today:
+              'bg-red-100 text-red-800',
+
+            due_soon:
+              'bg-amber-100 text-amber-800',
+
+            outstanding:
+              'bg-blue-100 text-blue-800',
+          }[record.reminderStatus];
+
+          return (
+            <tr
+              key={record.id}
+              className={`border-t border-slate-200 ${
+                record.reminderStatus === 'overdue'
+                  ? 'bg-rose-50'
+                  : ''
+              }`}
+            >
+              <td className="px-4 py-3">
+                <div className="font-bold text-slate-950">
+                  {record.sourceFundName || '—'}
+                </div>
+
+                <div className="text-xs text-slate-500">
+                  {record.sourceShopName || ''}
+                </div>
+              </td>
+
+              <td className="px-4 py-3">
+                <div className="font-bold text-slate-950">
+                  {record.destinationFundName || '—'}
+                </div>
+
+                <div className="text-xs text-slate-500">
+                  {record.destinationShopName || ''}
+                </div>
+              </td>
+
+              <td className="px-4 py-3 text-right">
+                TZS {money(record.borrowedAmount)}
+              </td>
+
+              <td className="px-4 py-3 text-right text-emerald-700">
+                TZS {money(record.repaidAmount)}
+              </td>
+
+              <td className="px-4 py-3 text-right font-black text-rose-700">
+                TZS {money(record.remainingAmount)}
+              </td>
+
+              <td className="px-4 py-3">
+                {record.dueDate || '—'}
+              </td>
+
+              <td className="px-4 py-3">
+                <span
+                  className={`inline-flex rounded-full px-3 py-1 text-xs font-black ${statusClass}`}
+                >
+                  {statusText}
+                </span>
+              </td>
+
+              <td className="px-4 py-3 text-slate-700">
+                {record.purpose || '—'}
+              </td>
+            </tr>
+          );
+        })}
+
+        {emergencyBorrowingRecords.length === 0 ? (
+          <tr>
+            <td
+              colSpan={8}
+              className="px-4 py-8 text-center text-slate-500"
+            >
+              {language === 'sw'
+                ? 'Hakuna mkopo wa dharura uliosajiliwa.'
+                : 'No emergency borrowing has been recorded.'}
+            </td>
+          </tr>
+        ) : null}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{activeAccountabilitySection === 'emergency' ? (
+  <div className="flex justify-end">
+    <button
+      type="button"
+      onClick={() =>
+        setShowEmergencyBorrowingForm(
+          (currentValue) => !currentValue
+        )
+      }
+      className="rounded-2xl bg-rose-700 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-rose-800"
+    >
+      {showEmergencyBorrowingForm
+        ? language === 'sw'
+          ? 'Funga Fomu'
+          : 'Close Form'
+        : language === 'sw'
+          ? 'Sajili Mkopo Mpya'
+          : 'Record New Emergency Loan'}
+    </button>
+  </div>
+) : null}
+
+<div
+  className={`${
+    activeAccountabilitySection === 'emergency' &&
+    showEmergencyBorrowingForm
+      ? 'block'
+      : 'hidden'
+  } rounded-3xl border border-rose-200 bg-white p-6 shadow-sm`}
+>
+  <div>
+    <h3 className="text-xl font-black text-slate-950">
+  {language === 'sw'
+    ? 'Sajili Mkopo wa Dharura'
+    : 'Record Emergency Borrowing'}
+</h3>
+
+    <p className="mt-1 text-sm leading-6 text-slate-600">
+      {language === 'sw'
+        ? 'Fedha itatolewa kutoka fungu moja na kuongezwa kwenye fungu jingine. Jumla ya fedha zilizopo kwa msimamizi haitabadilika mpaka fedha itakapotumika kulipa matumizi.'
+        : 'Money will move from one fund to another. Total central cash will not change until the money is actually spent.'}
+    </p>
+  </div>
+
+  <div className="mt-5 grid gap-4 md:grid-cols-2">
+    <label className="space-y-2">
+      <span className="text-sm font-bold text-slate-700">
+        {language === 'sw'
+          ? 'Fungu linalotoa fedha'
+          : 'Source fund'}
+      </span>
+
+      <select
+        value={emergencySourceFundKey}
+        onChange={(event) =>
+          setEmergencySourceFundKey(
+            event.target.value
+          )
+        }
+        className="h-11 w-full rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none focus:border-rose-500"
+      >
+        <option value="">
+          {language === 'sw'
+            ? '-- Chagua fungu --'
+            : '-- Select fund --'}
+        </option>
+
+        {centralFundAccounts
+          .filter(
+            (account) =>
+              Number(account.availableBalance || 0) > 0
+          )
+          .map((account) => (
+            <option
+              key={account.key}
+              value={account.key}
+            >
+              {account.shopName
+                ? `${account.shopName} — `
+                : ''}
+              {account.name} — TZS{' '}
+              {money(account.availableBalance)}
+            </option>
+          ))}
+      </select>
+    </label>
+
+    <label className="space-y-2">
+      <span className="text-sm font-bold text-slate-700">
+        {language === 'sw'
+          ? 'Fungu linalopokea fedha'
+          : 'Destination fund'}
+      </span>
+
+      <select
+        value={emergencyDestinationFundKey}
+        onChange={(event) =>
+          setEmergencyDestinationFundKey(
+            event.target.value
+          )
+        }
+        className="h-11 w-full rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none focus:border-rose-500"
+      >
+        <option value="">
+          {language === 'sw'
+            ? '-- Chagua fungu --'
+            : '-- Select fund --'}
+        </option>
+
+        {centralFundAccounts
+          .filter(
+            (account) =>
+              account.key !== emergencySourceFundKey
+          )
+          .map((account) => (
+            <option
+              key={account.key}
+              value={account.key}
+            >
+              {account.shopName
+                ? `${account.shopName} — `
+                : ''}
+              {account.name}
+            </option>
+          ))}
+      </select>
+    </label>
+
+    <label className="space-y-2">
+      <span className="text-sm font-bold text-slate-700">
+        {language === 'sw'
+          ? 'Kiasi kinachokopwa'
+          : 'Amount borrowed'}
+      </span>
+
+      <input
+        type="text"
+        inputMode="decimal"
+        value={emergencyBorrowingAmount}
+        onChange={(event) =>
+          setEmergencyBorrowingAmount(
+            event.target.value.replace(/[^\d,]/g, '')
+          )
+        }
+        placeholder="0"
+        className="h-11 w-full rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none focus:border-rose-500"
+      />
+    </label>
+
+    <label className="space-y-2">
+      <span className="text-sm font-bold text-slate-700">
+        {language === 'sw'
+          ? 'Tarehe ya kurejesha'
+          : 'Repayment due date'}
+      </span>
+
+      <input
+        type="date"
+        value={emergencyBorrowingDueDate}
+        onChange={(event) =>
+          setEmergencyBorrowingDueDate(
+            event.target.value
+          )
+        }
+        min={new Date().toISOString().slice(0, 10)}
+        className="h-11 w-full rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none focus:border-rose-500"
+      />
+    </label>
+
+    <label className="space-y-2 md:col-span-2">
+      <span className="text-sm font-bold text-slate-700">
+        {language === 'sw'
+          ? 'Sababu ya kukopa fedha'
+          : 'Reason for borrowing'}
+      </span>
+
+      <textarea
+        value={emergencyBorrowingPurpose}
+        onChange={(event) =>
+          setEmergencyBorrowingPurpose(
+            event.target.value
+          )
+        }
+        rows={3}
+        placeholder={
+          language === 'sw'
+            ? 'Mfano: Dharura ya matibabu'
+            : 'Example: Medical emergency'
+        }
+        className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-rose-500"
+      />
+    </label>
+
+    <label className="space-y-2 md:col-span-2">
+      <span className="text-sm font-bold text-slate-700">
+        {language === 'sw'
+          ? 'Kumbukumbu — si lazima'
+          : 'Reference — optional'}
+      </span>
+
+      <input
+        type="text"
+        value={emergencyBorrowingReference}
+        onChange={(event) =>
+          setEmergencyBorrowingReference(
+            event.target.value
+          )
+        }
+        className="h-11 w-full rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none focus:border-rose-500"
+      />
+    </label>
+  </div>
+
+  <div className="mt-5 flex justify-end">
+    <button
+      type="button"
+      onClick={saveEmergencyBorrowing}
+      disabled={emergencyBorrowingSaving}
+      className="rounded-2xl bg-rose-700 px-5 py-3 text-sm font-black text-white hover:bg-rose-800 disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      {emergencyBorrowingSaving
+        ? language === 'sw'
+          ? 'Inahifadhi...'
+          : 'Saving...'
+        : language === 'sw'
+          ? 'Thibitisha Mkopo wa Dharura'
+          : 'Confirm Emergency Borrowing'}
+    </button>
+  </div>
+</div>
+    <div className="hidden rounded-3xl border border-amber-200 bg-amber-50 p-6 text-sm leading-6 text-amber-900 shadow-sm">
+      <strong>
+        {language === 'sw'
+          ? 'Hatua inayofuata:'
+          : 'Next step:'}
+      </strong>{' '}
+
+      {language === 'sw'
+  ? 'Hatua inayofuata ni kusajili mikopo ya dharura kati ya mafungu, kuweka tarehe ya kurejesha na kutoa kumbusho hadi fedha itakaporejeshwa.'
+  : 'The next step is to record emergency borrowing between funds, set repayment dates and issue reminders until the money is restored.'}
+    </div>
+  </div>
+) : null}
+
+ <div
+  style={{
+    display: activeTab === 'reports' ? 'block' : 'none',
+  }}
+  className="space-y-5"
+>
     <div className="flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
       {[
         ['daily-remittance', t('report1')],
@@ -7814,7 +12960,6 @@ const shortfall = Number(
 )
     )}
   </div>
-) : null}
           </>
         ) : (
           <div className="space-y-5">

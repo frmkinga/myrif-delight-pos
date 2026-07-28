@@ -1,5 +1,11 @@
-import React, { useMemo, useState } from 'react';
+import React, {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { Pencil, Trash2, PlusCircle } from 'lucide-react';
+import { supabase } from './supabaseClient';
 const GAS_PRICE_BOOK = {
   'Taifa / Mihan Gas': {
     smallBuy: 23500,
@@ -303,6 +309,7 @@ export function GasBusinessSection({
   currency,
   formatQty,
   todayISO,
+  shopId,
 gasTypes,
 gasCylinderSizes,
   gasForm,
@@ -340,6 +347,67 @@ const [quickGasSaleForm, setQuickGasSaleForm] = useState({
   sellPrice: '',
 });
 
+const quickGasSaleSavingRef = useRef(false);
+const [quickGasSaleSaving, setQuickGasSaleSaving] = useState(false);
+const [
+  gasSaleTransactions,
+  setGasSaleTransactions,
+] = useState([]);
+
+const [
+  gasSaleTransactionsLoading,
+  setGasSaleTransactionsLoading,
+] = useState(false);
+
+useEffect(() => {
+  if (!shopId) {
+    setGasSaleTransactions([]);
+    return;
+  }
+
+  let cancelled = false;
+
+  const loadGasSaleTransactions = async () => {
+    setGasSaleTransactionsLoading(true);
+
+    const { data: transactionRows, error } =
+      await supabase
+        .from('gas_sale_transactions')
+        .select('*')
+        .eq('shop_id', String(shopId))
+        .order('created_at', {
+          ascending: false,
+        })
+        .limit(100);
+
+    if (cancelled) return;
+
+    if (error) {
+      console.error(
+        'Gas sale transaction history load failed:',
+        error
+      );
+
+      setGasSaleTransactions([]);
+      setGasSaleTransactionsLoading(false);
+      return;
+    }
+
+    setGasSaleTransactions(
+      Array.isArray(transactionRows)
+        ? transactionRows
+        : []
+    );
+
+    setGasSaleTransactionsLoading(false);
+  };
+
+  loadGasSaleTransactions();
+
+  return () => {
+    cancelled = true;
+  };
+}, [shopId]);
 const normalizeGasTypeName = (value) => {
   const name = String(value || '').trim();
 
@@ -627,6 +695,75 @@ const quickGasSalePreview = useMemo(() => {
   };
 }, [quickGasSaleForm.quantity, quickGasPrices]);
 
+const recordQuickGasSaleTransaction = async ({
+    gasEntryId,
+  shopId,
+  saleCategory,
+  gasType,
+  cylinderSize,
+  accessoryType,
+  quantity,
+  buyPrice,
+  sellPrice,
+  saleDate,
+}) => {
+  const transactionId =
+    typeof crypto !== 'undefined' && crypto.randomUUID
+      ? `gas-sale-${crypto.randomUUID()}`
+      : `gas-sale-${Date.now()}-${Math.random()
+          .toString(36)
+          .slice(2, 10)}`;
+
+  const {
+  data: savedTransaction,
+  error,
+} = await supabase
+    .from('gas_sale_transactions')
+    .insert([
+      {
+        id: transactionId,
+        gas_entry_id: gasEntryId,
+        shop_id: String(shopId || ''),
+        sale_date: saleDate,
+        sale_category: saleCategory,
+        gas_type: gasType || null,
+        cylinder_size: cylinderSize || null,
+        accessory_type: accessoryType || null,
+        quantity: Number(quantity || 0),
+        buy_price: Number(buyPrice || 0),
+        sell_price: Number(sellPrice || 0),
+      },
+    ])
+    .select('*')
+    .single();
+
+  if (error) {
+    console.error(
+      'Gas sale transaction history save failed:',
+      error
+    );
+
+    alert(
+      t(
+        language,
+        'The gas total was saved, but transaction history failed. Do not click Save again. Inform the owner.',
+        'Jumla ya gesi imehifadhiwa, lakini historia ya muamala haikuhifadhiwa. Usibonyeze Hifadhi tena. Mjulishe mmiliki.'
+      )
+    );
+
+    return false;
+  }
+if (savedTransaction) {
+  setGasSaleTransactions((previous) => [
+    savedTransaction,
+    ...previous.filter(
+      (transaction) =>
+        transaction.id !== savedTransaction.id
+    ),
+  ]);
+}
+  return true;
+};
 const saveQuickGasSale = async () => {
   const qty = Number(quickGasSaleForm.quantity || 0);
   const saleCategory = quickGasSaleForm.saleCategory || 'refill';
@@ -676,7 +813,31 @@ const saveQuickGasSale = async () => {
     const saved = await onSaveGas(nextGasForm, { keepGasForm: true });
 
     if (saved) {
-      alert(t(language, 'Accessory sale saved successfully.', 'Mauzo ya kifaa yamehifadhiwa kikamilifu.'));
+  const transactionSaved =
+    await recordQuickGasSaleTransaction({
+      gasEntryId: saved.id,
+      shopId,
+      saleCategory: 'accessory',
+      gasType: '',
+      cylinderSize: '',
+      accessoryType:
+        quickGasSaleForm.accessoryType,
+      quantity: qty,
+      buyPrice: quickGasPrices.buyPrice,
+      sellPrice: quickGasPrices.sellPrice,
+      saleDate:
+        quickGasSaleForm.date || todayISO(),
+    });
+
+  if (!transactionSaved) return;
+
+  alert(
+    t(
+      language,
+      'Accessory sale saved successfully.',
+      'Mauzo ya kifaa yamehifadhiwa kikamilifu.'
+    )
+  );
 
       setQuickGasSaleForm((prev) => ({
         ...prev,
@@ -795,8 +956,31 @@ if (!qty || qty <= 0) {
 
     const saved = await onSaveGas(nextGasForm, { keepGasForm: true });
 
-    if (saved) {
-      alert(t(language, 'Complete gas cylinder sale saved successfully.', 'Mauzo ya mtungi kamili wa gesi yamehifadhiwa kikamilifu.'));
+   if (saved) {
+  const transactionSaved =
+    await recordQuickGasSaleTransaction({
+      gasEntryId: saved.id,
+      shopId,
+      saleCategory: 'complete',
+      gasType: selectedGasType,
+      cylinderSize: quickGasSaleForm.cylinderSize,
+      accessoryType: '',
+      quantity: qty,
+      buyPrice: quickGasPrices.buyPrice,
+      sellPrice: quickGasPrices.sellPrice,
+      saleDate:
+        quickGasSaleForm.date || todayISO(),
+    });
+
+  if (!transactionSaved) return;
+
+  alert(
+    t(
+      language,
+      'Complete gas cylinder sale saved successfully.',
+      'Mauzo ya mtungi kamili wa gesi yamehifadhiwa kikamilifu.'
+    )
+  );
 
       setQuickGasSaleForm((prev) => ({
         ...prev,
@@ -864,7 +1048,30 @@ if (!qty || qty <= 0) {
   const saved = await onSaveGas(nextGasForm, { keepGasForm: true });
 
   if (saved) {
-    alert(t(language, 'Gas sale saved successfully.', 'Mauzo ya gesi yamehifadhiwa kikamilifu.'));
+  const transactionSaved =
+    await recordQuickGasSaleTransaction({
+      gasEntryId: saved.id,
+      shopId,
+      saleCategory: 'refill',
+      gasType: selectedGasType,
+      cylinderSize: quickGasSaleForm.cylinderSize,
+      accessoryType: '',
+      quantity: qty,
+      buyPrice: quickGasPrices.buyPrice,
+      sellPrice: quickGasPrices.sellPrice,
+      saleDate:
+        quickGasSaleForm.date || todayISO(),
+    });
+
+  if (!transactionSaved) return;
+
+  alert(
+    t(
+      language,
+      'Gas sale saved successfully.',
+      'Mauzo ya gesi yamehifadhiwa kikamilifu.'
+    )
+  );
 
     setQuickGasSaleForm((prev) => ({
   ...prev,
@@ -1038,6 +1245,104 @@ if (!qty || qty <= 0) {
     <div className="rounded-2xl bg-slate-100 p-3 text-sm font-semibold">
       {t(language, 'Total Gas Profit', 'Jumla ya Faida ya Gesi')}: TZS {currency(liveGasProfit.totalProfit)}
     </div>
+    {isOwnerUser && gasForm.id ? (
+  <div className="rounded-2xl border border-red-200 bg-red-50 p-4">
+    <div className="mb-3 font-semibold text-red-800">
+      {t(
+        language,
+        'Owner Sale Correction',
+        'Marekebisho ya Mauzo kwa Mmiliki'
+      )}
+    </div>
+
+    <div className="grid gap-3 md:grid-cols-2">
+      <Input
+        type="number"
+        min="0"
+        placeholder="Gesi ndogo iliyouzwa"
+        value={gasForm.smallGasSoldToday}
+        onChange={(e) =>
+          setGasForm((previous) => ({
+            ...previous,
+            smallGasSoldToday: e.target.value,
+          }))
+        }
+      />
+
+      <Input
+        type="number"
+        min="0"
+        placeholder="Gesi kubwa iliyouzwa"
+        value={gasForm.bigGasSoldToday}
+        onChange={(e) =>
+          setGasForm((previous) => ({
+            ...previous,
+            bigGasSoldToday: e.target.value,
+          }))
+        }
+      />
+
+      <Input
+        type="number"
+        min="0"
+        placeholder="Mitungi midogo kamili iliyouzwa"
+        value={gasForm.completeSmallCylinderSoldToday}
+        onChange={(e) =>
+          setGasForm((previous) => ({
+            ...previous,
+            completeSmallCylinderSoldToday:
+              e.target.value,
+          }))
+        }
+      />
+
+      <Input
+        type="number"
+        min="0"
+        placeholder="Mitungi mikubwa kamili iliyouzwa"
+        value={gasForm.completeBigCylinderSoldToday}
+        onChange={(e) =>
+          setGasForm((previous) => ({
+            ...previous,
+            completeBigCylinderSoldToday:
+              e.target.value,
+          }))
+        }
+      />
+
+      <Input
+        type="number"
+        min="0"
+        placeholder="Bana za gesi zilizouzwa"
+        value={gasForm.gasBurnerSoldToday}
+        onChange={(e) =>
+          setGasForm((previous) => ({
+            ...previous,
+            gasBurnerSoldToday: e.target.value,
+          }))
+        }
+      />
+
+      <Input
+        type="number"
+        min="0"
+        placeholder="Mafiga yaliyouzwa"
+        value={gasForm.mafigaSoldToday}
+        onChange={(e) =>
+          setGasForm((previous) => ({
+            ...previous,
+            mafigaSoldToday: e.target.value,
+          }))
+        }
+      />
+    </div>
+
+    <div className="mt-3 text-sm text-red-700">
+      Rekebisha idadi isiyo sahihi, kisha bonyeza
+      “Sasisha Rekodi ya Gesi”.
+    </div>
+  </div>
+) : null}
   </div>
 )}
 
@@ -1430,12 +1735,112 @@ bigGasSellPrice: '',
             </div>
           </div>
 
-          <Button type="button" onClick={saveQuickGasSale}>
-            {t(language, 'Save Gas Sale', 'Hifadhi Mauzo ya Gesi')}
-          </Button>
+          <Button
+  type="button"
+  disabled={quickGasSaleSaving}
+  onClick={async () => {
+    if (quickGasSaleSavingRef.current) return;
+
+    quickGasSaleSavingRef.current = true;
+    setQuickGasSaleSaving(true);
+
+    try {
+      await saveQuickGasSale();
+    } finally {
+      quickGasSaleSavingRef.current = false;
+      setQuickGasSaleSaving(false);
+    }
+  }}
+>
+  {quickGasSaleSaving
+    ? t(language, 'Saving Gas Sale...', 'Inahifadhi Mauzo ya Gesi...')
+    : t(language, 'Save Gas Sale', 'Hifadhi Mauzo ya Gesi')}
+</Button>
         </CardContent>
       </Card>
+<Card className="xl:col-span-2">
+  <CardHeader>
+    <CardTitle>
+      {t(
+        language,
+        'Gas Sale Transaction History',
+        'Historia ya Mauzo ya Gesi'
+      )}
+    </CardTitle>
+  </CardHeader>
 
+  <CardContent className="space-y-3">
+    {gasSaleTransactionsLoading ? (
+      <div className="text-sm text-slate-500">
+        {t(
+          language,
+          'Loading gas sale history...',
+          'Inapakia historia ya mauzo ya gesi...'
+        )}
+      </div>
+    ) : gasSaleTransactions.length === 0 ? (
+      <div className="text-sm text-slate-500">
+        {t(
+          language,
+          'No individually recorded gas sales yet.',
+          'Bado hakuna mauzo ya gesi yaliyorekodiwa moja moja.'
+        )}
+      </div>
+    ) : (
+      gasSaleTransactions
+        .slice(0, 20)
+        .map((transaction) => {
+          const transactionTotal =
+            Number(transaction.quantity || 0) *
+            Number(transaction.sell_price || 0);
+
+          const transactionName =
+            transaction.sale_category === 'accessory'
+              ? transaction.accessory_type
+              : `${transaction.gas_type || 'Gas'} — ${
+                  transaction.cylinder_size || '-'
+                }`;
+
+          return (
+            <div
+              key={transaction.id}
+              className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="font-semibold text-slate-900">
+                    {transactionName}
+                  </div>
+
+                  <div className="mt-1 text-slate-600">
+                    {transaction.sale_date} ·{' '}
+                    {transaction.sale_category} ·{' '}
+                    {Number(transaction.quantity || 0)}
+                  </div>
+
+                  <div className="mt-1 font-medium text-slate-800">
+                    TZS {currency(transactionTotal)}
+                  </div>
+                </div>
+
+                <div
+                  className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                    transaction.status === 'reversed'
+                      ? 'bg-red-100 text-red-700'
+                      : 'bg-emerald-100 text-emerald-700'
+                  }`}
+                >
+                  {transaction.status === 'reversed'
+                    ? t(language, 'Reversed', 'Imerudishwa')
+                    : t(language, 'Confirmed', 'Imethibitishwa')}
+                </div>
+              </div>
+            </div>
+          );
+        })
+    )}
+  </CardContent>
+</Card>
       <Card className="xl:col-span-2">
         <CardHeader>
           <CardTitle>{t(language, 'Saved Gas Records', 'Rekodi za Gesi')}</CardTitle>
@@ -1457,6 +1862,31 @@ bigGasSellPrice: '',
                       <div className="mt-1">{t(language, 'Total Cylinders', 'Jumla ya Mitungi')}: {formatQty(entry.totalCylinders)}</div>
                       <div className="mt-1 font-semibold">{t(language, 'Total Profit', 'Jumla ya Faida')}: TZS {currency(profits.totalProfit)}</div>
                       <div className="mt-3 grid gap-2 text-xs text-slate-700 md:grid-cols-2">
+                        <div className="rounded-2xl bg-emerald-50 px-3 py-2 font-semibold text-emerald-800">
+  {t(
+    language,
+    'Small Gas Refills Sold',
+    'Gesi Ndogo Iliyouzwa'
+  )}: {formatQty(entry.smallGasSoldToday || 0)}
+ {' — '}
+{t(language, 'Total Sales', 'Jumla ya Mauzo')}: TZS {currency(
+    Number(entry.smallGasSoldToday || 0) *
+      Number(entry.smallGasSellPrice || 0)
+  )}
+</div>
+
+<div className="rounded-2xl bg-emerald-50 px-3 py-2 font-semibold text-emerald-800">
+  {t(
+    language,
+    'Big Gas Refills Sold',
+    'Gesi Kubwa Iliyouzwa'
+  )}: {formatQty(entry.bigGasSoldToday || 0)}
+  {' — '}
+  TZS {currency(
+    Number(entry.bigGasSoldToday || 0) *
+      Number(entry.bigGasSellPrice || 0)
+  )}
+</div>
   <div className="rounded-2xl bg-white px-3 py-2">
     {t(language, 'Complete Small Cylinders Sold', 'Mitungi Midogo Kamili Iliyouzwa')}: {formatQty(entry.completeSmallCylinderSoldToday || 0)}
   </div>

@@ -838,6 +838,7 @@ const seedData = {
   meters: [],
   serviceCharges: [],
   rentPayments: [],
+  centralFundTransactions: [],
 };
 
 function getLegacyData() {
@@ -926,7 +927,15 @@ gasEntries: Array.isArray(parsed.gasEntries) ? parsed.gasEntries : [],
     houses: Array.isArray(parsed.houses) ? parsed.houses : [],
     meters: Array.isArray(parsed.meters) ? parsed.meters : [],
     serviceCharges: Array.isArray(parsed.serviceCharges) ? parsed.serviceCharges : [],
-    rentPayments: Array.isArray(parsed.rentPayments) ? parsed.rentPayments : [],
+    rentPayments: Array.isArray(parsed.rentPayments)
+      ? parsed.rentPayments
+      : [],
+
+    centralFundTransactions: Array.isArray(
+      parsed.centralFundTransactions
+    )
+      ? parsed.centralFundTransactions
+      : [],
   };
 }
 
@@ -1024,6 +1033,11 @@ let metersQuery = supabase.from('meters').select('*');
 let serviceChargesQuery = supabase.from('servicecharges').select('*');
 let rentPaymentsQuery = supabase.from('rentPayments').select('*');
 
+let centralFundTransactionsQuery = supabase
+  .from('centralFundTransactions')
+  .select('*')
+  .order('created_at', { ascending: false });
+
         if (sessionShopId) {
   productsQuery = productsQuery.eq('shop_id', sessionShopId);
   salesQuery = salesQuery.eq('shop_id', sessionShopId);
@@ -1056,6 +1070,7 @@ let rentPaymentsQuery = supabase.from('rentPayments').select('*');
   { data: cloudMeters },
   { data: cloudServiceCharges },
   { data: cloudRentPayments },
+  { data: cloudCentralFundTransactions },
 ] = await Promise.all([
   productsQuery,
   salesQuery,
@@ -1071,6 +1086,7 @@ let rentPaymentsQuery = supabase.from('rentPayments').select('*');
   metersQuery,
   serviceChargesQuery,
   rentPaymentsQuery,
+  centralFundTransactionsQuery,
 ]);
 
 const normalized = normalizeData({
@@ -1140,6 +1156,76 @@ const normalized = normalizeData({
     source: p?.source || '',
     created_at: p?.created_at || '',
   })),
+
+  centralFundTransactions: (
+    cloudCentralFundTransactions || []
+  ).map((row) => ({
+    id: row?.id || '',
+    transactionType: row?.transaction_type || '',
+    transactionDate: row?.transaction_date || '',
+
+    shop_id: String(row?.shop_id || '').trim(),
+    shopName: row?.shop_name || '',
+
+    expenseKey: row?.expense_key || '',
+    expenseName: row?.expense_name || '',
+
+    sourceFundType: row?.source_fund_type || '',
+    sourceFundKey: row?.source_fund_key || '',
+    sourceFundName: row?.source_fund_name || '',
+    sourceShopId: String(row?.source_shop_id || '').trim(),
+    sourceShopName: row?.source_shop_name || '',
+
+    destinationFundType:
+      row?.destination_fund_type || '',
+    destinationFundKey:
+      row?.destination_fund_key || '',
+    destinationFundName:
+      row?.destination_fund_name || '',
+    destinationShopId: String(
+      row?.destination_shop_id || ''
+    ).trim(),
+    destinationShopName:
+      row?.destination_shop_name || '',
+
+    amount: Number(row?.amount || 0),
+
+    payee: row?.payee || '',
+    purpose: row?.purpose || '',
+    paymentMethod: row?.payment_method || '',
+    paymentReference:
+      row?.payment_reference || '',
+    notes: row?.notes || '',
+
+    status: row?.status || 'confirmed',
+
+    borrowingDueDate:
+      row?.borrowing_due_date || '',
+    borrowingStatus:
+      row?.borrowing_status || '',
+    borrowedAmount: Number(
+      row?.borrowed_amount || 0
+    ),
+    repaidAmount: Number(
+      row?.repaid_amount || 0
+    ),
+
+    relatedTransactionId:
+      row?.related_transaction_id || '',
+    reversalOfTransactionId:
+      row?.reversal_of_transaction_id || '',
+
+    recordedByUserId:
+      row?.recorded_by_user_id || '',
+    recordedByName:
+      row?.recorded_by_name || '',
+    recordedByRole:
+      row?.recorded_by_role || '',
+
+    created_at: row?.created_at || '',
+    updated_at: row?.updated_at || '',
+  })),
+
   currentUser: savedSessionUser,
 
   products: (cloudProducts || []).map((p) => ({
@@ -2131,7 +2217,7 @@ setAppData(nextData);
   setNewPasswordInput('');
   setConfirmPasswordInput('');
 };
-    const shouldLoadOldOwnerSalesFromSupabase = false;
+    const shouldLoadOldOwnerSalesFromSupabase = true;
 
   useEffect(() => {
     if (!shouldLoadOldOwnerSalesFromSupabase) {
@@ -2144,7 +2230,10 @@ setAppData(nextData);
       try {
         setOwnerSalesLoading(true);
 
-        let startDate = daysAgoISO(89);
+        let startDate =
+  todayISO() >= '2026-08-01'
+    ? '2026-08-01'
+    : AUTOMATIC_EXPENSE_PILOT_START_DATE;
         let endDate = todayISO();
 
         const now = startOfDay(new Date());
@@ -2246,6 +2335,150 @@ console.log('TOTAL CHECK', {
   count: salesPeriod.length
 });
   const totalExpenses = expensesPeriod.reduce((a, e) => a + Number(e.amount || 0), 0);
+  const getOwnerRemittancePeriod = () => {
+  const now = startOfDay(new Date());
+
+  let periodStart = now;
+  let periodEnd = now;
+
+  if (ownerPeriod === 'yesterday') {
+    periodStart = addDays(now, -1);
+    periodEnd = addDays(now, -1);
+  } else if (ownerPeriod === 'week') {
+    const dayOfWeek = now.getDay();
+    const daysFromMonday =
+      dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+
+    periodStart = addDays(now, -daysFromMonday);
+  } else if (ownerPeriod === 'lastweek') {
+    const dayOfWeek = now.getDay();
+    const daysFromMonday =
+      dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+
+    const currentWeekStart = addDays(
+      now,
+      -daysFromMonday
+    );
+
+    periodStart = addDays(currentWeekStart, -7);
+    periodEnd = addDays(currentWeekStart, -1);
+  } else if (ownerPeriod === 'month') {
+    periodStart = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      1
+    );
+  } else if (ownerPeriod === 'lastmonth') {
+    periodStart = new Date(
+      now.getFullYear(),
+      now.getMonth() - 1,
+      1
+    );
+
+    periodEnd = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      0
+    );
+  } else if (ownerPeriod === '3months') {
+    periodStart = addDays(now, -89);
+  } else if (ownerPeriod === '6months') {
+    periodStart = addDays(now, -179);
+  } else if (ownerPeriod === 'year') {
+    periodStart = new Date(
+      now.getFullYear(),
+      0,
+      1
+    );
+  } else if (
+    ownerPeriod === 'date' &&
+    ownerCustomStartDate &&
+    ownerCustomEndDate
+  ) {
+    periodStart = startOfDay(
+      ownerCustomStartDate
+    );
+
+    periodEnd = startOfDay(
+      ownerCustomEndDate
+    );
+  }
+
+  return {
+    startKey: todayISO(periodStart),
+    endKey: todayISO(periodEnd),
+  };
+};
+
+const ownerRemittancePeriod =
+  getOwnerRemittancePeriod();
+
+const ownerRemittanceStartKey =
+  ownerRemittancePeriod.startKey <
+  AUTOMATIC_EXPENSE_PILOT_START_DATE
+    ? AUTOMATIC_EXPENSE_PILOT_START_DATE
+    : ownerRemittancePeriod.startKey;
+
+const ownerRemittanceDateKeys = [];
+
+if (
+  ownerRemittancePeriod.endKey >=
+  ownerRemittanceStartKey
+) {
+  let currentDate = startOfDay(
+    ownerRemittanceStartKey
+  );
+
+  const finalDate = startOfDay(
+    ownerRemittancePeriod.endKey
+  );
+
+  while (currentDate <= finalDate) {
+    ownerRemittanceDateKeys.push(
+      todayISO(currentDate)
+    );
+
+    currentDate = addDays(currentDate, 1);
+  }
+}
+
+const ownerTotalMatumiziYaLeo =
+  ownerRemittanceDateKeys.reduce(
+    (periodTotal, dateKey) => {
+      const dateTotal = (
+        Array.isArray(data?.shops)
+          ? data.shops
+          : []
+      ).reduce((shopTotal, shop) => {
+        const shopId = String(
+          shop?.id || ''
+        ).trim();
+
+        if (!shopId) return shopTotal;
+
+        const shopRemittancePosition =
+          getLiveRemittanceShopPosition({
+            data,
+            shopId,
+            calculationDateKey: dateKey,
+          });
+
+        return (
+          shopTotal +
+          Math.max(
+            0,
+           Number(
+  shopRemittancePosition
+    ?.cashAmountRequiredToSubmit || 0
+)
+          )
+        );
+      }, 0);
+
+      return periodTotal + dateTotal;
+    },
+    0
+  );
   const totalRetailProfit = salesPeriod.reduce((sum, sale) => {
   return sum + (sale.items || []).reduce((itemSum, item) => {
     const qty = Number(item.quantity || 0);
@@ -2256,6 +2489,23 @@ console.log('TOTAL CHECK', {
 }, 0);
 
 const totalProfit = totalRetailProfit - totalExpenses;
+const todayOwnerProfitFromRemittance = (data.shops || []).reduce(
+  (sum, shop) => {
+    const position = getLiveRemittanceShopPosition({
+      data,
+      shopId: shop.id,
+      calculationDateKey: todayISO(),
+    });
+
+    return sum + Number(position?.ownerProfit || 0);
+  },
+  0
+);
+
+const displayedOwnerProfit =
+  ownerPeriod === 'today'
+    ? todayOwnerProfitFromRemittance
+    : totalProfit;
 const totalGasProfit = (data.gasEntries || [])
   .filter((x) => filterByPreset([x], ownerPeriod, todayISO()).length > 0)
   .reduce((a, x) => a + getGasEntryProfitTotal(x), 0);
@@ -2511,15 +2761,21 @@ const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(e
 />
 
   <StatCard
-  title={`${t(language, 'Total Expenses', 'Jumla ya Matumizi')} ${ownerPeriodLabel}`}
-  value={`TZS ${currency(totalExpenses)}`}
+  title={`${t(
+    language,
+    'Amount to Submit',
+'Kiasi cha Kutoa'
+  )} ${ownerPeriodLabel}`}
+  value={`TZS ${currency(
+    ownerTotalMatumiziYaLeo
+  )}`}
   icon={AlertTriangle}
   color="from-orange-400 to-pink-500"
 />
 
   <StatCard
   title={`${t(language, 'Profit', 'Faida ya')} ${ownerPeriodLabel}`}
-  value={`TZS ${currency(totalProfit)}`}
+  value={`TZS ${currency(displayedOwnerProfit)}`}
   icon={Wallet}
   color="from-violet-500 to-indigo-700"
 />
@@ -2549,7 +2805,7 @@ const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(e
   <CardContent>
   <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6 text-sm">
     <div className="rounded-2xl bg-gradient-to-r from-fuchsia-500/15 to-purple-600/15 p-3 font-medium">
-      {t(language, 'Retail Profit after Expenses', 'Faida ya Duka baada ya Matumizi')}: TZS {currency(totalProfit)}
+      {t(language, 'Owner Profit after All Expenses', 'Faida ya Mmiliki baada ya Matumizi Yote')}: TZS {currency(displayedOwnerProfit)}
     </div>
 
     <div className="rounded-2xl bg-gradient-to-r from-orange-400/15 to-pink-500/15 p-3 font-medium">
@@ -2660,6 +2916,30 @@ const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(e
             todayISO()
           ).reduce((a, e) => a + Number(e.amount || 0), 0);
 
+          const shopAutomaticMatumizi =
+  ownerRemittanceDateKeys.reduce(
+    (total, dateKey) => {
+      const shopRemittancePosition =
+        getLiveRemittanceShopPosition({
+          data,
+          shopId: shop.id,
+          calculationDateKey: dateKey,
+        });
+
+      return (
+        total +
+        Math.max(
+          0,
+          Number(
+  shopRemittancePosition
+    ?.cashAmountRequiredToSubmit || 0
+)
+        )
+      );
+    },
+    0
+  );
+
           const shopRetailProfit = filterByPreset(
             data.sales.filter((s) => String(s.shop_id) === String(shop.id)),
             ownerPeriod,
@@ -2673,7 +2953,16 @@ const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(e
             }, 0);
           }, 0);
 
-          const shopProfit = shopRetailProfit - shopExpenses;
+          const shopProfit =
+  ownerPeriod === 'today'
+    ? Number(
+        getLiveRemittanceShopPosition({
+          data,
+          shopId: shop.id,
+          calculationDateKey: todayISO(),
+        })?.ownerProfit || 0
+      )
+    : shopRetailProfit - shopExpenses;
 
           const shopCommissionRecords = (data.monthlyWakalaCommissions || []).filter(
             (record) =>
@@ -2713,7 +3002,7 @@ const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(e
         </div>
 
         <div className="rounded-2xl bg-white/70 px-3 py-2 shadow-sm">
-          {t(language, 'Expenses', 'Matumizi')}: TZS {currency(shopExpenses)}
+          {t(language, 'Amount to Submit', 'Kiasi cha Kutoa')}: TZS {currency(shopAutomaticMatumizi)}
         </div>
 
         <div className="rounded-2xl bg-white/70 px-3 py-2 font-medium shadow-sm">
@@ -3131,12 +3420,12 @@ const saveGas = async (formOverride = null, options = {}) => {
   }
 
   if (options.keepGasForm) {
-    setGasForm({
-      ...formForSave,
-      id: record.id,
-    });
-    return true;
-  }
+  setGasForm({
+    ...formForSave,
+    id: record.id,
+  });
+  return record;
+}
 
   const resetGasType = record.gasType || 'Taifa / Mihan Gas';
   const resetDefaultPrices =
@@ -3986,10 +4275,31 @@ const shopPeriodLabel = {
   date: t(language, 'Selected dates', 'Tarehe ulizochagua'),
 }[reportPreset] || t(language, 'Selected period', 'Kipindi ulichochagua');
 
-const todayProfit = salesReportRows.totalProfit - todayExpenses; 
-const todayRetailProfit = salesReportRows.totalProfit - todayExpenses;
+const remittanceControlledOwnerProfit = Number(
+  liveRemittancePosition?.ownerProfit || 0
+);
+
+const remittanceControlledRetailNetProfit = Number(
+  liveRemittancePosition?.netProfit || 0
+);
+
+const legacyRetailProfit =
+  salesReportRows.totalProfit - todayExpenses;
+
+const todayProfit =
+  reportPreset === 'today'
+    ? remittanceControlledOwnerProfit
+    : legacyRetailProfit;
+
+const todayRetailProfit =
+  reportPreset === 'today'
+    ? remittanceControlledRetailNetProfit
+    : legacyRetailProfit;
+
 const totalBusinessProfit =
-  todayRetailProfit + todayGasProfit + todayWakalaCommission; 
+  todayRetailProfit +
+  todayGasProfit +
+  todayWakalaCommission;
   const movementRows = useMemo(
     () =>
       products.map((p) => {
@@ -6483,14 +6793,24 @@ banks: mobileMoneyForm.banks.map((b) => ({
 />
 
 <StatCard
-  title={`${t(language, 'Expenses', 'Matumizi')} - ${shopPeriodLabel}`}
+  title={`${
+  reportPreset === 'today'
+    ? t(language, 'Amount to Submit', 'Kiasi cha Kutoa')
+    : t(language, 'Expenses', 'Matumizi')
+} - ${shopPeriodLabel}`}
   value={
     reportPreset === 'today'
       ? remittanceGasAmount > 0
-        ? `TZS ${currency(remittanceNormalAmount)} + TZS ${currency(
+        ? `${currency(remittanceNormalAmount)} + ${currency(
             remittanceGasAmount
+          )} = TZS ${currency(
+            liveRemittancePosition
+              ?.cashAmountRequiredToSubmit || 0
           )}`
-        : `TZS ${currency(remittanceNormalAmount)}`
+        : `TZS ${currency(
+            liveRemittancePosition
+              ?.cashAmountRequiredToSubmit || 0
+          )}`
       : `TZS ${currency(todayExpenses)}`
   }
   icon={AlertTriangle}
@@ -7517,6 +7837,7 @@ banks: mobileMoneyForm.banks.map((b) => ({
     currency={currency}
     formatQty={formatQty}
     todayISO={todayISO}
+shopId={shop.id}
 gasTypes={GAS_TYPES}
 gasCylinderSizes={GAS_CYLINDER_SIZES}
     gasForm={gasForm}
@@ -10114,6 +10435,185 @@ useEffect(() => {
     console.error('IndexedDB save failed:', err);
   }
 };
+useEffect(() => {
+  const currentUser = data?.currentUser;
+
+  if (!currentUser) return;
+
+  let cancelled = false;
+
+  const loadRemittanceDataForDashboards = async () => {
+    const isOwner =
+      String(currentUser?.role || '') === 'owner';
+
+    const currentShopId = String(
+      currentUser?.shop_id ||
+        currentUser?.shopId ||
+        ''
+    ).trim();
+
+    let remittancesQuery = supabase
+      .from('dailyRemittances')
+      .select('*')
+      .order('created_at', { ascending: true });
+
+    let expenseFundsQuery = supabase
+      .from('remittanceExpenseFunds')
+      .select('*')
+      .order('created_at', { ascending: true });
+
+    let fundAllocationsQuery = supabase
+      .from('remittanceFundAllocations')
+      .select('*')
+      .order('created_at', { ascending: true });
+
+    if (!isOwner && currentShopId) {
+      remittancesQuery = remittancesQuery.eq(
+        'shop_id',
+        currentShopId
+      );
+
+      expenseFundsQuery = expenseFundsQuery.eq(
+        'shop_id',
+        currentShopId
+      );
+
+      fundAllocationsQuery = fundAllocationsQuery.eq(
+        'shop_id',
+        currentShopId
+      );
+    }
+
+    const [
+      remittancesResult,
+      expenseFundsResult,
+      fundAllocationsResult,
+    ] = await Promise.all([
+      remittancesQuery,
+      expenseFundsQuery,
+      fundAllocationsQuery,
+    ]);
+
+    if (cancelled) return;
+
+    const loadingError =
+      remittancesResult.error ||
+      expenseFundsResult.error ||
+      fundAllocationsResult.error;
+
+    if (loadingError) {
+      console.error(
+        'Dashboard remittance data load failed:',
+        loadingError
+      );
+      return;
+    }
+
+    const normalizedRemittances = (
+      remittancesResult.data || []
+    ).map((row) => ({
+      id: row.id,
+      shop_id: row.shop_id,
+      shopName: row.shop_name || '',
+      date: row.date,
+      amountSent: Number(row.amount_sent || 0),
+      paymentMethod: row.payment_method || 'cash',
+      paymentReference: row.payment_reference || '',
+      shortReason: row.short_reason || '',
+      otherReason: row.other_reason || '',
+      expectedAmount: Number(row.expected_amount || 0),
+      expenseBreakdown: Array.isArray(
+        row.expense_breakdown
+      )
+        ? row.expense_breakdown
+        : [],
+      expensesOutstanding: Number(
+        row.expenses_outstanding || 0
+      ),
+      exactAmountRequired: Number(
+        row.exact_amount_required || 0
+      ),
+      cashAmountRequired: Number(
+        row.cash_amount_required || 0
+      ),
+      cashRoundingAdjustment: Number(
+        row.cash_rounding_adjustment || 0
+      ),
+      sales: Number(row.sales || 0),
+      replacement: Number(row.replacement || 0),
+      grossProfit: Number(row.gross_profit || 0),
+      centralExpense: Number(
+        row.central_expense || 0
+      ),
+      localRetained: Number(
+        row.local_retained || 0
+      ),
+      ownerProfit: Number(row.owner_profit || 0),
+      shopReserve: Number(row.shop_reserve || 0),
+      localConfirmed: Boolean(row.local_confirmed),
+      created_at: row.created_at,
+    }));
+
+    const normalizedExpenseFunds = (
+      expenseFundsResult.data || []
+    ).map((row) => ({
+      id: row.id,
+      shop_id: row.shop_id,
+      shop: row.shop_name || '',
+      expense: row.expense || '',
+      target: Number(row.target || 0),
+      funded: Number(row.funded || 0),
+      due: row.due || '',
+      location: row.location || 'owner',
+      created_at: row.created_at,
+    }));
+
+    const normalizedFundAllocations = (
+      fundAllocationsResult.data || []
+    ).map((row) => ({
+      id: row.id,
+      shop_id: row.shop_id,
+      fund_id: row.fund_id,
+      allocationDate: row.allocation_date,
+      amount: Number(row.amount || 0),
+      created_at: row.created_at,
+    }));
+
+    setData((previousData) => {
+      const nextData = {
+        ...previousData,
+        dailyRemittances: normalizedRemittances,
+        remittanceExpenseFunds:
+          normalizedExpenseFunds,
+        remittanceFundAllocations:
+          normalizedFundAllocations,
+      };
+
+      writeToDB(DB_DATA_KEY, nextData).catch(
+        (error) => {
+          console.error(
+            'Remittance dashboard cache save failed:',
+            error
+          );
+        }
+      );
+
+      return nextData;
+    });
+  };
+
+  loadRemittanceDataForDashboards();
+
+  return () => {
+    cancelled = true;
+  };
+}, [
+  data?.currentUser?.id,
+  data?.currentUser?.role,
+  data?.currentUser?.shop_id,
+  data?.currentUser?.shopId,
+]);
+
 const exportBackup = async () => {
   try {
     const dbData = await readFromDB(DB_DATA_KEY);
