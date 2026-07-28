@@ -2489,23 +2489,34 @@ const ownerTotalMatumiziYaLeo =
 }, 0);
 
 const totalProfit = totalRetailProfit - totalExpenses;
-const todayOwnerProfitFromRemittance = (data.shops || []).reduce(
-  (sum, shop) => {
-    const position = getLiveRemittanceShopPosition({
-      data,
-      shopId: shop.id,
-      calculationDateKey: todayISO(),
-    });
-
-    return sum + Number(position?.ownerProfit || 0);
-  },
-  0
-);
-
 const displayedOwnerProfit =
-  ownerPeriod === 'today'
-    ? todayOwnerProfitFromRemittance
-    : totalProfit;
+  ownerRemittanceDateKeys.reduce(
+    (periodTotal, dateKey) => {
+      const dateOwnerProfit = (
+        Array.isArray(data?.shops)
+          ? data.shops
+          : []
+      ).reduce((shopTotal, shop) => {
+        const position =
+          getLiveRemittanceShopPosition({
+            data,
+            shopId: shop.id,
+            calculationDateKey: dateKey,
+          });
+
+        return (
+          shopTotal +
+          Math.max(
+            0,
+            Number(position?.ownerProfit || 0)
+          )
+        );
+      }, 0);
+
+      return periodTotal + dateOwnerProfit;
+    },
+    0
+  );
 const totalGasProfit = (data.gasEntries || [])
   .filter((x) => filterByPreset([x], ownerPeriod, todayISO()).length > 0)
   .reduce((a, x) => a + getGasEntryProfitTotal(x), 0);
@@ -2954,15 +2965,25 @@ const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(e
           }, 0);
 
           const shopProfit =
-  ownerPeriod === 'today'
-    ? Number(
+  ownerRemittanceDateKeys.reduce(
+    (periodTotal, dateKey) => {
+      const position =
         getLiveRemittanceShopPosition({
           data,
           shopId: shop.id,
-          calculationDateKey: todayISO(),
-        })?.ownerProfit || 0
-      )
-    : shopRetailProfit - shopExpenses;
+          calculationDateKey: dateKey,
+        });
+
+      return (
+        periodTotal +
+        Math.max(
+          0,
+          Number(position?.ownerProfit || 0)
+        )
+      );
+    },
+    0
+  );
 
           const shopCommissionRecords = (data.monthlyWakalaCommissions || []).filter(
             (record) =>
@@ -4045,7 +4066,100 @@ const liveRemittancePosition =
     shopId: shop.id,
     calculationDateKey: todayISO(),
   });
+const allShopRemittanceDateRows = [];
 
+let shopRemittanceDateCursor = startOfDay(
+  AUTOMATIC_EXPENSE_PILOT_START_DATE
+);
+
+const shopRemittanceFinalDate =
+  startOfDay(new Date());
+
+while (
+  shopRemittanceDateCursor <=
+  shopRemittanceFinalDate
+) {
+  allShopRemittanceDateRows.push({
+    date: todayISO(shopRemittanceDateCursor),
+  });
+
+  shopRemittanceDateCursor = addDays(
+    shopRemittanceDateCursor,
+    1
+  );
+}
+
+const selectedShopRemittanceDateKeys =
+  filterByPreset(
+    allShopRemittanceDateRows,
+    reportPreset,
+    dashboardDateValue
+  ).map((row) => row.date);
+
+const selectedShopRemittanceSummary =
+  selectedShopRemittanceDateKeys.reduce(
+    (summary, dateKey) => {
+      const position =
+        getLiveRemittanceShopPosition({
+          data,
+          shopId: shop.id,
+          calculationDateKey: dateKey,
+        });
+
+      return {
+        ownerProfit:
+          summary.ownerProfit +
+          Math.max(
+            0,
+            Number(position?.ownerProfit || 0)
+          ),
+
+        netProfit:
+          summary.netProfit +
+          Math.max(
+            0,
+            Number(position?.netProfit || 0)
+          ),
+
+        normalAmount:
+          summary.normalAmount +
+          Math.max(
+            0,
+            Number(
+              position?.normalAmountRequiredToSubmit ||
+                position?.amountRequiredToSubmit ||
+                0
+            )
+          ),
+
+        gasAmount:
+          summary.gasAmount +
+          Math.max(
+            0,
+            Number(
+              position?.gasDistributableAmount || 0
+            )
+          ),
+
+        cashAmount:
+          summary.cashAmount +
+          Math.max(
+            0,
+            Number(
+              position?.cashAmountRequiredToSubmit ||
+                0
+            )
+          ),
+      };
+    },
+    {
+      ownerProfit: 0,
+      netProfit: 0,
+      normalAmount: 0,
+      gasAmount: 0,
+      cashAmount: 0,
+    }
+  );
 const remittanceNormalAmount = Number(
   liveRemittancePosition?.normalAmountRequiredToSubmit ||
     liveRemittancePosition?.amountRequiredToSubmit ||
@@ -4287,14 +4401,10 @@ const legacyRetailProfit =
   salesReportRows.totalProfit - todayExpenses;
 
 const todayProfit =
-  reportPreset === 'today'
-    ? remittanceControlledOwnerProfit
-    : legacyRetailProfit;
+  selectedShopRemittanceSummary.ownerProfit;
 
 const todayRetailProfit =
-  reportPreset === 'today'
-    ? remittanceControlledRetailNetProfit
-    : legacyRetailProfit;
+  selectedShopRemittanceSummary.netProfit;
 
 const totalBusinessProfit =
   todayRetailProfit +
@@ -6793,26 +6903,14 @@ banks: mobileMoneyForm.banks.map((b) => ({
 />
 
 <StatCard
-  title={`${
-  reportPreset === 'today'
-    ? t(language, 'Amount to Submit', 'Kiasi cha Kutoa')
-    : t(language, 'Expenses', 'Matumizi')
-} - ${shopPeriodLabel}`}
-  value={
-    reportPreset === 'today'
-      ? remittanceGasAmount > 0
-        ? `${currency(remittanceNormalAmount)} + ${currency(
-            remittanceGasAmount
-          )} = TZS ${currency(
-            liveRemittancePosition
-              ?.cashAmountRequiredToSubmit || 0
-          )}`
-        : `TZS ${currency(
-            liveRemittancePosition
-              ?.cashAmountRequiredToSubmit || 0
-          )}`
-      : `TZS ${currency(todayExpenses)}`
-  }
+  title={`${t(
+    language,
+    'Amount to Submit',
+    'Kiasi cha Kutoa'
+  )} - ${shopPeriodLabel}`}
+  value={`TZS ${currency(
+    selectedShopRemittanceSummary.cashAmount
+  )}`}
   icon={AlertTriangle}
   color="bg-red-300"
 />

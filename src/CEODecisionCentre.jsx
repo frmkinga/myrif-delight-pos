@@ -1,5 +1,9 @@
 import React from 'react';
 import { supabase } from './supabaseClient';
+import {
+  getLiveRemittanceShopPosition,
+  AUTOMATIC_EXPENSE_PILOT_START_DATE,
+} from './remittance/DailyRemittanceCentre';
 
 const ACTION_STORAGE_KEY = 'ceo_recommendation_actions_v2';
 const DEFAULT_SNOOZE_DAYS = 7;
@@ -1017,15 +1021,156 @@ function getProductMovementRhythm(productCode, shopId) {
 
 const movementList = Object.values(movement).sort((a, b) => b.profit - a.profit);
 
-  const totalSales = sales.reduce((sum, sale) => sum + num(sale.total || 0), 0);
-  const previousTotalSales = previousSales.reduce((sum, sale) => sum + num(sale.total || 0), 0);
-  const totalExpenses = expenses.reduce((sum, expense) => sum + num(expense.amount || 0), 0);
-  const previousTotalExpenses = previousExpenses.reduce((sum, expense) => sum + num(expense.amount || 0), 0);
+  const totalSales = sales.reduce(
+    (sum, sale) => sum + num(sale.total || 0),
+    0
+  );
 
-  const grossProfit = sales.reduce((sum, sale) => sum + getSaleItems(sale).reduce((s, item) => s + getItemProfit(item), 0), 0);
-  const previousGrossProfit = previousSales.reduce((sum, sale) => sum + getSaleItems(sale).reduce((s, item) => s + getItemProfit(item), 0), 0);
-  const netProfit = grossProfit - totalExpenses;
-  const previousNetProfit = previousGrossProfit - previousTotalExpenses;
+  const previousTotalSales = previousSales.reduce(
+    (sum, sale) => sum + num(sale.total || 0),
+    0
+  );
+
+  const summarizeRemittanceRange = (
+    startDateKey,
+    endDateKey,
+    shopsToSummarize = analysisShops
+  ) => {
+    const summary = {
+      grossProfit: 0,
+      expenses: 0,
+      netProfit: 0,
+      ownerProfit: 0,
+      shopReserve: 0,
+      amountToSubmit: 0,
+    };
+
+    const effectiveStartKey =
+      startDateKey < AUTOMATIC_EXPENSE_PILOT_START_DATE
+        ? AUTOMATIC_EXPENSE_PILOT_START_DATE
+        : startDateKey;
+
+    const todayKey = toISO(new Date());
+
+    const effectiveEndKey =
+      endDateKey > todayKey
+        ? todayKey
+        : endDateKey;
+
+    if (effectiveStartKey > effectiveEndKey) {
+      return summary;
+    }
+
+    shopsToSummarize.forEach((shop) => {
+      let dateCursor = startOfDay(
+        `${effectiveStartKey}T00:00:00`
+      );
+
+      const finalDate = startOfDay(
+        `${effectiveEndKey}T00:00:00`
+      );
+
+      while (dateCursor <= finalDate) {
+        const dateKey = toISO(dateCursor);
+
+        const position =
+          getLiveRemittanceShopPosition({
+            data,
+            shopId: shop.id,
+            calculationDateKey: dateKey,
+          });
+
+        summary.grossProfit += Number(
+          position?.gross || 0
+        );
+
+        summary.expenses += Number(
+          position?.expensesFundedAutomatically || 0
+        );
+
+        summary.netProfit += Number(
+          position?.netProfit || 0
+        );
+
+        summary.ownerProfit += Number(
+          position?.ownerProfit || 0
+        );
+
+        summary.shopReserve += Number(
+          position?.shopReserve || 0
+        );
+
+        summary.amountToSubmit += Number(
+          position?.cashAmountRequiredToSubmit || 0
+        );
+
+        summary.gasProfit =
+          Number(summary.gasProfit || 0) +
+          Number(position?.gasProfitToday || 0);
+
+        summary.gasReserve =
+          Number(summary.gasReserve || 0) +
+          Number(position?.gasReserveAmount || 0);
+
+        summary.gasDistributable =
+          Number(summary.gasDistributable || 0) +
+          Number(
+            position?.gasDistributableAmount || 0
+          );
+
+        summary.gasUsedForExpenses =
+          Number(
+            summary.gasUsedForExpenses || 0
+          ) +
+          Number(position?.gasUsedForArrears || 0);
+
+        summary.gasOwnerProfit =
+          Number(summary.gasOwnerProfit || 0) +
+          Number(position?.gasOwnerProfit || 0);
+
+        summary.gasHomeExpenses =
+          Number(summary.gasHomeExpenses || 0) +
+          Number(
+            position?.gasHomeExpensesContribution ||
+              0
+          );
+
+        dateCursor = addDays(dateCursor, 1);
+      }
+    });
+
+    return summary;
+  };
+
+  const remittanceSummary =
+    summarizeRemittanceRange(
+      range.start,
+      range.end
+    );
+
+  const previousRemittanceSummary =
+    summarizeRemittanceRange(
+      range.previousStart,
+      range.previousEnd
+    );
+
+  const grossProfit =
+    remittanceSummary.grossProfit;
+
+  const previousGrossProfit =
+    previousRemittanceSummary.grossProfit;
+
+  const totalExpenses =
+    remittanceSummary.expenses;
+
+  const previousTotalExpenses =
+    previousRemittanceSummary.expenses;
+
+  const netProfit =
+    remittanceSummary.netProfit;
+
+  const previousNetProfit =
+    previousRemittanceSummary.netProfit;
   const stockValue = products.reduce((sum, p) => sum + getProductStock(p) * getProductBuyPrice(p), 0);
 
   const creditRows = allCreditSales.filter(sameShop);
@@ -1106,24 +1251,83 @@ const movementList = Object.values(movement).sort((a, b) => b.profit - a.profit)
   const mobileWakalaCommission = monthlyCommissionSummary.mobile;
   const bankWakalaCommission = monthlyCommissionSummary.bank;
 
-  const gasEntries = allGasEntries.filter((e) => sameShop(e) && inRange(e, range.start, range.end));
-  const gasProfit = gasEntries.reduce((sum, e) => {
-    const small = (num(e.smallGasSellPrice) - num(e.smallGasBuyPrice)) * num(e.smallGasSoldToday);
-    const big = (num(e.bigGasSellPrice) - num(e.bigGasBuyPrice)) * num(e.bigGasSoldToday);
-    return sum + small + big;
-  }, 0);
+  const gasEntries = allGasEntries.filter(
+    (entry) =>
+      sameShop(entry) &&
+      inRange(
+        entry,
+        range.start,
+        range.end
+      ) &&
+      entry?.confirmed !== false
+  );
+
+  const gasProfit = Number(
+    remittanceSummary.gasProfit || 0
+  );
+
+  const gasReserve = Number(
+    remittanceSummary.gasReserve || 0
+  );
+
+  const gasDistributable = Number(
+    remittanceSummary.gasDistributable || 0
+  );
+
+  const gasUsedForExpenses = Number(
+    remittanceSummary.gasUsedForExpenses || 0
+  );
+
+  const gasOwnerProfit = Number(
+    remittanceSummary.gasOwnerProfit || 0
+  );
+
+  const gasHomeExpenses = Number(
+    remittanceSummary.gasHomeExpenses || 0
+  );
 
   const shopPerformance = shops
     .filter((shop) => !selectedShopId || String(shop.id) === selectedShopId)
     .map((shop) => {
-      const shopSales = sales.filter((s) => String(s.shop_id || '') === String(shop.id));
-      const shopExpenses = expenses.filter((e) => String(e.shop_id || '') === String(shop.id));
-      const shopProducts = allProducts.filter((p) => String(p.shop_id || '') === String(shop.id));
-      const shopMovements = movementList.filter((m) => String(m.shopId) === String(shop.id));
-      const salesValue = shopSales.reduce((sum, sale) => sum + num(sale.total || 0), 0);
-      const expenseValue = shopExpenses.reduce((sum, expense) => sum + num(expense.amount || 0), 0);
-      const gross = shopSales.reduce((sum, sale) => sum + getSaleItems(sale).reduce((s, item) => s + getItemProfit(item), 0), 0);
-      const net = gross - expenseValue;
+      const shopSales = sales.filter(
+        (sale) =>
+          String(sale.shop_id || '') ===
+          String(shop.id)
+      );
+
+      const shopProducts = allProducts.filter(
+        (product) =>
+          String(product.shop_id || '') ===
+          String(shop.id)
+      );
+
+      const shopMovements = movementList.filter(
+        (movementItem) =>
+          String(movementItem.shopId) ===
+          String(shop.id)
+      );
+
+      const shopRemittanceSummary =
+        summarizeRemittanceRange(
+          range.start,
+          range.end,
+          [shop]
+        );
+
+      const salesValue = shopSales.reduce(
+        (sum, sale) =>
+          sum + num(sale.total || 0),
+        0
+      );
+
+      const expenseValue =
+        shopRemittanceSummary.expenses;
+
+      const gross =
+        shopRemittanceSummary.grossProfit;
+
+      const net =
+        shopRemittanceSummary.netProfit;
       const stock = shopProducts.reduce((sum, p) => sum + getProductStock(p) * getProductBuyPrice(p), 0);
       const expensePressure = gross ? (expenseValue / gross) * 100 : 0;
       const gasSales = shopMovements.filter((m) => m.category === 'Gas Products').reduce((s, m) => s + m.sales, 0);
@@ -1159,19 +1363,70 @@ const movementList = Object.values(movement).sort((a, b) => b.profit - a.profit)
 
   function simplePeriodMetrics(namedPeriod) {
     const r = getNamedRange(namedPeriod);
-    const currentSales = allSales.filter((sale) => sameShop(sale) && inRange(sale, r.start, r.end));
-    const previousSalesX = allSales.filter((sale) => sameShop(sale) && inRange(sale, r.previousStart, r.previousEnd));
-    const currentExpenses = allExpenses.filter((expense) => sameShop(expense) && inRange(expense, r.start, r.end));
-    const previousExpensesX = allExpenses.filter((expense) => sameShop(expense) && inRange(expense, r.previousStart, r.previousEnd));
 
-    const s = currentSales.reduce((sum, sale) => sum + num(sale.total || 0), 0);
-    const ps = previousSalesX.reduce((sum, sale) => sum + num(sale.total || 0), 0);
-    const gp = currentSales.reduce((sum, sale) => sum + getSaleItems(sale).reduce((x, item) => x + getItemProfit(item), 0), 0);
-    const pgp = previousSalesX.reduce((sum, sale) => sum + getSaleItems(sale).reduce((x, item) => x + getItemProfit(item), 0), 0);
-    const ex = currentExpenses.reduce((sum, e) => sum + num(e.amount || 0), 0);
-    const pex = previousExpensesX.reduce((sum, e) => sum + num(e.amount || 0), 0);
+    const currentSales = allSales.filter(
+      (sale) =>
+        sameShop(sale) &&
+        inRange(sale, r.start, r.end)
+    );
 
-    return { sales: s, previousSales: ps, grossProfit: gp, previousGrossProfit: pgp, expenses: ex, previousExpenses: pex, netProfit: gp - ex, previousNetProfit: pgp - pex };
+    const previousSalesX = allSales.filter(
+      (sale) =>
+        sameShop(sale) &&
+        inRange(
+          sale,
+          r.previousStart,
+          r.previousEnd
+        )
+    );
+
+    const currentSummary =
+      summarizeRemittanceRange(
+        r.start,
+        r.end
+      );
+
+    const previousSummary =
+      summarizeRemittanceRange(
+        r.previousStart,
+        r.previousEnd
+      );
+
+    const salesValue = currentSales.reduce(
+      (sum, sale) =>
+        sum + num(sale.total || 0),
+      0
+    );
+
+    const previousSalesValue =
+      previousSalesX.reduce(
+        (sum, sale) =>
+          sum + num(sale.total || 0),
+        0
+      );
+
+    return {
+      sales: salesValue,
+      previousSales: previousSalesValue,
+
+      grossProfit:
+        currentSummary.grossProfit,
+
+      previousGrossProfit:
+        previousSummary.grossProfit,
+
+      expenses:
+        currentSummary.expenses,
+
+      previousExpenses:
+        previousSummary.expenses,
+
+      netProfit:
+        currentSummary.netProfit,
+
+      previousNetProfit:
+        previousSummary.netProfit,
+    };
   }
 
   const pulse = {
@@ -1937,16 +2192,38 @@ if (
   for (let i = 0; i < range.days; i += 1) {
     const currentDate = toISO(addDays(range.start, i));
 
-    const daySales = sales.filter((sale) => getDateValue(sale) === currentDate);
-    const dayExpenses = expenses.filter((expense) => getDateValue(expense) === currentDate);
-    const dayMobileEntries = mobileEntries.filter((entry) => getDateValue(entry) === currentDate);
-    const dayGasEntries = gasEntries.filter((entry) => getDateValue(entry) === currentDate);
+    const daySales = sales.filter(
+      (sale) =>
+        getDateValue(sale) === currentDate
+    );
 
-    const daySalesValue = daySales.reduce((sum, sale) => sum + num(sale.total || 0), 0);
-    const dayGrossProfit = daySales.reduce((sum, sale) => {
-      return sum + getSaleItems(sale).reduce((itemSum, item) => itemSum + getItemProfit(item), 0);
-    }, 0);
-    const dayExpenseValue = dayExpenses.reduce((sum, expense) => sum + num(expense.amount || 0), 0);
+    const dayMobileEntries = mobileEntries.filter(
+      (entry) =>
+        getDateValue(entry) === currentDate
+    );
+
+    const dayGasEntries = gasEntries.filter(
+      (entry) =>
+        getDateValue(entry) === currentDate
+    );
+
+    const daySalesValue = daySales.reduce(
+      (sum, sale) =>
+        sum + num(sale.total || 0),
+      0
+    );
+
+    const dayRemittanceSummary =
+      summarizeRemittanceRange(
+        currentDate,
+        currentDate
+      );
+
+    const dayGrossProfit =
+      dayRemittanceSummary.grossProfit;
+
+    const dayExpenseValue =
+      dayRemittanceSummary.expenses;
 
     const dayMobileCommission = dayMobileEntries.reduce((sum, entry) => {
       const mobile = (entry.networks || []).reduce((s, n) => s + num(n.commission || 0), 0);
@@ -1954,11 +2231,9 @@ if (
       return sum + mobile + bank;
     }, 0);
 
-    const dayGasProfit = dayGasEntries.reduce((sum, entry) => {
-      const small = (num(entry.smallGasSellPrice) - num(entry.smallGasBuyPrice)) * num(entry.smallGasSoldToday);
-      const big = (num(entry.bigGasSellPrice) - num(entry.bigGasBuyPrice)) * num(entry.bigGasSoldToday);
-      return sum + small + big;
-    }, 0);
+    const dayGasProfit = Number(
+      dayRemittanceSummary.gasProfit || 0
+    );
 
     trendRows.push({
       date: currentDate,
@@ -2021,6 +2296,25 @@ if (
     previousGrossProfit,
     netProfit,
     previousNetProfit,
+
+    ownerProfit:
+      remittanceSummary.ownerProfit,
+
+    shopReserve:
+      remittanceSummary.shopReserve,
+
+    amountToSubmit:
+      remittanceSummary.amountToSubmit,
+
+    previousOwnerProfit:
+      previousRemittanceSummary.ownerProfit,
+
+    previousShopReserve:
+      previousRemittanceSummary.shopReserve,
+
+    previousAmountToSubmit:
+      previousRemittanceSummary.amountToSubmit,
+
     stockValue,
     creditOutstanding,
     creditAging,
@@ -2607,6 +2901,36 @@ function OwnerSummaryPanel({ analytics, visibleRecommendations = [], language, s
       label: sw ? 'Faida Halisi' : 'Net Profit',
       value: `TZS ${money(analytics.netProfit)}`,
       badge: `${profitTrend >= 0 ? '+' : ''}${Number(profitTrend || 0).toFixed(1)}%`,
+    },
+    {
+      icon: '💼',
+      label: sw
+        ? 'Faida ya Mmiliki'
+        : 'Owner Profit',
+      value: `TZS ${money(
+        analytics.ownerProfit
+      )}`,
+      badge: '70%',
+    },
+    {
+      icon: '🏪',
+      label: sw
+        ? 'Akiba ya Duka'
+        : 'Shop Reserve',
+      value: `TZS ${money(
+        analytics.shopReserve
+      )}`,
+      badge: '30%',
+    },
+    {
+      icon: '💵',
+      label: sw
+        ? 'Kiasi cha Kutoa'
+        : 'Amount to Submit',
+      value: `TZS ${money(
+        analytics.amountToSubmit
+      )}`,
+      badge: sw ? 'Makusanyo' : 'Remittance',
     },
     {
       icon: '📊',
