@@ -8767,77 +8767,153 @@ language === 'sw'
       </thead>
 
       <tbody>
-        {allocationRows.map((row, index) => {
-          const requiredToday = Number(
-            row.requiredToday || 0
-          );
+        {rows.flatMap((shopRow) => {
+          const shopAllocationRows =
+            allocationRows.filter(
+              (row) =>
+                String(row.shop_id) ===
+                String(shopRow.id)
+            );
 
-          const fundedToday = Number(
-            row.addedToday || 0
-          );
+          if (shopAllocationRows.length === 0) {
+            return [];
+          }
 
-          const outstandingToday = Number(
-            row.remainingAfter || 0
-          );
+          const shopRequiredTotal =
+            shopAllocationRows.reduce(
+              (sum, row) =>
+                sum +
+                Number(row.requiredToday || 0),
+              0
+            );
 
-          const fullyFunded =
-            requiredToday > 0 &&
-            outstandingToday <= 0;
+          const shopFundedTotal =
+            shopAllocationRows.reduce(
+              (sum, row) =>
+                sum +
+                Number(row.addedToday || 0),
+              0
+            );
 
-          const partlyFunded =
-            fundedToday > 0 &&
-            outstandingToday > 0;
+          const shopOutstandingTotal =
+            shopAllocationRows.reduce(
+              (sum, row) =>
+                sum +
+                Number(row.remainingAfter || 0),
+              0
+            );
 
-          return (
-            <tr
-              key={row.id}
-              className="border-t border-slate-100"
-            >
-              <td className="px-4 py-3 font-bold">
-                {row.shop}
-              </td>
+          const expenseRows =
+            shopAllocationRows.map((row) => {
+              const requiredToday = Number(
+                row.requiredToday || 0
+              );
 
-              <td className="px-4 py-3">
-                {expenseLabel(row.expense)}
-              </td>
+              const fundedToday = Number(
+                row.addedToday || 0
+              );
 
-              <td className="px-4 py-3">
-                TZS {money(requiredToday)}
-              </td>
+              const outstandingToday = Number(
+                row.remainingAfter || 0
+              );
 
-              <td className="px-4 py-3 font-bold text-emerald-700">
-                TZS {money(fundedToday)}
-              </td>
+              const fullyFunded =
+                requiredToday > 0 &&
+                outstandingToday <= 0;
 
-              <td className="px-4 py-3 font-black text-red-700">
-                TZS {money(outstandingToday)}
-              </td>
+              const partlyFunded =
+                fundedToday > 0 &&
+                outstandingToday > 0;
 
-              <td className="px-4 py-3">
-                <Badge
-                  tone={
-                    fullyFunded
-                      ? 'green'
-                      : partlyFunded
-                        ? 'amber'
-                        : 'red'
-                  }
+              return (
+                <tr
+                  key={row.id}
+                  className="border-t border-slate-100"
                 >
-                  {fullyFunded
-                    ? language === 'sw'
-                      ? 'Yamelipiwa yote'
-                      : 'Fully funded'
-                    : partlyFunded
-                      ? language === 'sw'
-                        ? 'Yamelipiwa sehemu'
-                        : 'Partly funded'
-                      : language === 'sw'
-                        ? 'Hayajalipiwa'
-                        : 'Not funded'}
-                </Badge>
+                  <td className="px-4 py-3 font-bold">
+                    {row.shop}
+                  </td>
+
+                  <td className="px-4 py-3">
+                    {expenseLabel(row.expense)}
+                  </td>
+
+                  <td className="px-4 py-3">
+                    TZS {money(requiredToday)}
+                  </td>
+
+                  <td className="px-4 py-3 font-bold text-emerald-700">
+                    TZS {money(fundedToday)}
+                  </td>
+
+                  <td className="px-4 py-3 font-black text-red-700">
+                    TZS {money(outstandingToday)}
+                  </td>
+
+                  <td className="px-4 py-3">
+                    <Badge
+                      tone={
+                        fullyFunded
+                          ? 'green'
+                          : partlyFunded
+                            ? 'amber'
+                            : 'red'
+                      }
+                    >
+                      {fullyFunded
+                        ? language === 'sw'
+                          ? 'Yamelipiwa yote'
+                          : 'Fully funded'
+                        : partlyFunded
+                          ? language === 'sw'
+                            ? 'Yamelipiwa sehemu'
+                            : 'Partly funded'
+                          : language === 'sw'
+                            ? 'Hayajalipiwa'
+                            : 'Not funded'}
+                    </Badge>
+                  </td>
+                </tr>
+              );
+            });
+
+          const shopTotalRow = (
+            <tr
+              key={`${shopRow.id}-allocation-total`}
+              className="border-y-2 border-emerald-300 bg-emerald-50 font-black"
+            >
+              <td className="px-4 py-4 text-emerald-950">
+                {language === 'sw'
+                  ? `JUMLA — ${
+                      shopRow.name || shopRow.id
+                    }`
+                  : `TOTAL — ${
+                      shopRow.name || shopRow.id
+                    }`}
               </td>
+
+              <td className="px-4 py-4">—</td>
+
+              <td className="px-4 py-4">
+                TZS {money(shopRequiredTotal)}
+              </td>
+
+              <td className="px-4 py-4 text-emerald-700">
+                TZS {money(shopFundedTotal)}
+              </td>
+
+              <td className="px-4 py-4 text-red-700">
+                TZS {money(shopOutstandingTotal)}
+              </td>
+
+              <td className="px-4 py-4">—</td>
             </tr>
           );
+
+          return [
+            ...expenseRows,
+            shopTotalRow,
+          ];
         })}
 
 {allocationRows.length > 0 ? (
@@ -8938,111 +9014,217 @@ language === 'sw'
       </thead>
 
       <tbody>
-        {monthlyExpenseRows.map((row) => {
-          const requiredThisMonthToDate = Number(
-  row.requiredThisMonthToDate || 0
-);
 
-const fundedThisMonth = Number(
-  row.fundedThisMonth || 0
-);
+        {rows.flatMap((shopRow) => {
+          const shopMonthlyRows =
+            monthlyExpenseRows.filter(
+              (row) =>
+                String(row.shop_id) ===
+                String(shopRow.id)
+            );
 
-const outstandingAmount = Number(
-  row.outstanding || 0
-);
+          if (shopMonthlyRows.length === 0) {
+            return [];
+          }
 
-const monthlyFundingShortfall = Math.max(
-  0,
-  requiredThisMonthToDate - fundedThisMonth
-);
+          const shopConfiguredTotal =
+            shopMonthlyRows.reduce(
+              (sum, row) =>
+                sum + Number(row.target || 0),
+              0
+            );
 
-const fullyFunded =
-  monthlyFundingShortfall <= 0;
+          const shopRequiredTotal =
+            shopMonthlyRows.reduce(
+              (sum, row) =>
+                sum +
+                Number(
+                  row.requiredThisMonthToDate ||
+                    0
+                ),
+              0
+            );
 
-const partlyFunded =
-  fundedThisMonth > 0 &&
-  monthlyFundingShortfall > 0;
+          const shopFundedTotal =
+            shopMonthlyRows.reduce(
+              (sum, row) =>
+                sum +
+                Number(row.fundedThisMonth || 0),
+              0
+            );
 
-          const frequencyLabel =
-            row.frequency === 'daily'
-              ? language === 'sw'
-                ? 'Kila siku'
-                : 'Daily'
-              : row.frequency === 'monthly'
-                ? language === 'sw'
-                  ? 'Kila mwezi'
-                  : 'Monthly'
-                : row.frequency === 'six_months'
+          const shopOutstandingTotal =
+            shopMonthlyRows.reduce(
+              (sum, row) =>
+                sum +
+                Number(row.outstanding || 0),
+              0
+            );
+
+          const expenseRows =
+            shopMonthlyRows.map((row) => {
+              const requiredThisMonthToDate =
+                Number(
+                  row.requiredThisMonthToDate ||
+                    0
+                );
+
+              const fundedThisMonth = Number(
+                row.fundedThisMonth || 0
+              );
+
+              const outstandingAmount = Number(
+                row.outstanding || 0
+              );
+
+              const monthlyFundingShortfall =
+                Math.max(
+                  0,
+                  requiredThisMonthToDate -
+                    fundedThisMonth
+                );
+
+              const fullyFunded =
+                monthlyFundingShortfall <= 0;
+
+              const partlyFunded =
+                fundedThisMonth > 0 &&
+                monthlyFundingShortfall > 0;
+
+              const frequencyLabel =
+                row.frequency === 'daily'
                   ? language === 'sw'
-                    ? 'Kila miezi sita'
-                    : 'Every six months'
-                  : '-';
+                    ? 'Kila siku'
+                    : 'Daily'
+                  : row.frequency === 'monthly'
+                    ? language === 'sw'
+                      ? 'Kila mwezi'
+                      : 'Monthly'
+                    : row.frequency ===
+                        'six_months'
+                      ? language === 'sw'
+                        ? 'Kila miezi sita'
+                        : 'Every six months'
+                      : '-';
 
-          return (
+              return (
+                <tr
+                  key={row.id}
+                  className="border-t border-slate-100"
+                >
+                  <td className="px-4 py-3 font-bold">
+                    {row.shop}
+                  </td>
+
+                  <td className="px-4 py-3">
+                    {expenseLabel(row.expense)}
+                  </td>
+
+                  <td className="px-4 py-3">
+                    {frequencyLabel}
+                  </td>
+
+                  <td className="px-4 py-3">
+                    TZS {money(row.target)}
+                  </td>
+
+                  <td className="px-4 py-3 font-bold">
+                    TZS{' '}
+                    {money(
+                      row.requiredThisMonthToDate
+                    )}
+                  </td>
+
+                  <td className="px-4 py-3 font-bold text-emerald-700">
+                    TZS {money(fundedThisMonth)}
+                  </td>
+
+                  <td className="px-4 py-3 font-black text-red-700">
+                    TZS {money(outstandingAmount)}
+                  </td>
+
+                  <td className="px-4 py-3">
+                    <Badge
+                      tone={
+                        fullyFunded &&
+                        outstandingAmount <= 0
+                          ? 'green'
+                          : fullyFunded &&
+                              outstandingAmount > 0
+                            ? 'amber'
+                            : partlyFunded
+                              ? 'amber'
+                              : 'red'
+                      }
+                    >
+                      {fullyFunded &&
+                      outstandingAmount <= 0
+                        ? language === 'sw'
+                          ? 'Yamekamilika'
+                          : 'Fully funded'
+                        : fullyFunded &&
+                            outstandingAmount > 0
+                          ? language === 'sw'
+                            ? 'Mwezi huu umekamilika, deni la nyuma lipo'
+                            : 'Current month funded, previous balance remains'
+                          : partlyFunded
+                            ? language === 'sw'
+                              ? 'Yamelipiwa sehemu'
+                              : 'Partly funded'
+                            : language === 'sw'
+                              ? 'Hayajalipiwa'
+                              : 'Not funded'}
+                    </Badge>
+                  </td>
+                </tr>
+              );
+            });
+
+          const shopTotalRow = (
             <tr
-              key={row.id}
-              className="border-t border-slate-100"
+              key={`${shopRow.id}-monthly-total`}
+              className="border-y-2 border-emerald-300 bg-emerald-50 font-black"
             >
-              <td className="px-4 py-3 font-bold">
-                {row.shop}
+              <td className="px-4 py-4 text-emerald-950">
+                {language === 'sw'
+                  ? `JUMLA — ${
+                      shopRow.name || shopRow.id
+                    }`
+                  : `TOTAL — ${
+                      shopRow.name || shopRow.id
+                    }`}
               </td>
 
-              <td className="px-4 py-3">
-                {expenseLabel(row.expense)}
+              <td className="px-4 py-4">—</td>
+
+              <td className="px-4 py-4">—</td>
+
+              <td className="px-4 py-4">
+                TZS {money(shopConfiguredTotal)}
               </td>
 
-              <td className="px-4 py-3">
-                {frequencyLabel}
+              <td className="px-4 py-4">
+                TZS {money(shopRequiredTotal)}
               </td>
 
-              <td className="px-4 py-3">
-  TZS {money(row.target)}
-</td>
-
-<td className="px-4 py-3 font-bold">
-  TZS {money(row.requiredThisMonthToDate)}
-</td>
-
-<td className="px-4 py-3 font-bold text-emerald-700">
-  TZS {money(fundedThisMonth)}
-</td>
-
-              <td className="px-4 py-3 font-black text-red-700">
-                TZS {money(outstandingAmount)}
+              <td className="px-4 py-4 text-emerald-700">
+                TZS {money(shopFundedTotal)}
               </td>
 
-              <td className="px-4 py-3">
-                <Badge
-  tone={
-    fullyFunded && outstandingAmount <= 0
-      ? 'green'
-      : fullyFunded && outstandingAmount > 0
-        ? 'amber'
-        : partlyFunded
-          ? 'amber'
-          : 'red'
-  }
->
-  {fullyFunded && outstandingAmount <= 0
-    ? language === 'sw'
-      ? 'Yamekamilika'
-      : 'Fully funded'
-    : fullyFunded && outstandingAmount > 0
-      ? language === 'sw'
-        ? 'Mwezi huu umekamilika, deni la nyuma lipo'
-        : 'Current month funded, previous balance remains'
-      : partlyFunded
-        ? language === 'sw'
-          ? 'Yamelipiwa sehemu'
-          : 'Partly funded'
-        : language === 'sw'
-          ? 'Hayajalipiwa'
-          : 'Not funded'}
-</Badge>
+              <td className="px-4 py-4 text-red-700">
+                TZS {money(shopOutstandingTotal)}
               </td>
+
+              <td className="px-4 py-4">—</td>
             </tr>
           );
+
+          return [
+            ...expenseRows,
+            shopTotalRow,
+          ];
         })}
+
 {monthlyExpenseRows.length > 0 ? (
   <tr className="border-t-2 border-slate-500 bg-slate-100 font-black">
     <td className="px-4 py-4">
