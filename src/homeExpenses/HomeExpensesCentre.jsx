@@ -1031,9 +1031,16 @@ const previousMonthKey = useMemo(
     });
   };
 
-    const addProductToCartAndClearSearch = (product, qty = 1) => {
+  const addProductToCartAndClearSearch = (
+    product,
+    qty = 1,
+    shouldClearSearch = false
+  ) => {
     addProductToCart(product, qty);
-    setProductSearch('');
+
+    if (shouldClearSearch) {
+      setProductSearch('');
+    }
   };
   const updateCartQuantity = (productId, value) => {
     const rawValue = String(value ?? '');
@@ -1838,6 +1845,133 @@ const previousMonthKey = useMemo(
               />
             </div>
 
+
+            {filteredProducts.length ? (
+              <div className="space-y-3">
+                {filteredProducts.map((product) => {
+                  const measurementOptions =
+                    product.baseUnit === 'pc'
+                      ? []
+                      : [0.06, 0.12, 0.25, 0.5, 0.75, 1, 2, 3];
+
+                  return (
+                    <div
+                      key={product.id}
+                      data-home-product-row="true"
+                      className="rounded-xl border border-slate-200 bg-white p-3"
+                    >
+                      <div className="font-black text-slate-900">
+                        {product.name}
+                      </div>
+
+                      <div className="mt-1 text-xs text-slate-500">
+                        {t(language, 'Stock', 'Stock')}:{' '}
+                        {formatQty(product.stockBaseQty)}{' '}
+                        {product.baseUnit} • TZS{' '}
+                        {money(product.sellPrice)}
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <input
+                          data-home-qty-input="true"
+                          type="number"
+                          min={product.baseUnit === 'pc' ? '1' : '0.01'}
+                          step={product.baseUnit === 'pc' ? '1' : '0.01'}
+                          defaultValue={product.baseUnit === 'pc' ? '' : '1'}
+                          placeholder={product.baseUnit === 'pc' ? '1' : ''}
+                          className="h-9 w-24 rounded-lg border border-slate-200 px-3 py-1.5 text-center text-sm font-bold"
+                          onKeyDown={(e) => {
+                            if (e.key !== 'Enter') return;
+
+                            const rawQty =
+                              e.currentTarget.value?.trim() || '';
+                            const qty =
+                              rawQty === '' ? 1 : Number(rawQty);
+
+                            addProductToCartAndClearSearch(
+                              product,
+                              qty,
+                              true
+                            );
+
+                            e.currentTarget.value =
+                              product.baseUnit === 'pc' ? '' : '1';
+                          }}
+                        />
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            if (
+                              String(product.baseUnit || '').toLowerCase() !==
+                              'pc'
+                            ) {
+                              setProductSearch('');
+                              return;
+                            }
+
+                            const row = e.currentTarget.closest(
+                              '[data-home-product-row]'
+                            );
+
+                            const qtyInput = row?.querySelector(
+                              '[data-home-qty-input]'
+                            );
+
+                            const rawQty =
+                              qtyInput?.value?.trim() || '';
+
+                            const qty =
+                              rawQty === '' ? 1 : Number(rawQty);
+
+                            addProductToCartAndClearSearch(
+                              product,
+                              qty,
+                              true
+                            );
+
+                            if (qtyInput) {
+                              qtyInput.value = '';
+                            }
+                          }}
+                          disabled={
+                            Number(product.stockBaseQty || 0) <
+                            (product.baseUnit === 'pc' ? 1 : 0.01)
+                          }
+                          className="rounded-lg bg-emerald-700 px-4 py-2 text-xs font-black text-white disabled:opacity-50"
+                        >
+                          {t(language, 'Add', 'Ongeza')}
+                        </button>
+                      </div>
+
+                      {measurementOptions.length ? (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {measurementOptions.map((qty) => (
+                            <button
+                              key={qty}
+                              type="button"
+                              onClick={() =>
+                                addProductToCartAndClearSearch(
+                                  product,
+                                  qty
+                                )
+                              }
+                              disabled={
+                                Number(product.stockBaseQty || 0) < qty
+                              }
+                              className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-black text-white disabled:opacity-40"
+                            >
+                              +{formatQty(qty)}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+
             <div className="grid gap-3 md:grid-cols-2">
               <div>
                 <label className="text-xs font-bold text-slate-600">
@@ -1904,117 +2038,6 @@ const previousMonthKey = useMemo(
                 />
               </div>
             </div>
-
-            {filteredProducts.length ? (
-              <div className="space-y-3">
-                {filteredProducts.map((product) => {
-                  const measurementOptions =
-                    product.baseUnit === 'pc'
-                      ? []
-                      : [0.06, 0.12, 0.25, 0.5, 0.75, 1, 2, 3];
-
-                  return (
-                    <div
-                      key={product.id}
-                      data-home-product-row="true"
-                      className="rounded-xl border border-slate-200 bg-white p-3"
-                    >
-                      <div className="font-black text-slate-900">
-                        {product.name}
-                      </div>
-
-                      <div className="mt-1 text-xs text-slate-500">
-                        {t(language, 'Stock', 'Stock')}:{' '}
-                        {formatQty(product.stockBaseQty)}{' '}
-                        {product.baseUnit} • TZS{' '}
-                        {money(product.sellPrice)}
-                      </div>
-
-                      <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <input
-                          data-home-qty-input="true"
-                          type="number"
-                          min={product.baseUnit === 'pc' ? '1' : '0.01'}
-                          step={product.baseUnit === 'pc' ? '1' : '0.01'}
-                          defaultValue={product.baseUnit === 'pc' ? '' : '1'}
-                          placeholder={product.baseUnit === 'pc' ? '1' : ''}
-                          className="h-9 w-24 rounded-lg border border-slate-200 px-3 py-1.5 text-center text-sm font-bold"
-                          onKeyDown={(e) => {
-                            if (e.key !== 'Enter') return;
-
-                            const rawQty =
-                              e.currentTarget.value?.trim() || '';
-                            const qty =
-                              rawQty === '' ? 1 : Number(rawQty);
-
-                            addProductToCartAndClearSearch(product, qty);
-
-                            e.currentTarget.value =
-                              product.baseUnit === 'pc' ? '' : '1';
-                          }}
-                        />
-
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            const row = e.currentTarget.closest(
-                              '[data-home-product-row]'
-                            );
-
-                            const qtyInput = row?.querySelector(
-                              '[data-home-qty-input]'
-                            );
-
-                            const rawQty =
-                              qtyInput?.value?.trim() || '';
-
-                            const qty =
-                              rawQty === '' ? 1 : Number(rawQty);
-
-                            addProductToCartAndClearSearch(product, qty);
-
-                            if (qtyInput) {
-                              qtyInput.value =
-                                product.baseUnit === 'pc' ? '' : '1';
-                            }
-                          }}
-                          disabled={
-                            Number(product.stockBaseQty || 0) <
-                            (product.baseUnit === 'pc' ? 1 : 0.01)
-                          }
-                          className="rounded-lg bg-emerald-700 px-4 py-2 text-xs font-black text-white disabled:opacity-50"
-                        >
-                          {t(language, 'Add', 'Ongeza')}
-                        </button>
-                      </div>
-
-                      {measurementOptions.length ? (
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {measurementOptions.map((qty) => (
-                            <button
-                              key={qty}
-                              type="button"
-                              onClick={() =>
-                                addProductToCartAndClearSearch(
-                                  product,
-                                  qty
-                                )
-                              }
-                              disabled={
-                                Number(product.stockBaseQty || 0) < qty
-                              }
-                              className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-black text-white disabled:opacity-40"
-                            >
-                              +{formatQty(qty)}
-                            </button>
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            ) : null}
 
             {saleError ? (
               <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
