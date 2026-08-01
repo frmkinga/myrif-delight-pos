@@ -479,7 +479,7 @@ export const AUTOMATIC_EXPENSE_PILOT_START_DATE = '2026-07-25';
 const AUTOMATIC_EXPENSE_OFFICIAL_START_DATE = '2026-08-01';
 
 const AUTOMATIC_EXPENSE_ACTIVATION_DATE =
-  AUTOMATIC_EXPENSE_PILOT_START_DATE;
+  AUTOMATIC_EXPENSE_OFFICIAL_START_DATE;
 const HOME_EXPENSES_MONTHLY_BUDGET = {
   target: 2012000,
   items: [
@@ -503,10 +503,6 @@ const HOME_EXPENSES_MONTHLY_BUDGET = {
   ],
 };
 
-const money = (value) =>
-  new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(
-    Math.round(Number(value || 0))
-  );
 const roundToCashStep = (value, step = 50) => {
   const amount = Number(value || 0);
 
@@ -516,6 +512,11 @@ const roundToCashStep = (value, step = 50) => {
 
   return Math.ceil(amount / step) * step;
 };
+
+const money = (value) =>
+  new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(
+    roundToCashStep(value)
+  );
   const getExpenseRequiredAmountForDate = (
   expense,
   calculationDateKey
@@ -1292,13 +1293,21 @@ export const getLiveRemittanceShopPosition = ({
 
   const previousBalance = remittanceRecords
     .filter(
-      (record) =>
-        String(
-          record?.shop_id ||
-            record?.shopId ||
-            ''
-        ) === selectedShopId &&
-        String(record?.date || '') < todayKey
+      (record) => {
+        const recordDate = String(
+          record?.date || ''
+        ).slice(0, 10);
+
+        return (
+          String(
+            record?.shop_id ||
+              record?.shopId ||
+              ''
+          ) === selectedShopId &&
+          recordDate >= AUTOMATIC_EXPENSE_ACTIVATION_DATE &&
+          recordDate < todayKey
+        );
+      }
     )
     .sort((a, b) =>
       String(a?.date || '').localeCompare(
@@ -1958,62 +1967,139 @@ const remittanceRecords = Array.isArray(data?.dailyRemittances)
       },
       0
     );
-  const ownerProfitAccumulated =
+  const ownerProfitBreakdownTotals =
   cumulativeDateKeys.reduce(
     (periodTotal, dateKey) => {
-      const dateOwnerProfit = (
+      const dateTotals = (
         Array.isArray(data?.shops)
           ? data.shops
           : []
-      ).reduce((shopTotal, shop) => {
-        const shopId = String(
-          shop?.id || ''
-        ).trim();
+      ).reduce(
+        (shopTotal, shop) => {
+          const shopId = String(
+            shop?.id || ''
+          ).trim();
 
-        if (!shopId) return shopTotal;
+          if (!shopId) return shopTotal;
 
-        const livePosition =
-          getLiveRemittanceShopPosition({
-            data,
-            shopId,
-            calculationDateKey: dateKey,
-          });
+          const livePosition =
+            getLiveRemittanceShopPosition({
+              data,
+              shopId,
+              calculationDateKey: dateKey,
+            });
 
-        const ordinaryOwnerProfit =
-          Math.max(
+          const grossProfitGenerated = Math.max(
+            0,
+            Number(livePosition?.gross || 0)
+          );
+
+          const expensesFunded = Math.max(
             0,
             Number(
-              livePosition?.ownerProfit || 0
+              livePosition?.expensesFundedAutomatically || 0
             )
           );
 
-        const gasOwnerProfit =
-  Math.max(
-    0,
-    Number(
-      livePosition?.gasOwnerProfit || 0
-    )
-  );
+          const netProfitAfterExpenses = Math.max(
+            0,
+            Number(livePosition?.netProfit || 0)
+          );
 
-const cashRoundingAdjustment =
-  Math.max(
-    0,
-    Number(
-      livePosition?.cashRoundingAdjustment || 0
-    )
-  );
+          const owner70Profit = Math.max(
+            0,
+            Number(livePosition?.ownerProfit || 0)
+          );
 
-return (
-  shopTotal +
-  ordinaryOwnerProfit +
-  gasOwnerProfit +
-  cashRoundingAdjustment
-);
-      }, 0);
+          const gasOwnerProfit = Math.max(
+            0,
+            Number(livePosition?.gasOwnerProfit || 0)
+          );
 
-      return periodTotal + dateOwnerProfit;
+          const cashRoundingAdjustment = Math.max(
+            0,
+            Number(
+              livePosition?.cashRoundingAdjustment || 0
+            )
+          );
+
+          return {
+            grossProfitGenerated:
+              shopTotal.grossProfitGenerated +
+              grossProfitGenerated,
+
+            expensesFunded:
+              shopTotal.expensesFunded +
+              expensesFunded,
+
+            netProfitAfterExpenses:
+              shopTotal.netProfitAfterExpenses +
+              netProfitAfterExpenses,
+
+            owner70Profit:
+              shopTotal.owner70Profit +
+              owner70Profit,
+
+            gasOwnerProfit:
+              shopTotal.gasOwnerProfit +
+              gasOwnerProfit,
+
+            cashRoundingAdjustment:
+              shopTotal.cashRoundingAdjustment +
+              cashRoundingAdjustment,
+          };
+        },
+        {
+          grossProfitGenerated: 0,
+          expensesFunded: 0,
+          netProfitAfterExpenses: 0,
+          owner70Profit: 0,
+          gasOwnerProfit: 0,
+          cashRoundingAdjustment: 0,
+        }
+      );
+
+      return {
+        grossProfitGenerated:
+          periodTotal.grossProfitGenerated +
+          dateTotals.grossProfitGenerated,
+
+        expensesFunded:
+          periodTotal.expensesFunded +
+          dateTotals.expensesFunded,
+
+        netProfitAfterExpenses:
+          periodTotal.netProfitAfterExpenses +
+          dateTotals.netProfitAfterExpenses,
+
+        owner70Profit:
+          periodTotal.owner70Profit +
+          dateTotals.owner70Profit,
+
+        gasOwnerProfit:
+          periodTotal.gasOwnerProfit +
+          dateTotals.gasOwnerProfit,
+
+        cashRoundingAdjustment:
+          periodTotal.cashRoundingAdjustment +
+          dateTotals.cashRoundingAdjustment,
+      };
     },
-    0
+    {
+      grossProfitGenerated: 0,
+      expensesFunded: 0,
+      netProfitAfterExpenses: 0,
+      owner70Profit: 0,
+      gasOwnerProfit: 0,
+      cashRoundingAdjustment: 0,
+    }
+  );
+
+const ownerProfitAccumulated =
+  Number(ownerProfitBreakdownTotals.owner70Profit || 0) +
+  Number(ownerProfitBreakdownTotals.gasOwnerProfit || 0) +
+  Number(
+    ownerProfitBreakdownTotals.cashRoundingAdjustment || 0
   );
 
   const ownerDrawingsTaken =
@@ -2108,11 +2194,29 @@ return (
 
     centralFundsHeld,
 
-    ownerProfitAccumulated,
-    ownerDrawingsTaken,
-    ownerProfitAvailable,
+ownerProfitGrossProfitGenerated:
+  ownerProfitBreakdownTotals.grossProfitGenerated,
 
-    outstandingEmergencyBorrowing,
+ownerProfitExpensesFunded:
+  ownerProfitBreakdownTotals.expensesFunded,
+
+ownerProfitNetProfitAfterExpenses:
+  ownerProfitBreakdownTotals.netProfitAfterExpenses,
+
+ownerProfitOwner70:
+  ownerProfitBreakdownTotals.owner70Profit,
+
+ownerProfitGasOwnerProfit:
+  ownerProfitBreakdownTotals.gasOwnerProfit,
+
+ownerProfitCashRoundingAdjustment:
+  ownerProfitBreakdownTotals.cashRoundingAdjustment,
+
+ownerProfitAccumulated,
+ownerDrawingsTaken,
+ownerProfitAvailable,
+
+outstandingEmergencyBorrowing,
   };
 }, [
   data,
@@ -3078,29 +3182,12 @@ const accumulatedAmount =
       });
     });
 
-  const ordinaryOwnerProfitAccumulated =
-    remittances.reduce(
-      (sum, record) =>
-        sum +
-        Math.max(
-          0,
-          Number(record?.ownerProfit || 0)
-        ),
-      0
-    );
-
-  const automaticGasOwnerProfit = Math.max(
-    0,
-    Number(
-      automaticGasExpenseFunding.get(
-        'owner-profit'
-      ) || 0
-    )
-  );
-
-  const ownerProfitAccumulated =
-  ordinaryOwnerProfitAccumulated +
-  automaticGasOwnerProfit;
+const ownerProfitAccumulated = Math.max(
+  0,
+  Number(
+    centralFundSummary.ownerProfitAccumulated || 0
+  )
+);
 
   accountsMap.set('owner-profit', {
     key: 'owner-profit',
@@ -3279,6 +3366,7 @@ const accumulatedAmount =
   data?.centralFundTransactions,
   automaticHistoricalExpenseFunding,
 automaticGasExpenseFunding,
+centralFundSummary.ownerProfitAccumulated,
 language,
 ]);
 
@@ -5971,11 +6059,18 @@ const previousUnpaidExpenses =
 );
 
     const shopPreviousRecords = remittanceRecords
-  .filter(
-    (record) =>
-      String(record?.shop_id || record?.shopId || '') === shopId &&
-      String(record?.date || '') < todayKey
-  )
+  .filter((record) => {
+    const recordDate = String(
+      record?.date || ''
+    ).slice(0, 10);
+
+    return (
+      String(record?.shop_id || record?.shopId || '') ===
+        shopId &&
+      recordDate >= AUTOMATIC_EXPENSE_ACTIVATION_DATE &&
+      recordDate < todayKey
+    );
+  })
   .sort((a, b) =>
     String(a?.date || '').localeCompare(String(b?.date || ''))
   );
@@ -6441,7 +6536,6 @@ cashRoundingAdjustment: 0,
   [rows]
 );
 
-
 const monthlyExpenseRows = useMemo(() => {
   return rows.flatMap((shopRow) => {
     const monthFundingBreakdown = Array.isArray(
@@ -6450,71 +6544,117 @@ const monthlyExpenseRows = useMemo(() => {
       ? shopRow.monthToDateCentralExpenseFunding
       : [];
 
+    let remainingGasSupplementForCentralExpenses =
+      Math.max(
+        0,
+        Number(shopRow.gasUsedForArrears || 0) -
+          Number(
+            shopRow.localExpensesStillOutstanding || 0
+          )
+      );
+
     return monthFundingBreakdown.map((expense) => {
-     const targetAmount = Number(
-  expense.target || 0
-);
+      const targetAmount = Number(expense.target || 0);
 
-const calculationDateKey = String(
-  shopRow.calculationDate || ''
-);
+      const calculationDateKey = String(
+        shopRow.calculationDate || ''
+      );
 
-const [selectedYear, selectedMonth, selectedDay] =
-  calculationDateKey.split('-').map(Number);
+      const [selectedYear, selectedMonth, selectedDay] =
+        calculationDateKey.split('-').map(Number);
 
-const daysInSelectedMonth =
-  selectedYear && selectedMonth
-    ? new Date(
-        selectedYear,
-        selectedMonth,
-        0
-      ).getDate()
-    : 0;
+      const daysInSelectedMonth =
+        selectedYear && selectedMonth
+          ? new Date(
+              selectedYear,
+              selectedMonth,
+              0
+            ).getDate()
+          : 0;
 
-const selectedMonthStartKey =
-  calculationDateKey
-    ? `${calculationDateKey.slice(0, 7)}-01`
-    : '';
+      const selectedMonthStartKey = calculationDateKey
+        ? `${calculationDateKey.slice(0, 7)}-01`
+        : '';
 
-const firstActiveDay =
-  selectedMonthStartKey <
-  AUTOMATIC_EXPENSE_ACTIVATION_DATE &&
-  calculationDateKey.startsWith(
-    AUTOMATIC_EXPENSE_ACTIVATION_DATE.slice(0, 7)
-  )
-    ? Number(
-        AUTOMATIC_EXPENSE_ACTIVATION_DATE.slice(8, 10)
-      )
-    : 1;
+      const firstActiveDay =
+        selectedMonthStartKey <
+          AUTOMATIC_EXPENSE_ACTIVATION_DATE &&
+        calculationDateKey.startsWith(
+          AUTOMATIC_EXPENSE_ACTIVATION_DATE.slice(
+            0,
+            7
+          )
+        )
+          ? Number(
+              AUTOMATIC_EXPENSE_ACTIVATION_DATE.slice(
+                8,
+                10
+              )
+            )
+          : 1;
 
-const activeDaysUpToSelectedDate =
-  selectedDay >= firstActiveDay
-    ? selectedDay - firstActiveDay + 1
-    : 0;
+      const activeDaysUpToSelectedDate =
+        selectedDay >= firstActiveDay
+          ? selectedDay - firstActiveDay + 1
+          : 0;
 
-const requiredThisMonthToDate =
-  expense.frequency === 'daily'
-    ? targetAmount * activeDaysUpToSelectedDate
-    : expense.frequency === 'monthly'
-      ? daysInSelectedMonth > 0
-        ? (targetAmount / daysInSelectedMonth) *
-          activeDaysUpToSelectedDate
-        : 0
-      : expense.frequency === 'six_months'
-        ? daysInSelectedMonth > 0
-          ? (
-              targetAmount /
-              (daysInSelectedMonth * 6)
-            ) * activeDaysUpToSelectedDate
-          : 0
-        : 0;
+      const requiredThisMonthToDate =
+        expense.frequency === 'daily'
+          ? targetAmount * activeDaysUpToSelectedDate
+          : expense.frequency === 'monthly'
+            ? daysInSelectedMonth > 0
+              ? (targetAmount / daysInSelectedMonth) *
+                activeDaysUpToSelectedDate
+              : 0
+            : expense.frequency === 'six_months'
+              ? daysInSelectedMonth > 0
+                ? (targetAmount /
+                    (daysInSelectedMonth * 6)) *
+                  activeDaysUpToSelectedDate
+                : 0
+              : 0;
 
-const fundedThisMonth = Number(
-  expense.fundedThisMonth || 0
-);
+      const fundedThisMonthRaw = Number(
+        expense.fundedThisMonth || 0
+      );
 
-      const outstandingAmount = Number(
-        expense.outstanding || 0
+      const ordinaryFundedRaw = Math.min(
+        Math.max(0, requiredThisMonthToDate),
+        Math.max(0, fundedThisMonthRaw)
+      );
+
+      const ordinaryOutstandingRaw = Math.max(
+        0,
+        requiredThisMonthToDate - ordinaryFundedRaw
+      );
+
+      const gasSupplementRaw = Math.min(
+        ordinaryOutstandingRaw,
+        remainingGasSupplementForCentralExpenses
+      );
+
+      remainingGasSupplementForCentralExpenses =
+        Math.max(
+          0,
+          remainingGasSupplementForCentralExpenses -
+            gasSupplementRaw
+        );
+
+      const totalFundedRaw =
+        ordinaryFundedRaw + gasSupplementRaw;
+
+      const requiredRounded = roundToCashStep(
+        requiredThisMonthToDate
+      );
+
+      const fundedRounded = Math.min(
+        requiredRounded,
+        roundToCashStep(totalFundedRaw)
+      );
+
+      const outstandingRounded = Math.max(
+        0,
+        requiredRounded - fundedRounded
       );
 
       return {
@@ -6525,14 +6665,198 @@ const fundedThisMonth = Number(
         expense: expense.name,
         frequency: expense.frequency,
         target: targetAmount,
-requiredThisMonthToDate,
-fundedThisMonth,
-        outstanding: outstandingAmount,
+        requiredThisMonthToDate: requiredRounded,
+        ordinaryFundedThisMonth:
+          roundToCashStep(ordinaryFundedRaw),
+        gasSupplement: roundToCashStep(gasSupplementRaw),
+        fundedThisMonth: fundedRounded,
+        outstanding: outstandingRounded,
       };
     });
   });
 }, [rows]);
+const monthlyExpenseTotals = useMemo(() => {
+  return monthlyExpenseRows.reduce(
+    (acc, row) => ({
+      configured:
+        acc.configured + Number(row.target || 0),
 
+      required:
+        acc.required +
+        Number(row.requiredThisMonthToDate || 0),
+
+      funded:
+        acc.funded + Number(row.fundedThisMonth || 0),
+
+      outstanding:
+        acc.outstanding + Number(row.outstanding || 0),
+    }),
+    {
+      configured: 0,
+      required: 0,
+      funded: 0,
+      outstanding: 0,
+    }
+  );
+}, [monthlyExpenseRows]);
+const monthlyExpenseSummaryByShop = useMemo(() => {
+  const shopMap = new Map();
+
+  monthlyExpenseRows.forEach((row) => {
+    const shopId = String(row.shop_id || '').trim();
+
+    if (!shopId) return;
+
+    const existing = shopMap.get(shopId) || {
+      shop_id: shopId,
+      shop: row.shop || shopId,
+      required: 0,
+      funded: 0,
+      outstanding: 0,
+    };
+
+    existing.required += Number(row.requiredThisMonthToDate || 0);
+    existing.funded += Number(row.fundedThisMonth || 0);
+    existing.outstanding += Number(row.outstanding || 0);
+
+    shopMap.set(shopId, existing);
+  });
+
+  return new Map(
+    Array.from(shopMap.entries()).map(([shopId, row]) => [
+      shopId,
+      {
+        ...row,
+        required: roundToCashStep(row.required),
+        funded: roundToCashStep(row.funded),
+        outstanding: roundToCashStep(row.outstanding),
+      },
+    ])
+  );
+}, [monthlyExpenseRows]);
+const monthlyExpenseShortageByShop = useMemo(() => {
+  const shopMap = new Map();
+
+  monthlyExpenseRows.forEach((row) => {
+    const shopId = String(row.shop_id || '').trim();
+
+    if (!shopId) return;
+
+    const existing = shopMap.get(shopId) || {
+      shop_id: shopId,
+      shop: row.shop || shopId,
+      required: 0,
+      funded: 0,
+      outstanding: 0,
+    };
+
+    existing.required += Number(row.requiredThisMonthToDate || 0);
+    existing.funded += Number(row.fundedThisMonth || 0);
+    existing.outstanding += Number(row.outstanding || 0);
+
+    shopMap.set(shopId, existing);
+  });
+
+  return Array.from(shopMap.values())
+    .map((row) => ({
+      ...row,
+      required: roundToCashStep(row.required),
+      funded: roundToCashStep(row.funded),
+      outstanding: roundToCashStep(row.outstanding),
+    }))
+    .filter((row) => Number(row.outstanding || 0) > 0)
+    .sort(
+      (a, b) =>
+        Number(b.outstanding || 0) -
+        Number(a.outstanding || 0)
+    );
+}, [monthlyExpenseRows]);
+const alignedLedgerFundAccounts = useMemo(() => {
+  const monthlyExpenseFundingMap = new Map();
+
+  monthlyExpenseRows.forEach((row) => {
+    const fundKey = `${row.shop_id}-${row.expenseKey}`;
+
+    monthlyExpenseFundingMap.set(fundKey, {
+      funded: roundToCashStep(row.fundedThisMonth),
+      outstanding: roundToCashStep(row.outstanding),
+      required: roundToCashStep(row.requiredThisMonthToDate),
+    });
+  });
+
+  return commissionAdjustedCentralFundAccounts.map((account) => {
+    const accountKey = String(account?.key || '').trim();
+
+    const monthlyExpenseFunding =
+      monthlyExpenseFundingMap.get(accountKey);
+
+    if (
+      String(account?.type || '') !== 'expense_fund' ||
+      !monthlyExpenseFunding
+    ) {
+      return account;
+    }
+
+    const alignedBaseAmount = Math.max(
+      0,
+      Number(monthlyExpenseFunding.funded || 0)
+    );
+
+    const moneyIn = Math.max(
+      0,
+      Number(account?.moneyIn || 0)
+    );
+
+    const moneyOut = Math.max(
+      0,
+      Number(account?.moneyOut || 0)
+    );
+
+    const automaticCommissionAmount = Math.max(
+      0,
+      Number(account?.automaticCommissionAmount || 0)
+    );
+
+    return {
+      ...account,
+      baseAmount: alignedBaseAmount,
+      moneyIn,
+      moneyOut,
+      automaticCommissionAmount,
+      availableBalance: Math.max(
+        0,
+        alignedBaseAmount +
+          moneyIn +
+          automaticCommissionAmount -
+          moneyOut
+      ),
+    };
+  });
+}, [
+  commissionAdjustedCentralFundAccounts,
+  monthlyExpenseRows,
+]);
+
+const ownerProfitAccount = useMemo(() => {
+  return (
+    alignedLedgerFundAccounts.find(
+      (account) =>
+        String(account?.key || '') === 'owner-profit'
+    ) || {
+      key: 'owner-profit',
+      type: 'owner_profit',
+      name:
+        language === 'sw'
+          ? 'Faida ya Mmiliki'
+          : 'Owner Profit',
+      baseAmount: 0,
+      moneyIn: 0,
+      moneyOut: 0,
+      automaticCommissionAmount: 0,
+      availableBalance: 0,
+    }
+  );
+}, [alignedLedgerFundAccounts, language]);
 const automaticShopHomeExpensesContribution = useMemo(() => {
   return monthlyExpenseRows
     .filter(
@@ -6759,7 +7083,7 @@ const saveOwnerDrawing = async () => {
   );
 
   const availableOwnerProfit = Number(
-    centralFundSummary.ownerProfitAvailable || 0
+    ownerProfitAccount.availableBalance || 0
   );
 
   const centralCashAvailable = Number(
@@ -6960,17 +7284,17 @@ const saveOwnerDrawing = async () => {
   );
 };
 const saveEmergencyBorrowing = async () => {
-  const sourceAccount = centralFundAccounts.find(
-    (account) =>
-      String(account?.key || '') ===
-      String(emergencySourceFundKey || '')
-  );
+  const sourceAccount = alignedLedgerFundAccounts.find(
+  (account) =>
+    String(account?.key || '') ===
+    String(emergencySourceFundKey || '')
+);
 
-  const destinationAccount = centralFundAccounts.find(
-    (account) =>
-      String(account?.key || '') ===
-      String(emergencyDestinationFundKey || '')
-  );
+const destinationAccount = alignedLedgerFundAccounts.find(
+  (account) =>
+    String(account?.key || '') ===
+    String(emergencyDestinationFundKey || '')
+);
 
   const borrowingAmount = Number(
     String(emergencyBorrowingAmount || '').replace(/,/g, '')
@@ -7273,11 +7597,11 @@ const saveEmergencyBorrowing = async () => {
 };
 
 const saveExpensePayment = async () => {
-  const selectedFund = centralFundAccounts.find(
-    (account) =>
-      String(account?.key || '') ===
-      String(expensePaymentFundKey || '')
-  );
+  const selectedFund = alignedLedgerFundAccounts.find(
+  (account) =>
+    String(account?.key || '') ===
+    String(expensePaymentFundKey || '')
+);
 
   const paymentAmount = Number(
     String(expensePaymentAmount || '').replace(
@@ -8086,31 +8410,31 @@ alert(
   />
 
   <StatCard
-    label={
-      language === 'sw'
-        ? 'Matumizi ya leo yaliyowekwa'
-        : 'Today’s fixed expenses'
-    }
-    value={totals.todayFixedExpenses}
-  />
+  label={
+    language === 'sw'
+      ? 'Matumizi yanayotakiwa hadi tarehe hii'
+      : 'Expenses required up to this date'
+  }
+  value={monthlyExpenseTotals.required}
+/>
 
-  <StatCard
-    label={
-      language === 'sw'
-        ? 'Fedha iliyotengwa kwa matumizi'
-        : 'Expenses funded automatically'
-    }
-    value={totals.expensesFundedAutomatically}
-  />
+<StatCard
+  label={
+    language === 'sw'
+      ? 'Fedha iliyotengwa kwa matumizi'
+      : 'Expenses funded'
+  }
+  value={monthlyExpenseTotals.funded}
+/>
 
-  <StatCard
-    label={
-      language === 'sw'
-        ? 'Matumizi ambayo bado hayajalipiwa'
-        : 'Expenses still outstanding'
-    }
-    value={totals.expensesStillOutstanding}
-  />
+<StatCard
+  label={
+    language === 'sw'
+      ? 'Matumizi ambayo bado hayajalipiwa'
+      : 'Expenses still outstanding'
+  }
+  value={monthlyExpenseTotals.outstanding}
+/>
 
   <StatCard
   label={
@@ -8542,30 +8866,45 @@ language === 'sw'
         TZS {money(row.previousUnpaidExpenses)}
       </td>
 
-      <td className="px-4 py-3">
-        TZS {money(row.todayFixedExpenses)}
-      </td>
+     <td className="px-4 py-3">
+  TZS {money(
+    monthlyExpenseSummaryByShop.get(String(row.id))?.required ??
+      row.todayFixedExpenses
+  )}
+</td>
 
-      <td className="px-4 py-3">
-        TZS {money(row.expensesFundedAutomatically)}
-      </td>
+<td className="px-4 py-3">
+  TZS {money(
+    monthlyExpenseSummaryByShop.get(String(row.id))?.funded ??
+      row.expensesFundedAutomatically
+  )}
+</td>
 
-      <td className="px-4 py-3 font-black text-red-700">
-        TZS {money(row.expensesStillOutstanding)}
-      </td>
-
+<td className="px-4 py-3 font-black text-red-700">
+  TZS {money(
+    monthlyExpenseSummaryByShop.get(String(row.id))?.outstanding ??
+      row.expensesStillOutstanding
+  )}
+</td>
       <td className="px-4 py-3 font-black">
         TZS {money(row.cashAmountRequiredToSubmit)}
       </td>
       <td className="px-4 py-3">
   {(() => {
-    const fundedAmount = Number(
-      row.expensesFundedAutomatically || 0
-    );
+    const monthlyShopExpenseSummary =
+  monthlyExpenseSummaryByShop.get(String(row.id));
 
-    const outstandingAmount = Number(
-      row.expensesStillOutstanding || 0
-    );
+const fundedAmount = Number(
+  monthlyShopExpenseSummary?.funded ??
+    row.expensesFundedAutomatically ??
+    0
+);
+
+const outstandingAmount = Number(
+  monthlyShopExpenseSummary?.outstanding ??
+    row.expensesStillOutstanding ??
+    0
+);
 
     if (outstandingAmount <= 0) {
       return (
@@ -8622,16 +8961,16 @@ language === 'sw'
       </td>
 
       <td className="px-4 py-4">
-        TZS {money(totals.todayFixedExpenses)}
-      </td>
+  TZS {money(monthlyExpenseTotals.required)}
+</td>
 
-      <td className="px-4 py-4 text-emerald-700">
-        TZS {money(totals.expensesFundedAutomatically)}
-      </td>
+<td className="px-4 py-4 text-emerald-700">
+  TZS {money(monthlyExpenseTotals.funded)}
+</td>
 
-      <td className="px-4 py-4 text-red-700">
-        TZS {money(totals.expensesStillOutstanding)}
-      </td>
+<td className="px-4 py-4 text-red-700">
+  TZS {money(monthlyExpenseTotals.outstanding)}
+</td>
 
       <td className="px-4 py-4">
         TZS {money(totals.cashAmountRequiredToSubmit)}
@@ -9297,7 +9636,8 @@ language === 'sw'
   </div>
 ) : null}
 
-           {activeTab === 'outstanding' ? (
+
+{activeTab === 'outstanding' ? (
   <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
     <table className="min-w-[1050px] w-full text-left text-sm">
       <thead className="bg-slate-100 text-xs uppercase text-slate-600">
@@ -9305,20 +9645,14 @@ language === 'sw'
           {[
             t('shop'),
             language === 'sw'
-              ? 'Jumla ya matumizi yaliyotakiwa'
-              : 'Total expense obligation',
+              ? 'Matumizi yanayotakiwa'
+              : 'Required expenses',
             language === 'sw'
-              ? 'Fedha iliyotengwa kwa matumizi'
-              : 'Expenses funded',
+              ? 'Fedha iliyotengwa / iliyokusanywa'
+              : 'Funded / collected',
             language === 'sw'
-              ? 'Matumizi ambayo bado hayajalipiwa'
-              : 'Expenses still outstanding',
-            language === 'sw'
-              ? 'Upungufu wa matumizi ya dukani'
-              : 'Local expense shortfall',
-            language === 'sw'
-              ? 'Upungufu wa matumizi ya mmiliki'
-              : 'Central expense shortfall',
+              ? 'Bado hakijalipiwa'
+              : 'Outstanding',
             t('status'),
           ].map((heading) => (
             <th key={heading} className="px-4 py-3">
@@ -9328,83 +9662,47 @@ language === 'sw'
         </tr>
       </thead>
 
-      <tbody>
-        {rows
-          .filter(
-            (row) =>
-              Number(row.expensesStillOutstanding || 0) > 0
-          )
-          .map((row) => {
-            const fundedAmount = Number(
-              row.expensesFundedAutomatically || 0
-            );
+      <tbody className="divide-y divide-slate-100">
+        {monthlyExpenseShortageByShop.length ? (
+          monthlyExpenseShortageByShop.map((row) => (
+            <tr key={row.shop_id}>
+              <td className="px-4 py-3 font-bold">
+                {row.shop}
+              </td>
 
-            const outstandingAmount = Number(
-              row.expensesStillOutstanding || 0
-            );
+              <td className="px-4 py-3 font-bold">
+                TZS {money(row.required)}
+              </td>
 
-            const isPartlyFunded =
-              fundedAmount > 0 && outstandingAmount > 0;
+              <td className="px-4 py-3 font-bold text-emerald-700">
+                TZS {money(row.funded)}
+              </td>
 
-            return (
-              <tr
-                key={row.id}
-                className="border-t border-slate-100"
-              >
-                <td className="px-4 py-3 font-bold">
-                  {row.name}
-                </td>
+              <td className="px-4 py-3 font-black text-red-700">
+                TZS {money(row.outstanding)}
+              </td>
 
-                <td className="px-4 py-3">
-                  TZS {money(row.totalExpenseObligation)}
-                </td>
-
-                <td className="px-4 py-3">
-                  TZS {money(row.expensesFundedAutomatically)}
-                </td>
-
-                <td className="px-4 py-3 font-black text-red-700">
-                  TZS {money(row.expensesStillOutstanding)}
-                </td>
-
-                <td className="px-4 py-3">
-                  TZS {money(row.localExpensesStillOutstanding)}
-                </td>
-
-                <td className="px-4 py-3">
-                  TZS {money(row.centralExpensesStillOutstanding)}
-                </td>
-
-                <td className="px-4 py-3">
-                  <Badge tone={isPartlyFunded ? 'amber' : 'red'}>
-                    {isPartlyFunded
-                      ? language === 'sw'
-                        ? 'Yamelipiwa sehemu'
-                        : 'Partly funded'
-                      : language === 'sw'
-                        ? 'Hayajalipiwa'
-                        : 'Not funded'}
-                  </Badge>
-                </td>
-              </tr>
-            );
-          })}
-
-        {rows.filter(
-          (row) =>
-            Number(row.expensesStillOutstanding || 0) > 0
-        ).length === 0 ? (
+              <td className="px-4 py-3">
+                <Badge tone="amber">
+                  {language === 'sw'
+                    ? 'Bado kuna upungufu'
+                    : 'Shortage exists'}
+                </Badge>
+              </td>
+            </tr>
+          ))
+        ) : (
           <tr>
             <td
-              colSpan={7}
-              className="px-4 py-10 text-center text-sm text-slate-500"
+              colSpan={5}
+              className="px-4 py-6 text-center text-sm font-bold text-emerald-700"
             >
               {language === 'sw'
-                ? 'Hakuna duka lenye matumizi ambayo bado hayajalipiwa.'
-                : 'No shop has outstanding expense obligations.'}
+                ? 'Hakuna upungufu wa matumizi kwa kipindi hiki.'
+                : 'No expense shortage for this period.'}
             </td>
           </tr>
-        ) : null}
+        )}
       </tbody>
     </table>
   </div>
@@ -10069,7 +10367,7 @@ alert(
 
 <div className="mt-5 space-y-6">
   {Object.values(
-    commissionAdjustedCentralFundAccounts
+    alignedLedgerFundAccounts
       .filter(
         (account) => account.type === 'expense_fund'
       )
@@ -10321,7 +10619,7 @@ alert(
 
 <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
   {Object.values(
-    commissionAdjustedCentralFundAccounts.reduce(
+    alignedLedgerFundAccounts.reduce(
       (totals, account) => {
         const categoryName = String(
           account?.name ||
@@ -10451,7 +10749,7 @@ alert(
       </thead>
 
       <tbody>
-        {commissionAdjustedCentralFundAccounts
+        {alignedLedgerFundAccounts
   .filter((account) => {
     if (ledgerShopFilter === 'all') {
       return true;
@@ -10503,7 +10801,7 @@ alert(
           </tr>
         ))}
 
-        {centralFundAccounts.length === 0 ? (
+        {alignedLedgerFundAccounts.length === 0 ? (
           <tr>
             <td
               colSpan={6}
@@ -10564,7 +10862,7 @@ alert(
             : '-- Select fund --'}
         </option>
 
-        {centralFundAccounts
+        {alignedLedgerFundAccounts
           .filter(
             (account) =>
               account.type === 'expense_fund' &&
@@ -10762,44 +11060,148 @@ alert(
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        <StatCard
-          label={
-            language === 'sw'
-              ? 'Faida ya mmiliki iliyokusanywa'
-              : 'Owner profit accumulated'
-          }
-          value={
-  roundToCashStep(
-    centralFundSummary.ownerProfitAccumulated
-  )
-}
-        />
+<div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+  <StatCard
+    label={
+      language === 'sw'
+        ? 'Faida ya mmiliki iliyokusanywa'
+        : 'Owner profit accumulated'
+    }
+    value={
+      Number(ownerProfitAccount.baseAmount || 0) +
+      Number(ownerProfitAccount.moneyIn || 0) +
+      Number(ownerProfitAccount.automaticCommissionAmount || 0)
+    }
+  />
 
-        <StatCard
-          label={
-            language === 'sw'
-              ? 'Fedha ambazo mmiliki amechukua'
-              : 'Owner drawings taken'
-          }
-          value={
-            centralFundSummary.ownerDrawingsTaken
-          }
-        />
+  <StatCard
+    label={
+      language === 'sw'
+        ? 'Fedha ambazo mmiliki amechukua'
+        : 'Owner drawings taken'
+    }
+    value={ownerProfitAccount.moneyOut}
+  />
 
-        <StatCard
-          label={
-            language === 'sw'
-              ? 'Faida ya mmiliki iliyobaki'
-              : 'Owner profit available'
-          }
-          value={
-  roundToCashStep(
-    centralFundSummary.ownerProfitAvailable
-  )
-}
-        />
+  <StatCard
+    label={
+      language === 'sw'
+        ? 'Faida ya mmiliki iliyobaki'
+        : 'Owner profit available'
+    }
+    value={ownerProfitAccount.availableBalance}
+  />
+</div>
+
+<div className="mt-5 rounded-2xl border border-violet-200 bg-white p-4">
+  <div className="mb-3 text-sm font-black uppercase tracking-wide text-violet-800">
+    {language === 'sw'
+      ? 'Mchanganuo wa Faida ya Mmiliki'
+      : 'Owner Profit Breakdown'}
+  </div>
+
+  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="rounded-xl bg-slate-50 p-3">
+      <div className="text-xs font-bold text-slate-500">
+        {language === 'sw'
+          ? 'Faida ghafi iliyopatikana'
+          : 'Gross profit generated'}
       </div>
+      <div className="mt-1 font-black">
+        TZS {money(
+          centralFundSummary.ownerProfitGrossProfitGenerated
+        )}
+      </div>
+    </div>
+
+    <div className="rounded-xl bg-slate-50 p-3">
+      <div className="text-xs font-bold text-slate-500">
+        {language === 'sw'
+          ? 'Fedha iliyotumika kulipia matumizi'
+          : 'Less expenses funded'}
+      </div>
+      <div className="mt-1 font-black text-red-700">
+        TZS {money(
+          centralFundSummary.ownerProfitExpensesFunded
+        )}
+      </div>
+    </div>
+
+    <div className="rounded-xl bg-slate-50 p-3">
+      <div className="text-xs font-bold text-slate-500">
+        {language === 'sw'
+          ? 'Faida baada ya matumizi'
+          : 'Net profit after expenses'}
+      </div>
+      <div className="mt-1 font-black">
+        TZS {money(
+          centralFundSummary.ownerProfitNetProfitAfterExpenses
+        )}
+      </div>
+    </div>
+
+    <div className="rounded-xl bg-violet-50 p-3">
+      <div className="text-xs font-bold text-violet-700">
+        {language === 'sw'
+          ? 'Asilimia 70 ya mmiliki'
+          : 'Owner 70%'}
+      </div>
+      <div className="mt-1 font-black text-violet-800">
+        TZS {money(
+          centralFundSummary.ownerProfitOwner70
+        )}
+      </div>
+    </div>
+
+    <div className="rounded-xl bg-orange-50 p-3">
+      <div className="text-xs font-bold text-orange-700">
+        {language === 'sw'
+          ? 'Faida ya gesi kwa mmiliki'
+          : 'Gas owner profit'}
+      </div>
+      <div className="mt-1 font-black text-orange-800">
+        TZS {money(
+          centralFundSummary.ownerProfitGasOwnerProfit
+        )}
+      </div>
+    </div>
+
+    <div className="rounded-xl bg-cyan-50 p-3">
+      <div className="text-xs font-bold text-cyan-700">
+        {language === 'sw'
+          ? 'Faida ya kamisheni kwa mmiliki'
+          : 'Commission owner profit'}
+      </div>
+      <div className="mt-1 font-black text-cyan-800">
+        TZS {money(
+          ownerProfitAccount.automaticCommissionAmount
+        )}
+      </div>
+    </div>
+
+    <div className="rounded-xl bg-red-50 p-3">
+      <div className="text-xs font-bold text-red-700">
+        {language === 'sw'
+          ? 'Fedha ambazo mmiliki amechukua'
+          : 'Owner drawings taken'}
+      </div>
+      <div className="mt-1 font-black text-red-800">
+        TZS {money(ownerProfitAccount.moneyOut)}
+      </div>
+    </div>
+
+    <div className="rounded-xl bg-emerald-50 p-3">
+      <div className="text-xs font-bold text-emerald-700">
+        {language === 'sw'
+          ? 'Faida ya mmiliki iliyobaki'
+          : 'Owner profit available'}
+      </div>
+      <div className="mt-1 font-black text-emerald-800">
+        TZS {money(ownerProfitAccount.availableBalance)}
+      </div>
+    </div>
+  </div>
+</div>
     </div>
 {activeAccountabilitySection === 'owner' ? (
   <div className="flex justify-end">
@@ -11247,7 +11649,7 @@ alert(
             : '-- Select fund --'}
         </option>
 
-        {centralFundAccounts
+        {alignedLedgerFundAccounts
           .filter(
             (account) =>
               Number(account.availableBalance || 0) > 0
@@ -11289,7 +11691,7 @@ alert(
             : '-- Select fund --'}
         </option>
 
-        {centralFundAccounts
+        {alignedLedgerFundAccounts
           .filter(
             (account) =>
               account.key !== emergencySourceFundKey

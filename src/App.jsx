@@ -4,6 +4,7 @@ import { supabase } from './supabaseClient';
 import { GasBusinessSection, GasDashboardCard, GasReportBlock, buildGasRecord, getGasDashboardSummary } from './GasBusinessSection';
 import RentalPropertySection from './RentalPropertySection';
 import CEODecisionCentre from './CEODecisionCentre';
+import HomeExpensesCentre from './homeExpenses/HomeExpensesCentre';
 import DailyRemittanceCentre, {
   calculateShop,
   getLiveRemittanceShopPosition,
@@ -429,6 +430,96 @@ if (Array.isArray(item.payload.products)) {
 
         await supabase
           .from('monthlyWakalaCommissions')
+          .upsert([row], { onConflict: 'id' });
+
+      } else if (item.actionType === 'central_fund_transaction_created') {
+        const payload = item.payload || {};
+
+        const row = {
+          id: payload.id,
+          transaction_type:
+            payload.transactionType ||
+            payload.transaction_type ||
+            '',
+          transaction_date:
+            payload.transactionDate ||
+            payload.transaction_date ||
+            todayISO(),
+
+          shop_id: String(payload.shop_id || '').trim(),
+          shop_name: payload.shopName || payload.shop_name || '',
+
+          expense_key:
+            payload.expenseKey ||
+            payload.expense_key ||
+            '',
+          expense_name:
+            payload.expenseName ||
+            payload.expense_name ||
+            '',
+
+          source_fund_type:
+            payload.sourceFundType ||
+            payload.source_fund_type ||
+            '',
+          source_fund_key:
+            payload.sourceFundKey ||
+            payload.source_fund_key ||
+            '',
+          source_fund_name:
+            payload.sourceFundName ||
+            payload.source_fund_name ||
+            '',
+
+          destination_fund_type:
+            payload.destinationFundType ||
+            payload.destination_fund_type ||
+            '',
+          destination_fund_key:
+            payload.destinationFundKey ||
+            payload.destination_fund_key ||
+            '',
+          destination_fund_name:
+            payload.destinationFundName ||
+            payload.destination_fund_name ||
+            '',
+
+          amount: Number(payload.amount || 0),
+
+          payee: payload.payee || '',
+          purpose: payload.purpose || '',
+          payment_method:
+            payload.paymentMethod ||
+            payload.payment_method ||
+            '',
+          payment_reference:
+            payload.paymentReference ||
+            payload.payment_reference ||
+            '',
+          notes: payload.notes || '',
+          status: payload.status || 'confirmed',
+
+          recorded_by_user_id:
+            payload.recordedByUserId ||
+            payload.recorded_by_user_id ||
+            '',
+          recorded_by_name:
+            payload.recordedByName ||
+            payload.recorded_by_name ||
+            '',
+          recorded_by_role:
+            payload.recordedByRole ||
+            payload.recorded_by_role ||
+            '',
+
+          created_at:
+            payload.created_at || new Date().toISOString(),
+          updated_at:
+            payload.updated_at || new Date().toISOString(),
+        };
+
+        await supabase
+          .from('centralFundTransactions')
           .upsert([row], { onConflict: 'id' });
 
       } else if (item.actionType === 'gas_created') {
@@ -6874,6 +6965,11 @@ banks: mobileMoneyForm.banks.map((b) => ({
       ['pos', t(language, 'Sales', 'Mauzo')],
 ['expenses', t(language, 'Expenses', 'Matumizi')],
 ['remittance', t(language, 'Remittance & Expense Funds', 'Makusanyo na Fedha za Matumizi')],
+...(
+  String(shop.id || '') === 'shop-1'
+    ? [['homeExpenses', t(language, 'Home Expenses', 'Matumizi ya Nyumbani')]]
+    : []
+),
 ['credit', t(language, 'Credit', 'Madeni')],
       ['change', t(language, 'Customer Change', 'Chenji ya Mteja')],
       ['mobilemoney', t(language, 'Mobile Money', 'Wakala')],
@@ -7767,6 +7863,16 @@ banks: mobileMoneyForm.banks.map((b) => ({
   reportStartDate={reportStartDate}
   reportEndDate={reportEndDate}
 />
+      </TabsContent>
+
+      <TabsContent value="homeExpenses" activeValue={activeTab}>
+        <HomeExpensesCentre
+          data={data}
+          saveData={saveData}
+          shop={shop}
+          language={language}
+          currentUser={data.currentUser}
+        />
       </TabsContent>
 
       <TabsContent value="credit" activeValue={activeTab}>
