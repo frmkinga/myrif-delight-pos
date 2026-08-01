@@ -146,10 +146,21 @@ const STORAGE_SYNC_QUEUE_KEY = 'rafikiai_sync_queue';
 const t = (language, en, sw) =>
   language === 'sw' ? sw : en;
 
+const roundHomeCashDisplay = (value, step = 50) => {
+  const amount = Number(value || 0);
+
+  if (!Number.isFinite(amount) || amount === 0) return 0;
+
+  const sign = amount < 0 ? -1 : 1;
+  const absoluteAmount = Math.abs(amount);
+
+  return sign * Math.round(absoluteAmount / step) * step;
+};
+
 const money = (value) =>
   new Intl.NumberFormat('en-US', {
     maximumFractionDigits: 0,
-  }).format(Number(value || 0));
+  }).format(roundHomeCashDisplay(value));
 
 const todayISO = (input = new Date()) => {
   const d = new Date(input);
@@ -938,6 +949,7 @@ const previousMonthKey = useMemo(
     commissionDeficitBeforeConfirmation
   );
 
+
   const addProductToCart = (product, qty = 1) => {
     const quantity = Number(qty || 0);
 
@@ -1018,13 +1030,28 @@ const previousMonthKey = useMemo(
       ];
     });
   };
+
+    const addProductToCartAndClearSearch = (product, qty = 1) => {
+    addProductToCart(product, qty);
+    setProductSearch('');
+  };
   const updateCartQuantity = (productId, value) => {
-    const quantity = Number(value || 0);
+    const rawValue = String(value ?? '');
 
     setCart((previousCart) =>
       previousCart
         .map((item) => {
           if (item.productId !== productId) return item;
+
+          if (rawValue.trim() === '') {
+            return {
+              ...item,
+              quantity: '',
+              total: 0,
+            };
+          }
+
+          const quantity = Number(rawValue || 0);
 
           const product = products.find(
             (p) => p.id === productId
@@ -1045,7 +1072,13 @@ const previousMonthKey = useMemo(
             total: safeQuantity * Number(item.price || 0),
           };
         })
-        .filter((item) => Number(item.quantity || 0) > 0)
+        .filter((item) => {
+          const itemQuantityText = String(item.quantity ?? '').trim();
+
+          if (itemQuantityText === '') return true;
+
+          return Number(item.quantity || 0) > 0;
+        })
     );
   };
 
@@ -1069,16 +1102,8 @@ const previousMonthKey = useMemo(
       return;
     }
 
-    if (!String(takenBy || '').trim()) {
-      setSaleError(
-        t(
-          language,
-          'Please fill who took the items.',
-          'Tafadhali jaza aliyechukua bidhaa.'
-        )
-      );
-      return;
-    }
+    const homeTakenBy =
+      String(takenBy || '').trim() || 'Nyumbani';
 
     if (!String(purpose || '').trim()) {
       setSaleError(
@@ -1161,7 +1186,7 @@ const previousMonthKey = useMemo(
         homeExpenseLabel: 'Matumizi ya Nyumbani',
         homeExpenseSource: 'Shop 1 / Nyumbani Shop',
         homeExpenseDate: saleDate || todayISO(),
-        takenBy: String(takenBy || '').trim(),
+        takenBy: homeTakenBy,
         purpose: String(purpose || '').trim(),
         notes: String(notes || '').trim(),
       }));
@@ -1707,7 +1732,13 @@ const previousMonthKey = useMemo(
     currentMonthCashTransactions,
     language,
   ]);
+  const collectionBudgetBalance =
+    Number(fundingSummary.monthlyBudget || 0) -
+    Number(fundingSummary.fundedSoFar || 0);
 
+  const spendingBudgetBalance =
+    Number(fundingSummary.monthlyBudget || 0) -
+    Number(fundingSummary.totalSpent || 0);
   if (!isShopOne) {
     return null;
   }
@@ -1828,7 +1859,11 @@ const previousMonthKey = useMemo(
                   className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
                   value={takenBy}
                   onChange={(e) => setTakenBy(e.target.value)}
-                  placeholder={t(language, 'Enter name', 'Andika jina')}
+                  placeholder={t(
+                    language,
+                    'Optional, defaults to Home',
+                    'Si lazima, itahifadhi Nyumbani'
+                  )}
                 />
               </div>
 
@@ -1871,59 +1906,113 @@ const previousMonthKey = useMemo(
             </div>
 
             {filteredProducts.length ? (
-              <div className="grid gap-2 md:grid-cols-2">
-                {filteredProducts.map((product) => (
-                  <div
-                    key={product.id}
-                    className="rounded-xl border border-slate-200 bg-white p-3"
-                  >
-                    <div className="font-black text-slate-900">
-                      {product.name}
-                    </div>
-                    <div className="mt-1 text-xs text-slate-500">
-                      {t(language, 'Stock', 'Stock')}:{' '}
-                      {formatQty(product.stockBaseQty)}{' '}
-                      {product.baseUnit} • TZS{' '}
-                      {money(product.sellPrice)}
-                    </div>
+              <div className="space-y-3">
+                {filteredProducts.map((product) => {
+                  const measurementOptions =
+                    product.baseUnit === 'pc'
+                      ? []
+                      : [0.06, 0.12, 0.25, 0.5, 0.75, 1, 2, 3];
 
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          addProductToCart(product, 1)
-                        }
-                        className="rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-black text-white"
-                      >
-                        +1
-                      </button>
+                  return (
+                    <div
+                      key={product.id}
+                      data-home-product-row="true"
+                      className="rounded-xl border border-slate-200 bg-white p-3"
+                    >
+                      <div className="font-black text-slate-900">
+                        {product.name}
+                      </div>
 
-                      {product.baseUnit !== 'pc' ? (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              addProductToCart(product, 0.5)
+                      <div className="mt-1 text-xs text-slate-500">
+                        {t(language, 'Stock', 'Stock')}:{' '}
+                        {formatQty(product.stockBaseQty)}{' '}
+                        {product.baseUnit} • TZS{' '}
+                        {money(product.sellPrice)}
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <input
+                          data-home-qty-input="true"
+                          type="number"
+                          min={product.baseUnit === 'pc' ? '1' : '0.01'}
+                          step={product.baseUnit === 'pc' ? '1' : '0.01'}
+                          defaultValue={product.baseUnit === 'pc' ? '' : '1'}
+                          placeholder={product.baseUnit === 'pc' ? '1' : ''}
+                          className="h-9 w-24 rounded-lg border border-slate-200 px-3 py-1.5 text-center text-sm font-bold"
+                          onKeyDown={(e) => {
+                            if (e.key !== 'Enter') return;
+
+                            const rawQty =
+                              e.currentTarget.value?.trim() || '';
+                            const qty =
+                              rawQty === '' ? 1 : Number(rawQty);
+
+                            addProductToCartAndClearSearch(product, qty);
+
+                            e.currentTarget.value =
+                              product.baseUnit === 'pc' ? '' : '1';
+                          }}
+                        />
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            const row = e.currentTarget.closest(
+                              '[data-home-product-row]'
+                            );
+
+                            const qtyInput = row?.querySelector(
+                              '[data-home-qty-input]'
+                            );
+
+                            const rawQty =
+                              qtyInput?.value?.trim() || '';
+
+                            const qty =
+                              rawQty === '' ? 1 : Number(rawQty);
+
+                            addProductToCartAndClearSearch(product, qty);
+
+                            if (qtyInput) {
+                              qtyInput.value =
+                                product.baseUnit === 'pc' ? '' : '1';
                             }
-                            className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-black text-white"
-                          >
-                            +0.5
-                          </button>
+                          }}
+                          disabled={
+                            Number(product.stockBaseQty || 0) <
+                            (product.baseUnit === 'pc' ? 1 : 0.01)
+                          }
+                          className="rounded-lg bg-emerald-700 px-4 py-2 text-xs font-black text-white disabled:opacity-50"
+                        >
+                          {t(language, 'Add', 'Ongeza')}
+                        </button>
+                      </div>
 
-                          <button
-                            type="button"
-                            onClick={() =>
-                              addProductToCart(product, 0.25)
-                            }
-                            className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-black text-white"
-                          >
-                            +0.25
-                          </button>
-                        </>
+                      {measurementOptions.length ? (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {measurementOptions.map((qty) => (
+                            <button
+                              key={qty}
+                              type="button"
+                              onClick={() =>
+                                addProductToCartAndClearSearch(
+                                  product,
+                                  qty
+                                )
+                              }
+                              disabled={
+                                Number(product.stockBaseQty || 0) < qty
+                              }
+                              className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-black text-white disabled:opacity-40"
+                            >
+                              +{formatQty(qty)}
+                            </button>
+                          ))}
+                        </div>
                       ) : null}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : null}
 
@@ -2115,12 +2204,88 @@ const previousMonthKey = useMemo(
                 </p>
               </div>
 
-              <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm">
-                <div className="font-bold text-slate-500">
-                  {t(language, 'Monthly budget', 'Bajeti ya mwezi')}
-                </div>
-                <div className="text-xl font-black text-slate-950">
-                  TZS {money(fundingSummary.monthlyBudget)}
+              <div className="w-full max-w-2xl rounded-[28px] border border-emerald-200 bg-emerald-50 p-5 text-sm shadow-sm lg:min-w-[520px]">
+                <div className="grid gap-6 lg:grid-cols-2">
+                  <div className="rounded-3xl border-2 border-emerald-300 bg-white p-4 shadow-sm">
+                    <div className="text-xs font-black uppercase tracking-wide text-emerald-700">
+                      {t(language, 'Collection', 'Makusanyo')}
+                    </div>
+
+                    <div className="mt-3 space-y-2">
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="font-bold text-slate-500">
+                          {t(language, 'Budget', 'Bajeti')}
+                        </span>
+                        <strong className="text-slate-950">
+                          TZS {money(fundingSummary.monthlyBudget)}
+                        </strong>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="font-bold text-slate-500">
+                          {t(language, 'Collected', 'Iliyokusanywa')}
+                        </span>
+                        <strong className="text-emerald-700">
+                          TZS {money(fundingSummary.fundedSoFar)}
+                        </strong>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-4 border-t border-emerald-200 pt-3">
+                        <span className="font-black text-slate-800">
+                          {t(language, 'Remaining', 'Bado')}
+                        </span>
+                        <strong
+                          className={
+                            collectionBudgetBalance < 0
+                              ? 'text-red-700'
+                              : 'text-emerald-800'
+                          }
+                        >
+                          TZS {money(collectionBudgetBalance)}
+                        </strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-3xl border-2 border-orange-300 bg-white p-4 shadow-sm">
+                    <div className="text-xs font-black uppercase tracking-wide text-orange-700">
+                      {t(language, 'Spending', 'Matumizi')}
+                    </div>
+
+                    <div className="mt-3 space-y-2">
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="font-bold text-slate-500">
+                          {t(
+                            language,
+                            'Spent so far',
+                            'Matumizi hadi sasa'
+                          )}
+                        </span>
+                        <strong className="text-orange-700">
+                          TZS {money(fundingSummary.totalSpent)}
+                        </strong>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-4 border-t border-orange-200 pt-3">
+                        <span className="font-black text-slate-800">
+                          {t(
+                            language,
+                            'Remaining to spend',
+                            'Bado kutumia'
+                          )}
+                        </span>
+                        <strong
+                          className={
+                            spendingBudgetBalance < 0
+                              ? 'text-red-700'
+                              : 'text-orange-800'
+                          }
+                        >
+                          TZS {money(spendingBudgetBalance)}
+                        </strong>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -2219,8 +2384,8 @@ const previousMonthKey = useMemo(
                     <span>
                       {t(
                         language,
-                        'Amount owed if negative',
-                        'Kiasi kinachodaiwa kama ni negative'
+                        'Amount owed',
+                        'Kiasi kinachodaiwa'
                       )}
                     </span>
                     <strong className={
