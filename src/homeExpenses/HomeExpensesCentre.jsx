@@ -402,6 +402,13 @@ const getReportDateRange = ({
     return addDays(d, diff);
   };
 
+  if (preset === 'all') {
+    return {
+      startKey: HOME_EXPENSES_START_DATE,
+      endKey: todayISO(now),
+    };
+  }
+
   if (preset === 'today') {
     return {
       startKey: todayISO(now),
@@ -590,7 +597,8 @@ export default function HomeExpensesCentre({
   const [commissionSaving, setCommissionSaving] = useState(false);
   const [showCommissionSupport, setShowCommissionSupport] = useState(false);
 
-  const [reportPreset, setReportPreset] = useState('today');
+  const [reportPreset, setReportPreset] = useState('all');
+  const [reportView, setReportView] = useState('products');
   const [customStartDate, setCustomStartDate] = useState(todayISO());
   const [customEndDate, setCustomEndDate] = useState(todayISO());
 
@@ -1646,6 +1654,135 @@ const previousMonthKey = useMemo(
     );
   }, [homeExpenseItemRows]);
 
+  const productReportGroups = useMemo(() => {
+    const groupMap = new Map();
+
+    homeExpenseItemRows.forEach((row) => {
+      const dateKey = String(row.date || '').slice(0, 10) || '-';
+
+      if (!groupMap.has(dateKey)) {
+        groupMap.set(dateKey, {
+          date: dateKey,
+          rows: [],
+          totalAmount: 0,
+        });
+      }
+
+      const group = groupMap.get(dateKey);
+
+      group.rows.push(row);
+      group.totalAmount += Number(row.total || 0);
+    });
+
+    return Array.from(groupMap.values()).sort((a, b) =>
+      String(a.date || '').localeCompare(String(b.date || ''))
+    );
+  }, [homeExpenseItemRows]);
+
+  const productReportGrandTotal = useMemo(
+    () =>
+      productReportGroups.reduce(
+        (sum, group) => sum + Number(group.totalAmount || 0),
+        0
+      ),
+    [productReportGroups]
+  );
+
+  const cashReportGroups = useMemo(() => {
+    const groupMap = new Map();
+
+    reportCashTransactions.forEach((row) => {
+      const dateKey = String(row.date || '').slice(0, 10) || '-';
+
+      if (!groupMap.has(dateKey)) {
+        groupMap.set(dateKey, {
+          date: dateKey,
+          rows: [],
+          totalAmount: 0,
+        });
+      }
+
+      const group = groupMap.get(dateKey);
+
+      group.rows.push(row);
+      group.totalAmount += Number(row.amount || 0);
+    });
+
+    return Array.from(groupMap.values()).sort((a, b) =>
+      String(a.date || '').localeCompare(String(b.date || ''))
+    );
+  }, [reportCashTransactions]);
+
+  const cashReportGrandTotal = useMemo(
+    () =>
+      cashReportGroups.reduce(
+        (sum, group) => sum + Number(group.totalAmount || 0),
+        0
+      ),
+    [cashReportGroups]
+  );
+
+  const stockUsedReportGroups = useMemo(() => {
+    const groupMap = new Map();
+
+    homeExpenseItemRows.forEach((row) => {
+      const dateKey = String(row.date || '').slice(0, 10) || '-';
+
+      if (!groupMap.has(dateKey)) {
+        groupMap.set(dateKey, {
+          date: dateKey,
+          productMap: new Map(),
+          totalAmount: 0,
+        });
+      }
+
+      const group = groupMap.get(dateKey);
+      const productKey = row.productId || row.productName || 'unknown';
+
+      if (!group.productMap.has(productKey)) {
+        group.productMap.set(productKey, {
+          productId: row.productId,
+          productName: row.productName,
+          quantity: 0,
+          unit: row.unit,
+          total: 0,
+          entriesCount: 0,
+        });
+      }
+
+      const productRow = group.productMap.get(productKey);
+
+      productRow.quantity += Number(row.quantity || 0);
+      productRow.total += Number(row.total || 0);
+      productRow.entriesCount += 1;
+
+      group.totalAmount += Number(row.total || 0);
+    });
+
+    return Array.from(groupMap.values())
+      .map((group) => ({
+        date: group.date,
+        totalAmount: group.totalAmount,
+        rows: Array.from(group.productMap.values()).sort(
+          (a, b) =>
+            Number(b.total || 0) - Number(a.total || 0) ||
+            Number(b.quantity || 0) - Number(a.quantity || 0)
+        ),
+      }))
+      .sort((a, b) =>
+        String(a.date || '').localeCompare(String(b.date || ''))
+      );
+  }, [homeExpenseItemRows]);
+
+  const stockUsedReportGrandTotal = useMemo(
+    () =>
+      stockUsedReportGroups.reduce(
+        (sum, group) => sum + Number(group.totalAmount || 0),
+        0
+      ),
+    [stockUsedReportGroups]
+  );
+
   const ledgerRows = useMemo(() => {
     const fundingRows = [
       {
@@ -2194,6 +2331,7 @@ const previousMonthKey = useMemo(
                 : t(language, 'Save Cash Taken', 'Hifadhi Cash')}
             </button>
           </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -2620,9 +2758,65 @@ const previousMonthKey = useMemo(
 
       {activeTab === 'reports' ? (
         <div className="space-y-4">
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+            <div className="text-xs font-black uppercase tracking-wide text-emerald-700">
+              {t(language, 'Choose report type', 'Chagua aina ya ripoti')}
+            </div>
+
+            <div className="mt-3 grid gap-3 lg:grid-cols-3">
+              {[
+                [
+                  'products',
+                  t(
+                    language,
+                    'Home-Use Product Activity Report',
+                    'Ripoti ya Bidhaa Zilizochukuliwa kwa Matumizi ya Nyumbani'
+                  ),
+                ],
+                [
+                  'cash',
+                  t(
+                    language,
+                    'Home Cash Taken Report',
+                    'Ripoti ya Pesa Taslimu Iliyotolewa kwa Matumizi ya Nyumbani'
+                  ),
+                ],
+                [
+                  'stock',
+                  t(
+                    language,
+                    'Home Stock Consumption Summary',
+                    'Muhtasari wa Stock Iliyotumika Nyumbani'
+                  ),
+                ],
+              ].map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setReportView(key)}
+                  className={`rounded-2xl px-4 py-3 text-left text-sm font-black shadow-sm ${
+                    reportView === key
+                      ? 'bg-emerald-700 text-white'
+                      : 'bg-white text-slate-800 ring-1 ring-emerald-200 hover:bg-emerald-50'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <div className="flex flex-wrap gap-2">
               {[
+                [
+                  'all',
+                  t(
+                    language,
+                    'All since 01/08/2026',
+                    'Zote Tangu 01/08/2026'
+                  ),
+                ],
                 ['today', t(language, 'Today', 'Leo')],
                 ['yesterday', t(language, 'Yesterday', 'Jana')],
                 ['week', t(language, 'This week', 'Wiki hii')],
@@ -2691,9 +2885,14 @@ const previousMonthKey = useMemo(
             />
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-4">
-            <h3 className="text-lg font-black text-slate-950">
-              {t(language, 'Product Consumption Report', 'Ripoti ya Bidhaa Zilizotumika')}
+          {reportView === 'products' ? (
+            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+              <h3 className="text-lg font-black text-slate-950">
+                {t(
+                  language,
+                  'Home-Use Product Activity Report',
+                  'Ripoti ya Bidhaa Zilizochukuliwa kwa Matumizi ya Nyumbani'
+                )}
             </h3>
 
             <div className="mt-3 overflow-x-auto">
@@ -2710,17 +2909,67 @@ const previousMonthKey = useMemo(
                   </tr>
                 </thead>
                 <tbody>
-                  {homeExpenseItemRows.map((row) => (
-                    <tr key={row.id} className="border-b">
-                      <td className="px-3 py-2">{row.date}</td>
-                      <td className="px-3 py-2">{row.productName}</td>
-                      <td className="px-3 py-2 text-right">{formatQty(row.quantity)} {row.unit}</td>
-                      <td className="px-3 py-2 text-right">TZS {money(row.total)}</td>
-                      <td className="px-3 py-2">{row.takenBy}</td>
-                      <td className="px-3 py-2">{row.purpose}</td>
-                      <td className="px-3 py-2">{row.notes}</td>
-                    </tr>
+                  {productReportGroups.map((group) => (
+                    <React.Fragment key={group.date}>
+                      <tr className="bg-slate-900 text-white">
+                        <td
+                          colSpan="7"
+                          className="px-3 py-2 text-xs font-black uppercase tracking-wide"
+                        >
+                          {t(language, 'Date', 'Tarehe')}: {group.date}
+                        </td>
+                      </tr>
+
+                      {group.rows.map((row) => (
+                        <tr key={row.id} className="border-b">
+                          <td className="px-3 py-2">{row.date}</td>
+                          <td className="px-3 py-2">{row.productName}</td>
+                          <td className="px-3 py-2 text-right">
+                            {formatQty(row.quantity)} {row.unit}
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            TZS {money(row.total)}
+                          </td>
+                          <td className="px-3 py-2">{row.takenBy}</td>
+                          <td className="px-3 py-2">{row.purpose}</td>
+                          <td className="px-3 py-2">{row.notes}</td>
+                        </tr>
+                      ))}
+
+                      <tr className="border-b-2 border-emerald-300 bg-emerald-50">
+                        <td
+                          colSpan="3"
+                          className="px-3 py-3 text-right text-sm font-black text-emerald-950"
+                        >
+                          {t(language, 'Daily total', 'Jumla ya siku')}{' '}
+                          {group.date}
+                        </td>
+
+                        <td className="px-3 py-3 text-right text-sm font-black text-emerald-950">
+                          TZS {money(group.totalAmount)}
+                        </td>
+
+                        <td colSpan="3" />
+                      </tr>
+                    </React.Fragment>
                   ))}
+
+                  {productReportGroups.length ? (
+                    <tr className="bg-emerald-900 text-white">
+                      <td
+                        colSpan="3"
+                        className="px-3 py-4 text-right text-base font-black uppercase tracking-wide"
+                      >
+                        {t(language, 'Grand total', 'Jumla kuu')}
+                      </td>
+
+                      <td className="px-3 py-4 text-right text-base font-black">
+                        TZS {money(productReportGrandTotal)}
+                      </td>
+
+                      <td colSpan="3" />
+                    </tr>
+                  ) : null}
 
                   {!homeExpenseItemRows.length ? (
                     <tr>
@@ -2733,10 +2982,16 @@ const previousMonthKey = useMemo(
               </table>
             </div>
           </div>
+          ) : null}
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-4">
-            <h3 className="text-lg font-black text-slate-950">
-              {t(language, 'Cash Taken Report', 'Ripoti ya Cash Iliyochukuliwa')}
+          {reportView === 'cash' ? (
+            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+              <h3 className="text-lg font-black text-slate-950">
+                {t(
+                  language,
+                  'Home Cash Taken Report',
+                  'Ripoti ya Pesa Taslimu Iliyotolewa kwa Matumizi ya Nyumbani'
+                )}
             </h3>
 
             <div className="mt-3 overflow-x-auto">
@@ -2751,15 +3006,59 @@ const previousMonthKey = useMemo(
                   </tr>
                 </thead>
                 <tbody>
-                  {reportCashTransactions.map((row) => (
-                    <tr key={row.id} className="border-b">
-                      <td className="px-3 py-2">{row.date}</td>
-                      <td className="px-3 py-2 text-right">TZS {money(row.amount)}</td>
-                      <td className="px-3 py-2">{row.takenBy}</td>
-                      <td className="px-3 py-2">{row.purpose}</td>
-                      <td className="px-3 py-2">{row.notes}</td>
-                    </tr>
+                  {cashReportGroups.map((group) => (
+                    <React.Fragment key={group.date}>
+                      <tr className="bg-slate-900 text-white">
+                        <td
+                          colSpan="5"
+                          className="px-3 py-2 text-xs font-black uppercase tracking-wide"
+                        >
+                          {t(language, 'Date', 'Tarehe')}: {group.date}
+                        </td>
+                      </tr>
+
+                      {group.rows.map((row) => (
+                        <tr key={row.id} className="border-b">
+                          <td className="px-3 py-2">{row.date}</td>
+                          <td className="px-3 py-2 text-right">
+                            TZS {money(row.amount)}
+                          </td>
+                          <td className="px-3 py-2">{row.takenBy}</td>
+                          <td className="px-3 py-2">{row.purpose}</td>
+                          <td className="px-3 py-2">{row.notes}</td>
+                        </tr>
+                      ))}
+
+                      <tr className="border-b-2 border-emerald-300 bg-emerald-50">
+                        <td
+                          className="px-3 py-3 text-right text-sm font-black text-emerald-950"
+                        >
+                          {t(language, 'Daily total', 'Jumla ya siku')}{' '}
+                          {group.date}
+                        </td>
+
+                        <td className="px-3 py-3 text-right text-sm font-black text-emerald-950">
+                          TZS {money(group.totalAmount)}
+                        </td>
+
+                        <td colSpan="3" />
+                      </tr>
+                    </React.Fragment>
                   ))}
+
+                  {cashReportGroups.length ? (
+                    <tr className="bg-emerald-900 text-white">
+                      <td className="px-3 py-4 text-right text-base font-black uppercase tracking-wide">
+                        {t(language, 'Grand total', 'Jumla kuu')}
+                      </td>
+
+                      <td className="px-3 py-4 text-right text-base font-black">
+                        TZS {money(cashReportGrandTotal)}
+                      </td>
+
+                      <td colSpan="3" />
+                    </tr>
+                  ) : null}
 
                   {!reportCashTransactions.length ? (
                     <tr>
@@ -2772,32 +3071,113 @@ const previousMonthKey = useMemo(
               </table>
             </div>
           </div>
+          ) : null}
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-4">
-            <h3 className="text-lg font-black text-slate-950">
-              {t(language, 'Shop 1 Home Stock Used Report', 'Ripoti ya Stock ya Shop 1 Iliyotumika Nyumbani')}
+          {reportView === 'stock' ? (
+            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+              <h3 className="text-lg font-black text-slate-950">
+                {t(
+                  language,
+                  'Home Stock Consumption Summary',
+                  'Muhtasari wa Stock Iliyotumika Nyumbani'
+                )}
             </h3>
 
-            <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-              {productConsumptionRows.map((row) => (
-                <div key={row.productId || row.productName} className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm">
-                  <div className="font-black text-slate-900">{row.productName}</div>
-                  <div className="mt-1 text-slate-600">
-                    {t(language, 'Quantity', 'Kiasi')}: {formatQty(row.quantity)} {row.unit}
+            <p className="mt-1 text-sm font-bold text-slate-500">
+              {t(
+                language,
+                'Products are grouped by date. Inside each date, the highest used products appear first.',
+                'Bidhaa zimepangwa kwa tarehe. Ndani ya kila tarehe, bidhaa zilizotumika zaidi zinaonekana juu.'
+              )}
+            </p>
+
+            <div className="mt-4 space-y-4">
+              {stockUsedReportGroups.map((group) => (
+                <div
+                  key={group.date}
+                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-900 px-4 py-3 text-white">
+                    <div className="text-sm font-black uppercase tracking-wide">
+                      {t(language, 'Date', 'Tarehe')}: {group.date}
+                    </div>
+
+                    <div className="text-sm font-black">
+                      {t(language, 'Daily total', 'Jumla ya siku')}:{' '}
+                      TZS {money(group.totalAmount)}
+                    </div>
                   </div>
-                  <div className="font-bold text-slate-800">
-                    {t(language, 'Value', 'Thamani')}: TZS {money(row.total)}
+
+                  <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                    {group.rows.map((row, index) => (
+                      <div
+                        key={`${group.date}-${row.productId || row.productName}`}
+                        className="rounded-xl border border-slate-200 bg-white p-3 text-sm shadow-sm"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="font-black text-slate-900">
+                            {row.productName}
+                          </div>
+
+                          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-black text-emerald-800 ring-1 ring-emerald-200">
+                            #{index + 1}
+                          </span>
+                        </div>
+
+                        <div className="mt-2 grid gap-1 text-slate-600">
+                          <div>
+                            {t(language, 'Quantity', 'Kiasi')}:{' '}
+                            <strong className="text-slate-950">
+                              {formatQty(row.quantity)} {row.unit}
+                            </strong>
+                          </div>
+
+                          <div>
+                            {t(language, 'Value', 'Thamani')}:{' '}
+                            <strong className="text-slate-950">
+                              TZS {money(row.total)}
+                            </strong>
+                          </div>
+
+                          <div>
+                            {t(language, 'Records', 'Mara')}:{' '}
+                            <strong className="text-slate-950">
+                              {row.entriesCount}
+                            </strong>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               ))}
 
-              {!productConsumptionRows.length ? (
+              {stockUsedReportGroups.length ? (
+                <div className="rounded-2xl bg-emerald-900 px-4 py-4 text-white">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="text-base font-black uppercase tracking-wide">
+                      {t(language, 'Grand total', 'Jumla kuu')}
+                    </div>
+
+                    <div className="text-xl font-black">
+                      TZS {money(stockUsedReportGrandTotal)}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {!stockUsedReportGroups.length ? (
                 <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">
-                  {t(language, 'No stock used in this period.', 'Hakuna stock iliyotumika kwenye kipindi hiki.')}
+                  {t(
+                    language,
+                    'No stock used in this period.',
+                    'Hakuna stock iliyotumika kwenye kipindi hiki.'
+                  )}
                 </div>
               ) : null}
             </div>
           </div>
+          ) : null}
         </div>
       ) : null}
     </div>
