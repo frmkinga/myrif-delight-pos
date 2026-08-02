@@ -517,7 +517,15 @@ const money = (value) =>
   new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(
     roundToCashStep(value)
   );
-  const getExpenseRequiredAmountForDate = (
+
+const signedMoney = (value) => {
+  const amount = Number(value || 0);
+  const sign = amount < 0 ? '-' : '';
+
+  return `${sign}${money(Math.abs(amount))}`;
+};
+
+const getExpenseRequiredAmountForDate = (
   expense,
   calculationDateKey
 ) => {
@@ -1521,7 +1529,7 @@ export default function DailyRemittanceCentre({
 
   const language = appLanguage;
   const rolePreview = resolvedRole;
- const [activeTab, setActiveTab] = useState('daily');
+ const [activeTab, setActiveTab] = useState('simple-summary');
 
 const [
   activeAccountabilitySection,
@@ -7003,37 +7011,920 @@ const localExpenseRows = useMemo(() => {
   });
 }, [rows]);
 
-const localExpenseSummaryRows = useMemo(() => {
-  return rows.map((shopRow) => {
-    const shopLocalRows = localExpenseRows.filter(
-      (row) =>
-        String(row.shop_id) === String(shopRow.id)
+const simpleIncomeExpenseSummary = useMemo(() => {
+  const now = new Date();
+
+  const currentMonthKey = `${now.getFullYear()}-${String(
+    now.getMonth() + 1
+  ).padStart(2, '0')}`;
+
+  const currentMonthStartKey = `${currentMonthKey}-01`;
+
+  const summaryStartKey =
+    currentMonthStartKey < AUTOMATIC_EXPENSE_OFFICIAL_START_DATE
+      ? AUTOMATIC_EXPENSE_OFFICIAL_START_DATE
+      : currentMonthStartKey;
+
+  const todayKey = `${now.getFullYear()}-${String(
+    now.getMonth() + 1
+  ).padStart(2, '0')}-${String(now.getDate()).padStart(
+    2,
+    '0'
+  )}`;
+
+  const dateKeys = getExpenseDateKeys(
+    summaryStartKey,
+    todayKey
+  );
+
+  const [summaryYear, summaryMonth] = currentMonthKey
+    .split('-')
+    .map(Number);
+
+  const daysInMonth =
+    summaryYear && summaryMonth
+      ? new Date(summaryYear, summaryMonth, 0).getDate()
+      : 0;
+
+  const shops = Array.isArray(data?.shops)
+    ? data.shops
+    : [];
+
+  const sales = Array.isArray(data?.sales)
+    ? data.sales
+    : [];
+
+  const products = Array.isArray(data?.products)
+    ? data.products
+    : [];
+
+  const gasEntries = Array.isArray(data?.gasEntries)
+    ? data.gasEntries
+    : [];
+
+  const transactions = Array.isArray(
+    data?.centralFundTransactions
+  )
+    ? data.centralFundTransactions
+    : [];
+
+  const productById = new Map(
+    products.map((product) => [
+      String(product?.id || ''),
+      product,
+    ])
+  );
+
+  const expenseOrder = [
+    'salary',
+    'rent',
+    'homeExpenses',
+    'medical',
+    'tra',
+    'dataBundle',
+  ];
+
+  const expenseTotalsMap = new Map();
+
+  const getExpenseDisplayName = (
+    expenseKey,
+    fallbackName
+  ) => {
+    if (language !== 'sw') {
+      return fallbackName || expenseKey;
+    }
+
+    const swLabels = {
+      salary: 'Mishahara',
+      rent: 'Kodi',
+      homeExpenses: 'Matumizi ya Nyumbani',
+      medical: 'Matibabu',
+      tra: 'TRA',
+      dataBundle: 'Bando la Intaneti',
+    };
+
+    return swLabels[expenseKey] || fallbackName || expenseKey;
+  };
+
+  const ensureExpenseRow = (expenseKey, expense = {}) => {
+    const cleanExpenseKey = String(expenseKey || '').trim();
+
+    if (!cleanExpenseKey) return null;
+
+    if (!expenseTotalsMap.has(cleanExpenseKey)) {
+      expenseTotalsMap.set(cleanExpenseKey, {
+        key: cleanExpenseKey,
+        name: expense?.name || cleanExpenseKey,
+        monthlyTarget: 0,
+        fromShops: 0,
+        fromGas: 0,
+        fromCommission: 0,
+        used: 0,
+      });
+    }
+
+    return expenseTotalsMap.get(cleanExpenseKey);
+  };
+
+  const getMonthlyTargetAmount = (expense) => {
+    const amount = Math.max(
+      0,
+      Number(expense?.amount || 0)
+    );
+
+    if (expense?.frequency === 'daily') {
+      return amount * daysInMonth;
+    }
+
+    if (expense?.frequency === 'monthly') {
+      return amount;
+    }
+
+    if (expense?.frequency === 'six_months') {
+      return amount / 6;
+    }
+
+    return amount;
+  };
+
+  Object.entries(MASTER_EXPENSE_SETUP).forEach(
+    ([, shopSetup]) => {
+      Object.entries(shopSetup?.expenses || {})
+        .filter(
+          ([, expense]) =>
+            expense?.location === 'owner'
+        )
+        .forEach(([expenseKey, expense]) => {
+          const row = ensureExpenseRow(expenseKey, expense);
+
+          if (!row) return;
+
+          if (expenseKey === 'homeExpenses') {
+            return;
+          }
+
+          row.monthlyTarget += getMonthlyTargetAmount(expense);
+        });
+    }
+  );
+
+  const homeExpensesRow = ensureExpenseRow('homeExpenses', {
+    name: 'Home Expenses',
+  });
+
+  if (homeExpensesRow) {
+    homeExpensesRow.monthlyTarget = Math.max(
+      0,
+      Number(HOME_EXPENSES_MONTHLY_BUDGET.target || 0)
+    );
+  }
+
+  const getShopSalesPositionForDate = (
+    shopId,
+    dateKey
+  ) => {
+    const dateSales = sales.filter((sale) => {
+      const saleShopId = String(
+        sale?.shop_id ||
+          sale?.shopId ||
+          sale?.shopid ||
+          ''
+      ).trim();
+
+      const saleDateKey = String(
+        sale?.date ||
+          sale?.created_at ||
+          ''
+      ).slice(0, 10);
+
+      return (
+        saleShopId === String(shopId) &&
+        saleDateKey === dateKey
+      );
+    });
+
+    const salesAmount = dateSales.reduce(
+      (sum, sale) => sum + Number(sale?.total || 0),
+      0
+    );
+
+    const replacementAmount = dateSales.reduce(
+      (saleTotal, sale) => {
+        const items = Array.isArray(sale?.items)
+          ? sale.items
+          : [];
+
+        return (
+          saleTotal +
+          items.reduce((itemTotal, item) => {
+            const product = productById.get(
+              String(item?.productId || '')
+            );
+
+            const quantity = Number(item?.quantity || 0);
+
+            const buyPrice = Number(
+              item?.buyPrice ||
+                product?.buyPrice ||
+                product?.buyingprice ||
+                0
+            );
+
+            return itemTotal + quantity * buyPrice;
+          }, 0)
+        );
+      },
+      0
     );
 
     return {
-      id: `${shopRow.id}-local-summary`,
-      shop_id: shopRow.id,
-      shop: shopRow.name,
-      requiredToday: shopLocalRows.reduce(
-        (sum, row) =>
-          sum + Number(row.requiredToday || 0),
-        0
-      ),
-      fundedToday: shopLocalRows.reduce(
-        (sum, row) =>
-          sum + Number(row.fundedToday || 0),
-        0
-      ),
-      outstandingToday: shopLocalRows.reduce(
-        (sum, row) =>
-          sum + Number(row.outstandingToday || 0),
-        0
+      salesAmount,
+      replacementAmount,
+      grossProfit: Math.max(
+        0,
+        salesAmount - replacementAmount
       ),
     };
+  };
+
+  const getGasDistributableForDate = (
+    shopId,
+    dateKey
+  ) => {
+    const matchingGasEntries = gasEntries.filter((entry) => {
+      const entryShopId = String(
+        entry?.shop_id ||
+          entry?.shopId ||
+          ''
+      ).trim();
+
+      const entryDateKey = String(
+        entry?.date ||
+          entry?.created_at ||
+          ''
+      ).slice(0, 10);
+
+      return (
+        entryShopId === String(shopId) &&
+        entryDateKey === dateKey &&
+        entry?.confirmed !== false
+      );
+    });
+
+    const gasSummary = getGasDashboardSummary(
+      matchingGasEntries
+    );
+
+    const gasProfit = Math.max(
+      0,
+      Number(gasSummary?.totalProfit || 0)
+    );
+
+    return gasProfit * 0.8;
+  };
+
+  let totalSales = 0;
+  let productReplacement = 0;
+  let grossProfit = 0;
+  let ownerProfitAccumulated = 0;
+
+  const shopSummaryRows = [];
+
+  shops.forEach((shop) => {
+    const shopId = String(shop?.id || '').trim();
+
+    if (!shopId) return;
+
+    const shopSummary = {
+      id: shopId,
+      name:
+        shop?.name ||
+        MASTER_EXPENSE_SETUP[shopId]?.shopName ||
+        shopId,
+      totalSales: 0,
+      productReplacement: 0,
+      grossProfit: 0,
+      fromShops: 0,
+      fromGas: 0,
+      ownerProfit: 0,
+    };
+
+    const expenseEntries = Object.entries(
+      MASTER_EXPENSE_SETUP[shopId]?.expenses || {}
+    );
+
+    const localExpenseEntries = expenseEntries.filter(
+      ([, expense]) => expense?.location === 'shop'
+    );
+
+    const centralExpenseEntries = expenseEntries.filter(
+      ([, expense]) => expense?.location === 'owner'
+    );
+
+    const localArrears = new Map(
+      localExpenseEntries.map(([expenseKey]) => [
+        expenseKey,
+        0,
+      ])
+    );
+
+    const centralArrears = new Map(
+      centralExpenseEntries.map(([expenseKey]) => [
+        expenseKey,
+        0,
+      ])
+    );
+
+    dateKeys.forEach((dateKey) => {
+      const daySalesPosition =
+        getShopSalesPositionForDate(shopId, dateKey);
+
+      totalSales += Number(
+        daySalesPosition.salesAmount || 0
+      );
+
+      productReplacement += Number(
+        daySalesPosition.replacementAmount || 0
+      );
+
+      grossProfit += Number(
+        daySalesPosition.grossProfit || 0
+      );
+
+      shopSummary.totalSales += Number(
+        daySalesPosition.salesAmount || 0
+      );
+
+      shopSummary.productReplacement += Number(
+        daySalesPosition.replacementAmount || 0
+      );
+
+      shopSummary.grossProfit += Number(
+        daySalesPosition.grossProfit || 0
+      );
+
+      let availableGross = Number(
+        daySalesPosition.grossProfit || 0
+      );
+
+      const payUsingShopGross = (
+        entriesToPay,
+        arrearsMap,
+        recordCentralFunding
+      ) => {
+        entriesToPay.forEach(([expenseKey, expense]) => {
+          if (availableGross <= 0) return;
+
+          const outstandingAmount = Math.max(
+            0,
+            Number(arrearsMap.get(expenseKey) || 0)
+          );
+
+          const amountPaid = Math.min(
+            availableGross,
+            outstandingAmount
+          );
+
+          if (amountPaid <= 0) return;
+
+          availableGross = Math.max(
+            0,
+            availableGross - amountPaid
+          );
+
+          arrearsMap.set(
+            expenseKey,
+            Math.max(0, outstandingAmount - amountPaid)
+          );
+
+          if (recordCentralFunding) {
+            const row = ensureExpenseRow(
+              expenseKey,
+              expense
+            );
+
+            if (row) {
+              row.fromShops += amountPaid;
+              shopSummary.fromShops += amountPaid;
+            }
+          }
+        });
+      };
+
+      const addTodayObligations = (
+        entriesToAdd,
+        arrearsMap
+      ) => {
+        entriesToAdd.forEach(([expenseKey, expense]) => {
+          const requiredAmount = Math.max(
+            0,
+            Number(
+              getExpenseRequiredAmountForDate(
+                expense,
+                dateKey
+              ) || 0
+            )
+          );
+
+          arrearsMap.set(
+            expenseKey,
+            Number(arrearsMap.get(expenseKey) || 0) +
+              requiredAmount
+          );
+        });
+      };
+
+      payUsingShopGross(
+        localExpenseEntries,
+        localArrears,
+        false
+      );
+
+      addTodayObligations(
+        localExpenseEntries,
+        localArrears
+      );
+
+      payUsingShopGross(
+        localExpenseEntries,
+        localArrears,
+        false
+      );
+
+      payUsingShopGross(
+        centralExpenseEntries,
+        centralArrears,
+        true
+      );
+
+      addTodayObligations(
+        centralExpenseEntries,
+        centralArrears
+      );
+
+      payUsingShopGross(
+        centralExpenseEntries,
+        centralArrears,
+        true
+      );
+
+      const ownerProfitFromShopSales =
+        Math.floor((Math.max(0, availableGross) * 0.7) / 50) *
+        50;
+
+      ownerProfitAccumulated += ownerProfitFromShopSales;
+      shopSummary.ownerProfit += ownerProfitFromShopSales;
+
+      let gasAvailable = getGasDistributableForDate(
+        shopId,
+        dateKey
+      );
+
+      localExpenseEntries.forEach(([expenseKey]) => {
+        if (gasAvailable <= 0) return;
+
+        const outstandingAmount = Math.max(
+          0,
+          Number(localArrears.get(expenseKey) || 0)
+        );
+
+        const gasUsed = Math.min(
+          gasAvailable,
+          outstandingAmount
+        );
+
+        if (gasUsed <= 0) return;
+
+        gasAvailable = Math.max(0, gasAvailable - gasUsed);
+
+        localArrears.set(
+          expenseKey,
+          Math.max(0, outstandingAmount - gasUsed)
+        );
+      });
+
+      centralExpenseEntries.forEach(
+        ([expenseKey, expense]) => {
+          if (gasAvailable <= 0) return;
+
+          const outstandingAmount = Math.max(
+            0,
+            Number(centralArrears.get(expenseKey) || 0)
+          );
+
+          const gasUsed = Math.min(
+            gasAvailable,
+            outstandingAmount
+          );
+
+          if (gasUsed <= 0) return;
+
+          gasAvailable = Math.max(0, gasAvailable - gasUsed);
+
+          centralArrears.set(
+            expenseKey,
+            Math.max(0, outstandingAmount - gasUsed)
+          );
+
+          const row = ensureExpenseRow(
+            expenseKey,
+            expense
+          );
+
+          if (row) {
+            row.fromGas += gasUsed;
+            shopSummary.fromGas += gasUsed;
+          }
+        }
+      );
+
+      const gasBalanceAfterExpenses = Math.max(
+        0,
+        gasAvailable
+      );
+
+      const gasOwnerProfit =
+        gasBalanceAfterExpenses * 0.5;
+
+      const gasHomeExpensesContribution =
+        gasBalanceAfterExpenses * 0.5;
+
+      ownerProfitAccumulated += gasOwnerProfit;
+      shopSummary.ownerProfit += gasOwnerProfit;
+
+      if (gasHomeExpensesContribution > 0) {
+        const row = ensureExpenseRow('homeExpenses', {
+          name: 'Home Expenses',
+        });
+
+        if (row) {
+          row.fromGas += gasHomeExpensesContribution;
+          shopSummary.fromGas += gasHomeExpensesContribution;
+        }
+      }
+    });
+
+    shopSummaryRows.push(shopSummary);
   });
-}, [localExpenseRows, rows]);
 
+  const commissionRows = Array.isArray(
+    eligibleCurrentMonthCommissionAllocation?.rows
+  )
+    ? eligibleCurrentMonthCommissionAllocation.rows
+    : [];
 
+  commissionRows.forEach((commissionRow) => {
+    const expenseKey = String(
+      commissionRow?.expenseKey || ''
+    ).trim();
+
+    const commissionAllocated = Math.max(
+      0,
+      Number(commissionRow?.commissionAllocated || 0)
+    );
+
+    if (!expenseKey || commissionAllocated <= 0) return;
+
+    const row = ensureExpenseRow(expenseKey, {
+      name: commissionRow?.expenseName || expenseKey,
+    });
+
+    if (row) {
+      row.fromCommission += commissionAllocated;
+    }
+  });
+
+  const ownerProfitFromCommission = Math.max(
+    0,
+    Number(
+      eligibleCurrentMonthCommissionAllocation
+        ?.ownerProfitFromCommission || 0
+    )
+  );
+
+  ownerProfitAccumulated += ownerProfitFromCommission;
+
+  const findExpenseKeyFromTransaction = (transaction) => {
+    const fundKey = String(
+      transaction?.sourceFundKey ||
+        transaction?.source_fund_key ||
+        transaction?.expenseKey ||
+        transaction?.expense_key ||
+        ''
+    ).trim();
+
+    const matchingShop = shops.find((shop) => {
+      const shopId = String(shop?.id || '').trim();
+
+      return shopId && fundKey.startsWith(`${shopId}-`);
+    });
+
+    if (matchingShop) {
+      const matchingShopId = String(
+        matchingShop?.id || ''
+      ).trim();
+
+      return fundKey.slice(`${matchingShopId}-`.length);
+    }
+
+    const expenseName = String(
+      transaction?.expenseName ||
+        transaction?.expense_name ||
+        ''
+    )
+      .trim()
+      .toLowerCase();
+
+    const matchedExpenseKey = expenseOrder.find(
+      (expenseKey) =>
+        expenseName ===
+        String(
+          MASTER_EXPENSE_SETUP['shop-1']?.expenses?.[
+            expenseKey
+          ]?.name || expenseKey
+        )
+          .trim()
+          .toLowerCase()
+    );
+
+    return matchedExpenseKey || fundKey;
+  };
+
+  const currentMonthTransactions = transactions.filter(
+    (transaction) => {
+      const status = String(
+        transaction?.status || 'confirmed'
+      ).toLowerCase();
+
+      const transactionDate = String(
+        transaction?.transactionDate ||
+          transaction?.transaction_date ||
+          transaction?.date ||
+          transaction?.created_at ||
+          ''
+      ).slice(0, 10);
+
+      return (
+        status === 'confirmed' &&
+        transactionDate >= summaryStartKey &&
+        transactionDate <= todayKey
+      );
+    }
+  );
+
+  let ownerDrawingsTaken = 0;
+
+  currentMonthTransactions.forEach((transaction) => {
+    const transactionType = String(
+      transaction?.transactionType ||
+        transaction?.transaction_type ||
+        ''
+    ).toLowerCase();
+
+    const amount = Math.max(
+      0,
+      Number(transaction?.amount || 0)
+    );
+
+    if (!amount) return;
+
+    if (transactionType === 'expense_payment') {
+      const expenseKey =
+        findExpenseKeyFromTransaction(transaction);
+
+      const row = ensureExpenseRow(expenseKey, {
+        name:
+          transaction?.expenseName ||
+          transaction?.expense_name ||
+          expenseKey,
+      });
+
+      if (row) {
+        row.used += amount;
+      }
+    }
+
+    if (transactionType === 'home_expense_cash_taken') {
+      const row = ensureExpenseRow('homeExpenses', {
+        name: 'Home Expenses',
+      });
+
+      if (row) {
+        row.used += amount;
+      }
+    }
+
+    if (transactionType === 'owner_drawing') {
+      ownerDrawingsTaken += amount;
+    }
+  });
+
+  const homeExpenseProductUsage = sales
+    .filter((sale) => {
+      const saleDateKey = String(
+        sale?.date ||
+          sale?.created_at ||
+          ''
+      ).slice(0, 10);
+
+      return (
+        saleDateKey >= summaryStartKey &&
+        saleDateKey <= todayKey
+      );
+    })
+    .reduce((saleTotal, sale) => {
+      const items = Array.isArray(sale?.items)
+        ? sale.items
+        : [];
+
+      return (
+        saleTotal +
+        items.reduce((itemTotal, item) => {
+          const isHomeExpenseItem =
+            item?.homeExpense === true ||
+            item?.home_expense === true ||
+            item?.metadata?.homeExpense === true ||
+            item?.meta?.homeExpense === true;
+
+          if (!isHomeExpenseItem) return itemTotal;
+
+          const quantity = Number(item?.quantity || 0);
+
+          const itemAmount = Number(
+            item?.total ||
+              item?.lineTotal ||
+              item?.amount ||
+              item?.sellTotal ||
+              0
+          );
+
+          if (itemAmount > 0) {
+            return itemTotal + itemAmount;
+          }
+
+          const sellPrice = Number(
+            item?.sellPrice ||
+              item?.price ||
+              0
+          );
+
+          return itemTotal + quantity * sellPrice;
+        }, 0)
+      );
+    }, 0);
+
+  if (homeExpenseProductUsage > 0) {
+    const row = ensureExpenseRow('homeExpenses', {
+      name: 'Home Expenses',
+    });
+
+    if (row) {
+      row.used += homeExpenseProductUsage;
+    }
+  }
+
+  const getSortIndex = (expenseKey) => {
+    const index = expenseOrder.indexOf(expenseKey);
+    return index === -1 ? 999 : index;
+  };
+
+  const expenseRows = Array.from(expenseTotalsMap.values())
+    .map((row) => {
+      const monthlyTarget = Math.max(
+        0,
+        Number(row.monthlyTarget || 0)
+      );
+
+      const fromShops = Math.max(
+        0,
+        Number(row.fromShops || 0)
+      );
+
+      const fromGas = Math.max(
+        0,
+        Number(row.fromGas || 0)
+      );
+
+      const fromCommission = Math.max(
+        0,
+        Number(row.fromCommission || 0)
+      );
+
+      const used = Math.max(
+        0,
+        Number(row.used || 0)
+      );
+
+      const totalFunded =
+        fromShops + fromGas + fromCommission;
+
+      return {
+        ...row,
+        displayName: getExpenseDisplayName(row.key, row.name),
+        monthlyTarget,
+        fromShops,
+        fromGas,
+        fromCommission,
+        totalFunded,
+        used,
+        availableAfterUsage: Math.max(0, totalFunded - used),
+        claimedAmount: Math.max(0, monthlyTarget - totalFunded),
+
+        required: monthlyTarget,
+        funded: totalFunded,
+        paid: used,
+        availableNow: Math.max(0, totalFunded - used),
+        outstanding: Math.max(0, monthlyTarget - totalFunded),
+      };
+    })
+    .sort(
+      (a, b) =>
+        getSortIndex(a.key) - getSortIndex(b.key)
+    );
+
+  const totalMonthlyExpenses = expenseRows.reduce(
+    (sum, row) => sum + Number(row.monthlyTarget || 0),
+    0
+  );
+
+  const totalFromShops = expenseRows.reduce(
+    (sum, row) => sum + Number(row.fromShops || 0),
+    0
+  );
+
+  const totalFromGas = expenseRows.reduce(
+    (sum, row) => sum + Number(row.fromGas || 0),
+    0
+  );
+
+  const totalFromCommission = expenseRows.reduce(
+    (sum, row) => sum + Number(row.fromCommission || 0),
+    0
+  );
+
+  const totalFunding =
+    totalFromShops + totalFromGas + totalFromCommission;
+
+  const totalUsed = expenseRows.reduce(
+    (sum, row) => sum + Number(row.used || 0),
+    0
+  );
+
+  const totalAvailableAfterUsage =
+    totalFunding - totalUsed;
+
+  const totalClaimedAmount = Math.max(
+    0,
+    totalMonthlyExpenses - totalFunding
+  );
+
+  const ownerProfitAvailable = Math.max(
+    0,
+    ownerProfitAccumulated - ownerDrawingsTaken
+  );
+
+  const centralCashHeld =
+    totalAvailableAfterUsage + ownerProfitAvailable;
+
+  return {
+    startKey: summaryStartKey,
+    endKey: todayKey,
+
+    totalSales,
+    productReplacement,
+    grossProfit,
+
+    totalMonthlyExpenses,
+    totalFromShops,
+    totalFromGas,
+    totalFromCommission,
+    totalFunding,
+    totalUsed,
+    totalAvailableAfterUsage,
+    totalClaimedAmount,
+
+    ownerProfitAccumulated,
+    ownerDrawingsTaken,
+    ownerProfitAvailable,
+    centralCashHeld,
+
+    totalExpensesRequired: totalMonthlyExpenses,
+    totalExpensesFunded: totalFunding,
+    totalExpensesPaid: totalUsed,
+    totalExpensesOutstanding: totalClaimedAmount,
+
+    expenseRows,
+    shopRows: shopSummaryRows,
+  };
+}, [
+  data?.shops,
+  data?.sales,
+  data?.products,
+  data?.gasEntries,
+  data?.centralFundTransactions,
+  eligibleCurrentMonthCommissionAllocation,
+  language,
+]);
 
 const allocationRows = useMemo(() => {
   return rows.flatMap((shopRow) => {
@@ -8327,6 +9218,12 @@ alert(
 };
 
   const tabs = [
+    [
+      'simple-summary',
+      language === 'sw'
+        ? 'Muhtasari wa Mapato na Matumizi'
+        : 'Income and Expenses Summary',
+    ],
     ['daily', t('tabDaily')],
     ['allocation', t('tabAllocation')],
     ['funds', t('tabFunds')],
@@ -8373,6 +9270,588 @@ alert(
                 </button>
               ))}
             </div>
+            {activeTab === 'simple-summary' ? (
+              <div className="space-y-5">
+                <div className="rounded-3xl border border-emerald-200 bg-white p-5 shadow-sm">
+                  <div className="text-sm font-black uppercase tracking-wide text-emerald-700">
+                    {language === 'sw'
+                      ? 'Kuanzia tarehe 01/08/2026'
+                      : 'From 01/08/2026 onward'}
+                  </div>
+
+                  <h2 className="mt-2 text-2xl font-black text-slate-950">
+                    {language === 'sw'
+                      ? 'Muhtasari wa Mapato na Matumizi'
+                      : 'Income and Expenses Summary'}
+                  </h2>
+
+                  <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">
+                    {language === 'sw'
+                      ? 'Muhtasari huu unaonyesha mapato, fedha ya kununulia bidhaa, faida ghafi, matumizi yaliyotengwa, matumizi yaliyolipwa, salio la matumizi, na faida ya mmiliki kwa hesabu ya moja kwa moja.'
+                      : 'This summary shows sales, product replacement money, gross profit, funded expenses, paid expenses, expense balances, and owner profit in one live view.'}
+                  </p>
+
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-6">
+                    {[
+                      {
+                        label:
+                          language === 'sw'
+                            ? 'Jumla ya Mauzo'
+                            : 'Total Sales',
+                        value: simpleIncomeExpenseSummary.totalSales,
+                        className:
+                          'border-emerald-100 bg-emerald-50 text-emerald-900',
+                      },
+                      {
+                        label:
+                          language === 'sw'
+                            ? 'Fedha ya Kununulia Bidhaa'
+                            : 'Product Replacement Money',
+                        value:
+                          simpleIncomeExpenseSummary.productReplacement,
+                        className:
+                          'border-blue-100 bg-blue-50 text-blue-900',
+                      },
+                      {
+                        label:
+                          language === 'sw'
+                            ? 'Faida Ghafi'
+                            : 'Gross Profit',
+                        value: simpleIncomeExpenseSummary.grossProfit,
+                        className:
+                          'border-slate-200 bg-slate-50 text-slate-950',
+                      },
+                      {
+                        label:
+                          language === 'sw'
+                            ? 'Jumla Yote ya Mwezi'
+                            : 'Full Monthly Expenses',
+                        value:
+                          simpleIncomeExpenseSummary
+                            .totalMonthlyExpenses,
+                        className:
+                          'border-orange-100 bg-orange-50 text-orange-900',
+                      },
+                      {
+                        label:
+                          language === 'sw'
+                            ? 'Kutoka Maduka'
+                            : 'From Shops',
+                        value:
+                          simpleIncomeExpenseSummary.totalFromShops,
+                        className:
+                          'border-cyan-100 bg-cyan-50 text-cyan-900',
+                      },
+                      {
+                        label:
+                          language === 'sw'
+                            ? 'Kutoka Gesi'
+                            : 'From Gas',
+                        value:
+                          simpleIncomeExpenseSummary.totalFromGas,
+                        className:
+                          'border-lime-100 bg-lime-50 text-lime-900',
+                      },
+                      {
+                        label:
+                          language === 'sw'
+                            ? 'Kutoka Kamisheni'
+                            : 'From Commission',
+                        value:
+                          simpleIncomeExpenseSummary.totalFromCommission,
+                        className:
+                          'border-amber-100 bg-amber-50 text-amber-900',
+                      },
+                      {
+                        label:
+                          language === 'sw'
+                            ? 'Iliyotumika'
+                            : 'Used',
+                        value:
+                          simpleIncomeExpenseSummary.totalUsed,
+                        className:
+                          'border-red-100 bg-red-50 text-red-900',
+                      },
+                      {
+                        label:
+                          language === 'sw'
+                            ? 'Iliyosalia Baada ya Matumizi'
+                            : 'Remaining After Usage',
+                        value:
+                          simpleIncomeExpenseSummary
+                            .totalAvailableAfterUsage,
+                        className:
+                          'border-teal-100 bg-teal-50 text-teal-900',
+                      },
+                      {
+                        label:
+                          language === 'sw'
+                            ? 'Kinachodaiwa'
+                            : 'Still Required',
+                        value:
+                          simpleIncomeExpenseSummary
+                            .totalClaimedAmount,
+                        className:
+                          'border-rose-100 bg-rose-50 text-rose-900',
+                      },
+                      {
+                        label:
+                          language === 'sw'
+                            ? 'Faida ya Mmiliki Iliyopo'
+                            : 'Available Owner Profit',
+                        value:
+                          simpleIncomeExpenseSummary
+                            .ownerProfitAvailable,
+                        className:
+                          'border-violet-100 bg-violet-50 text-violet-900',
+                      },
+                      {
+                        label:
+                          language === 'sw'
+                            ? 'Fedha Halisi Iliyopo kwa Msimamizi'
+                            : 'Cash Held by Manager',
+                        value:
+                          simpleIncomeExpenseSummary.centralCashHeld,
+                        className:
+                          'border-emerald-200 bg-emerald-900 text-white',
+                      },
+                    ].map((card) => (
+                      <div
+                        key={card.label}
+                        className={`rounded-xl border p-3 shadow-sm ${card.className}`}
+                      >
+                        <div className="text-[10px] font-black uppercase tracking-wide opacity-70">
+                          {card.label}
+                        </div>
+
+                        <div className="mt-1.5 text-xl font-black">
+                          TZS {money(card.value)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div>
+                    <h3 className="text-lg font-black text-slate-950">
+                      {language === 'sw'
+                        ? 'Mgawanyo wa Matumizi ya Mwezi'
+                        : 'Monthly Expense Breakdown'}
+                    </h3>
+
+                    <p className="mt-1 text-sm text-slate-600">
+                      {language === 'sw'
+                        ? 'Kila matumizi yanaonyeshwa kwenye kadi yake ili kuona jumla ya mwezi, fedha zilizoingia, matumizi yaliyofanyika, salio lililopo, na kiasi kinachodaiwa.'
+                        : 'Each expense is shown in its own card, showing the monthly target, money received, usage, available balance, and amount still required.'}
+                    </p>
+                  </div>
+
+                  <div className="mt-6 grid gap-6 xl:grid-cols-2">
+                    {simpleIncomeExpenseSummary.expenseRows.map((row) => {
+                      const monthlyTarget = Math.max(
+                        0,
+                        Number(row.monthlyTarget || 0)
+                      );
+
+                      const fromShops = Math.max(
+                        0,
+                        Number(row.fromShops || 0)
+                      );
+
+                      const fromGas = Math.max(
+                        0,
+                        Number(row.fromGas || 0)
+                      );
+
+                      const fromCommission = Math.max(
+                        0,
+                        Number(row.fromCommission || 0)
+                      );
+
+                      const used = Math.max(
+                        0,
+                        Number(row.used || 0)
+                      );
+
+                      const totalReceived =
+                        fromShops + fromGas + fromCommission;
+
+                      const availableAfterUsage =
+                        totalReceived - used;
+
+                      const amountOwedNow = Math.max(
+                        0,
+                        used - totalReceived
+                      );
+
+                      const remainingToMonthlyTarget = Math.max(
+                        0,
+                        monthlyTarget - totalReceived
+                      );
+
+                      const fundedPercent =
+                        monthlyTarget > 0
+                          ? Math.min(
+                              100,
+                              (totalReceived / monthlyTarget) * 100
+                            )
+                          : 0;
+
+                      const hasCurrentDebt = amountOwedNow > 0;
+
+                      return (
+                        <div
+                          key={row.key}
+                          className="rounded-3xl border-2 border-emerald-100 bg-white p-4 shadow-md ring-4 ring-slate-50"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <h4 className="text-sm font-black text-slate-950">
+                                {row.displayName}
+                              </h4>
+
+                              <p className="mt-0.5 text-[10px] font-black uppercase tracking-wide text-slate-400">
+                                {language === 'sw'
+                                  ? 'Nafasi ya fungu mwezi huu'
+                                  : 'Monthly fund position'}
+                              </p>
+                            </div>
+
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-[10px] font-black ${
+                                hasCurrentDebt
+                                  ? 'bg-red-100 text-red-800'
+                                  : remainingToMonthlyTarget > 0
+                                    ? 'bg-amber-100 text-amber-800'
+                                    : 'bg-emerald-100 text-emerald-800'
+                              }`}
+                            >
+                              {hasCurrentDebt
+                                ? language === 'sw'
+                                  ? 'Lina deni'
+                                  : 'In debt'
+                                : remainingToMonthlyTarget > 0
+                                  ? language === 'sw'
+                                    ? 'Bado'
+                                    : 'Pending'
+                                  : language === 'sw'
+                                    ? 'Limekamilika'
+                                    : 'Complete'}
+                            </span>
+                          </div>
+
+                          <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2">
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="text-[11px] font-bold text-slate-500">
+                                {language === 'sw'
+                                  ? 'Jumla yote ya mwezi'
+                                  : 'Full monthly total'}
+                              </span>
+
+                              <span className="text-sm font-black text-slate-950">
+                                TZS {money(monthlyTarget)}
+                              </span>
+                            </div>
+
+                            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
+                              <div
+                                className="h-full rounded-full bg-emerald-600"
+                                style={{
+                                  width: `${fundedPercent}%`,
+                                }}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="mt-3 grid gap-2 md:grid-cols-3">
+                            <div className="rounded-xl bg-blue-50 p-3 ring-1 ring-blue-100">
+                              <div className="text-[10px] font-black uppercase tracking-wide text-blue-900">
+                                {language === 'sw'
+                                  ? 'Fedha zilizoingia'
+                                  : 'Money received'}
+                              </div>
+
+                              <div className="mt-2 space-y-1.5 text-[11px]">
+                                <div className="flex justify-between gap-2">
+                                  <span className="text-slate-600">
+                                    {language === 'sw'
+                                      ? 'Maduka'
+                                      : 'Shops'}
+                                  </span>
+                                  <strong>
+                                    TZS {money(fromShops)}
+                                  </strong>
+                                </div>
+
+                                <div className="flex justify-between gap-2">
+                                  <span className="text-slate-600">
+                                    {language === 'sw'
+                                      ? 'Gesi'
+                                      : 'Gas'}
+                                  </span>
+                                  <strong>
+                                    TZS {money(fromGas)}
+                                  </strong>
+                                </div>
+
+                                <div className="flex justify-between gap-2">
+                                  <span className="text-slate-600">
+                                    {language === 'sw'
+                                      ? 'Kamisheni'
+                                      : 'Commission'}
+                                  </span>
+                                  <strong>
+                                    TZS {money(fromCommission)}
+                                  </strong>
+                                </div>
+
+                                <div className="mt-2 border-t border-blue-200 pt-2">
+                                  <div className="flex justify-between gap-2 text-xs font-black text-blue-950">
+                                    <span>
+                                      {language === 'sw'
+                                        ? 'Jumla'
+                                        : 'Total'}
+                                    </span>
+                                    <span>
+                                      TZS {money(totalReceived)}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="rounded-xl bg-orange-50 p-3 ring-1 ring-orange-100">
+                              <div className="text-[10px] font-black uppercase tracking-wide text-orange-900">
+                                {language === 'sw'
+                                  ? 'Matumizi'
+                                  : 'Usage'}
+                              </div>
+
+                              <div className="mt-2 flex justify-between gap-2 text-[11px]">
+                                <span className="text-slate-600">
+                                  {language === 'sw'
+                                    ? 'Iliyotumika'
+                                    : 'Used'}
+                                </span>
+
+                                <strong className="text-red-800">
+                                  TZS {money(used)}
+                                </strong>
+                              </div>
+                            </div>
+
+                            <div className="rounded-xl bg-red-50 p-3 ring-1 ring-red-100">
+                              <div className="text-[10px] font-black uppercase tracking-wide text-red-900">
+                                {language === 'sw'
+                                  ? 'Salio'
+                                  : 'Balance'}
+                              </div>
+
+                              <div className="mt-2 space-y-1.5 text-[11px]">
+                                <div className="flex justify-between gap-2">
+                                  <span className="text-slate-600">
+                                    {language === 'sw'
+                                      ? 'Iliyopo'
+                                      : 'Available'}
+                                  </span>
+                                  <strong
+                                    className={
+                                      availableAfterUsage < 0
+                                        ? 'text-red-800'
+                                        : 'text-emerald-800'
+                                    }
+                                  >
+                                    TZS {signedMoney(availableAfterUsage)}
+                                  </strong>
+                                </div>
+
+                                <div className="flex justify-between gap-2">
+                                  <span className="text-slate-600">
+                                    {language === 'sw'
+                                      ? 'Deni sasa'
+                                      : 'Current debt'}
+                                  </span>
+                                  <strong className="text-red-800">
+                                    TZS {money(amountOwedNow)}
+                                  </strong>
+                                </div>
+
+                                <div className="mt-2 border-t border-red-200 pt-2">
+                                  <div className="flex justify-between gap-2 text-xs font-black text-red-900">
+                                    <span>
+                                      {language === 'sw'
+                                        ? 'Bado mwezi'
+                                        : 'Month gap'}
+                                    </span>
+                                    <span>
+                                      TZS {money(remainingToMonthlyTarget)}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="mt-6 rounded-3xl border-2 border-emerald-200 bg-emerald-50 p-4 shadow-md">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <h3 className="text-lg font-black text-emerald-950">
+                        {language === 'sw'
+                          ? 'Jumla Kuu'
+                          : 'Grand Total'}
+                      </h3>
+
+                      <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-emerald-800 ring-1 ring-emerald-200">
+                        {language === 'sw'
+                          ? 'Msimamo wa mwisho'
+                          : 'Final position'}
+                      </span>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                      <div className="rounded-2xl bg-white p-4 ring-1 ring-emerald-100">
+                        <div className="text-xs font-black uppercase tracking-wide text-slate-500">
+                          {language === 'sw'
+                            ? 'Iliyokusanywa'
+                            : 'Collected'}
+                        </div>
+
+                        <div className="mt-2 text-xl font-black text-emerald-900">
+                          TZS {money(simpleIncomeExpenseSummary.totalFunding)}
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl bg-white p-4 ring-1 ring-orange-100">
+                        <div className="text-xs font-black uppercase tracking-wide text-slate-500">
+                          {language === 'sw'
+                            ? 'Iliyotumika'
+                            : 'Used'}
+                        </div>
+
+                        <div className="mt-2 text-xl font-black text-orange-900">
+                          TZS {money(simpleIncomeExpenseSummary.totalUsed)}
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl bg-white p-4 ring-1 ring-red-100">
+                        <div className="text-xs font-black uppercase tracking-wide text-slate-500">
+                          {language === 'sw'
+                            ? 'Jumla Deni'
+                            : 'Total Debt'}
+                        </div>
+
+                        <div className="mt-2 text-xl font-black text-red-900">
+                          TZS {money(
+                            simpleIncomeExpenseSummary.expenseRows.reduce(
+                              (sum, row) => {
+                                const collected =
+                                  Number(row.fromShops || 0) +
+                                  Number(row.fromGas || 0) +
+                                  Number(row.fromCommission || 0);
+
+                                return (
+                                  sum +
+                                  Math.max(
+                                    0,
+                                    Number(row.used || 0) - collected
+                                  )
+                                );
+                              },
+                              0
+                            )
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl bg-emerald-900 p-4 text-white shadow-sm">
+                        <div className="text-xs font-black uppercase tracking-wide opacity-80">
+                          {language === 'sw'
+                            ? 'Salio Halisi kwa Msimamizi'
+                            : 'Net Balance with Manager'}
+                        </div>
+
+                        <div className="mt-2 text-xl font-black">
+                          TZS {signedMoney(
+                            simpleIncomeExpenseSummary.centralCashHeld
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 rounded-2xl bg-white p-4 ring-1 ring-emerald-100">
+                      <div className="grid gap-3 md:grid-cols-3">
+                        <div>
+                          <div className="text-xs font-black uppercase tracking-wide text-slate-500">
+                            {language === 'sw'
+                              ? 'Salio Baada ya Matumizi'
+                              : 'Balance After Usage'}
+                          </div>
+
+                          <div
+                            className={`mt-1 text-lg font-black ${
+                              simpleIncomeExpenseSummary
+                                .totalAvailableAfterUsage < 0
+                                ? 'text-red-800'
+                                : 'text-emerald-800'
+                            }`}
+                          >
+                            TZS {signedMoney(
+                              simpleIncomeExpenseSummary
+                                .totalAvailableAfterUsage
+                            )}
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="text-xs font-black uppercase tracking-wide text-slate-500">
+                            {language === 'sw'
+                              ? 'Faida Halisi ya Mmiliki'
+                              : 'Net Owner Profit'}
+                          </div>
+
+                          <div className="mt-1 text-lg font-black text-violet-800">
+                            TZS {money(
+                              simpleIncomeExpenseSummary
+                                .ownerProfitAvailable
+                            )}
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="text-xs font-black uppercase tracking-wide text-slate-500">
+                            {language === 'sw'
+                              ? 'Salio Halisi kwa Msimamizi'
+                              : 'Net Balance with Manager'}
+                          </div>
+
+                          <div
+                            className={`mt-1 text-lg font-black ${
+                              simpleIncomeExpenseSummary.centralCashHeld < 0
+                                ? 'text-red-800'
+                                : 'text-emerald-900'
+                            }`}
+                          >
+                            TZS {signedMoney(
+                              simpleIncomeExpenseSummary.centralCashHeld
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <p className="mt-3 text-xs font-bold text-slate-500">
+                        {language === 'sw'
+                          ? 'Salio Halisi kwa Msimamizi = Salio Baada ya Matumizi + Faida Halisi ya Mmiliki.'
+                          : 'Net Balance with Manager = Balance After Usage + Net Owner Profit.'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : null}
 
             {activeTab === 'daily' ? (
               <div className="space-y-5">
