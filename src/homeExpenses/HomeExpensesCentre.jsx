@@ -929,6 +929,129 @@ const previousMonthKey = useMemo(
     currentMonthHomeExpenseItems,
     currentMonthCashTransactions,
   ]);
+
+  const homeExpensesDailyClosingSummary = useMemo(() => {
+    const todayKey = todayISO();
+
+    let shopContributionsToday = 0;
+    let gasContributionsToday = 0;
+
+    (data?.shops || []).forEach((fundingShop) => {
+      const fundingShopId = String(fundingShop?.id || '').trim();
+
+      if (!fundingShopId) return;
+
+      const dayPosition = getLiveRemittanceShopPosition({
+        data,
+        shopId: fundingShopId,
+        calculationDateKey: todayKey,
+      });
+
+      const dailyCentralFunding = Array.isArray(
+        dayPosition?.centralExpenseFundingBreakdown
+      )
+        ? dayPosition.centralExpenseFundingBreakdown
+        : [];
+
+      const homeExpenseFunding = dailyCentralFunding.find(
+        (expense) =>
+          String(expense?.key || '') === 'homeExpenses'
+      );
+
+      shopContributionsToday += Math.max(
+        0,
+        Number(homeExpenseFunding?.amountFunded || 0)
+      );
+
+      gasContributionsToday += Math.max(
+        0,
+        Number(dayPosition?.gasHomeExpensesContribution || 0)
+      );
+    });
+
+    const confirmedFundingToday = (
+      data?.centralFundTransactions || []
+    ).reduce((sum, transaction) => {
+      const dateKey = String(
+        transaction.transactionDate ||
+          transaction.transaction_date ||
+          transaction.date ||
+          transaction.created_at ||
+          ''
+      ).slice(0, 10);
+
+      const transactionType = String(
+        transaction.transactionType ||
+          transaction.transaction_type ||
+          ''
+      ).toLowerCase();
+
+      const transactionStatus = String(
+        transaction.status || 'confirmed'
+      ).toLowerCase();
+
+      const destinationKey = String(
+        transaction.destinationFundKey ||
+          transaction.destination_fund_key ||
+          transaction.expenseKey ||
+          transaction.expense_key ||
+          ''
+      );
+
+      if (dateKey !== todayKey) return sum;
+      if (transactionStatus !== 'confirmed') return sum;
+      if (transactionType === 'home_expense_cash_taken') return sum;
+      if (!destinationKey.includes('homeExpenses')) return sum;
+
+      return sum + Math.max(0, Number(transaction.amount || 0));
+    }, 0);
+
+    const collectedToday = Number(fundingSummary.fundedSoFar || 0);
+
+    const productsUsedToday = currentMonthHomeExpenseItems
+      .filter((row) => String(row.date || '').slice(0, 10) === todayKey)
+      .reduce((sum, row) => sum + Number(row.total || 0), 0);
+
+    const cashTakenToday = cashTransactions
+      .filter((row) => String(row.date || '').slice(0, 10) === todayKey)
+      .reduce((sum, row) => sum + Number(row.amount || 0), 0);
+
+    const usedToday = productsUsedToday + cashTakenToday;
+
+    const totalCollectedSoFar = Number(fundingSummary.fundedSoFar || 0);
+    const totalUsedSoFar = Number(fundingSummary.totalSpent || 0);
+
+    const remainingOldDebt = Math.max(
+      0,
+      totalUsedSoFar - totalCollectedSoFar
+    );
+
+    const fundSavingToday = Math.max(
+  0,
+  totalCollectedSoFar - totalUsedSoFar
+);
+
+const oldDebtBeforeToday = Math.max(
+  0,
+  (totalUsedSoFar - usedToday) -
+    (totalCollectedSoFar - collectedToday)
+);
+
+const debtReducedToday = Math.min(
+  oldDebtBeforeToday,
+  Math.max(0, collectedToday - usedToday)
+);
+
+return {
+      collectedToday,
+      usedToday,
+      amountToHandOverToday: Math.min(collectedToday, usedToday),
+      remainingOldDebt,
+debtReducedToday,
+fundSavingToday,
+    };
+  }, [data, currentMonthHomeExpenseItems, cashTransactions, fundingSummary]);
+
   const commissionConfirmationId = `home-expense-commission-${currentMonthRange.monthKey}`;
 
   const confirmedCommissionTransaction = useMemo(
@@ -2331,7 +2454,6 @@ const previousMonthKey = useMemo(
                 : t(language, 'Save Cash Taken', 'Hifadhi Cash')}
             </button>
           </div>
-          ) : null}
         </div>
       ) : null}
 
@@ -2365,8 +2487,105 @@ const previousMonthKey = useMemo(
                 </p>
               </div>
 
-              <div className="w-full max-w-2xl rounded-[28px] border border-emerald-200 bg-emerald-50 p-5 text-sm shadow-sm lg:min-w-[520px]">
-                <div className="grid gap-6 lg:grid-cols-2">
+              <div className="w-full max-w-5xl rounded-[28px] border border-emerald-200 bg-emerald-50 p-5 text-sm shadow-sm lg:min-w-[760px] xl:min-w-[900px]">
+                <div className="grid gap-6 xl:grid-cols-3">
+                  <div className="rounded-3xl border-2 border-blue-300 bg-white p-4 shadow-sm">
+                    <div className="text-xs font-black uppercase tracking-wide text-blue-700">
+                      {t(
+                        language,
+                        'Home Expenses Fund',
+                        'Mfuko wa Matumizi ya Nyumbani'
+                      )}
+                    </div>
+
+                    <div className="mt-3 space-y-2">
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="font-bold text-slate-500">
+                          {t(
+                            language,
+                            'Collected today',
+                            'Iliyokusanywa Leo'
+                          )}
+                        </span>
+                        <strong className="text-emerald-700">
+                          TZS {money(homeExpensesDailyClosingSummary.collectedToday)}
+                        </strong>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="font-bold text-slate-500">
+                          {t(
+                            language,
+                            'Used today',
+                            'Iliyotumika Leo'
+                          )}
+                        </span>
+                        <strong className="text-orange-700">
+                          TZS {money(homeExpensesDailyClosingSummary.usedToday)}
+                        </strong>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="font-bold text-slate-500">
+                          {t(
+                            language,
+                            'Debt reduced today',
+                            'Deni lililopunguzwa Leo'
+                          )}
+                        </span>
+                        <strong className="text-emerald-700">
+                          TZS {money(homeExpensesDailyClosingSummary.debtReducedToday)}
+                        </strong>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="font-bold text-slate-500">
+                          {t(
+                            language,
+                            'Remaining old debt',
+                            'Salio la Deni la Nyuma'
+                          )}
+                        </span>
+                        <strong
+                          className={
+                            homeExpensesDailyClosingSummary.remainingOldDebt > 0
+                              ? 'text-red-700'
+                              : 'text-emerald-700'
+                          }
+                        >
+                          TZS {money(homeExpensesDailyClosingSummary.remainingOldDebt)}
+                        </strong>
+                      </div>
+
+                      <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3">
+                        <div className="text-xs font-black uppercase tracking-wide text-blue-700">
+                          {t(
+                            language,
+                            'Amount to hand over today',
+                            'Kiasi cha Kukabidhi Leo'
+                          )}
+                        </div>
+
+                        <div className="mt-1 text-2xl font-black text-blue-900">
+                          TZS {money(homeExpensesDailyClosingSummary.amountToHandOverToday)}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="font-bold text-slate-500">
+                          {t(
+                            language,
+                            'Fund saving today',
+                            'Akiba ya Mfuko Leo'
+                          )}
+                        </span>
+                        <strong className="text-emerald-800">
+                          TZS {money(homeExpensesDailyClosingSummary.fundSavingToday)}
+                        </strong>
+                      </div>
+                    </div>
+                  </div>
+
                   <div className="rounded-3xl border-2 border-emerald-300 bg-white p-4 shadow-sm">
                     <div className="text-xs font-black uppercase tracking-wide text-emerald-700">
                       {t(language, 'Collection', 'Makusanyo')}
