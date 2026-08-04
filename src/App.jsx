@@ -2612,48 +2612,32 @@ const totalGasProfit = (data.gasEntries || [])
   .filter((x) => filterByPreset([x], ownerPeriod, todayISO()).length > 0)
   .reduce((a, x) => a + getGasEntryProfitTotal(x), 0);
 
+
 const commissionMonthMatchesOwnerPeriod = (record) => {
-  if (!record?.commissionMonth) return false;
+  const now = new Date();
 
-  const [year, month] = String(record.commissionMonth).split('-').map(Number);
-  if (!year || !month) return false;
+  const currentMonthKey = `${now.getFullYear()}-${String(
+    now.getMonth() + 1
+  ).padStart(2, '0')}`;
 
-  const now = startOfDay(new Date());
-  const commissionMonthStart = new Date(year, month - 1, 1);
+  const commissionRows = [
+    ...(Array.isArray(record?.mobileCommissions)
+      ? record.mobileCommissions
+      : []),
+    ...(Array.isArray(record?.bankCommissions)
+      ? record.bankCommissions
+      : []),
+  ];
 
-  const thisMonthStart = startOfMonth(now);
-  const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const thisYearStart = new Date(now.getFullYear(), 0, 1);
+  return commissionRows.some((row) => {
+    const receivedDate = String(row?.receivedDate || '').slice(0, 10);
 
-  if (ownerPeriod === 'month') {
     return (
-      commissionMonthStart.getFullYear() === thisMonthStart.getFullYear() &&
-      commissionMonthStart.getMonth() === thisMonthStart.getMonth()
+      row?.notReceived !== true &&
+      Number(row?.amount || 0) > 0 &&
+      receivedDate.startsWith(currentMonthKey)
     );
-  }
-
-  if (ownerPeriod === 'lastmonth') {
-    return (
-      commissionMonthStart.getFullYear() === lastMonthStart.getFullYear() &&
-      commissionMonthStart.getMonth() === lastMonthStart.getMonth()
-    );
-  }
-
-  if (ownerPeriod === '3months') {
-    const start = new Date(now.getFullYear(), now.getMonth() - 2, 1);
-    return commissionMonthStart >= start && commissionMonthStart <= thisMonthStart;
-  }
-
-  if (ownerPeriod === '6months') {
-    const start = new Date(now.getFullYear(), now.getMonth() - 5, 1);
-    return commissionMonthStart >= start && commissionMonthStart <= thisMonthStart;
-  }
-
-  if (ownerPeriod === 'year') {
-    return commissionMonthStart >= thisYearStart && commissionMonthStart <= thisMonthStart;
-  }
-
-  return false;
+  });
 };
 
 const monthlyCommissionRecordsForOwnerPeriod = (data.monthlyWakalaCommissions || [])
