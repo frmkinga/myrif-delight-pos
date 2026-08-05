@@ -1006,7 +1006,10 @@ const previousMonthKey = useMemo(
       return sum + Math.max(0, Number(transaction.amount || 0));
     }, 0);
 
-    const collectedToday = Number(fundingSummary.fundedSoFar || 0);
+    const collectedToday =
+  shopContributionsToday +
+  gasContributionsToday +
+  confirmedFundingToday;
 
     const productsUsedToday = currentMonthHomeExpenseItems
       .filter((row) => String(row.date || '').slice(0, 10) === todayKey)
