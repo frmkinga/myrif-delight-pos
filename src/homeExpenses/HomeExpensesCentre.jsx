@@ -1,9 +1,68 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { supabase } from '../supabaseClient';
-import { getLiveRemittanceShopPosition } from '../remittance/DailyRemittanceCentre';
+import {
+  getLiveRemittanceShopPosition,
+  HOME_EXPENSES_PERFORMANCE_START_DATE,
+} from '../remittance/DailyRemittanceCentre';
 
 const HOME_EXPENSES_START_DATE = '2026-08-01';
+/*
+ * Read Home Expenses funding from one consistent set of fields.
+ * Historical dates retain the old funding calculation.
+ * From 8 August, both reports and live cards read the pooled allocation.
+ */
+const getHomeExpensesFundingFromPosition = (
+  position,
+  dateKey
+) => {
+  if (
+    dateKey >= HOME_EXPENSES_PERFORMANCE_START_DATE
+  ) {
+    return {
+      shopContribution: Math.max(
+        0,
+        Number(
+          position?.shopHomeExpensesContribution || 0
+        )
+      ),
 
+      gasContribution: Math.max(
+        0,
+        Number(
+          position?.pooledGasHomeExpensesContribution || 0
+        )
+      ),
+    };
+  }
+
+  const historicalFundingBreakdown = Array.isArray(
+    position?.centralExpenseFundingBreakdown
+  )
+    ? position.centralExpenseFundingBreakdown
+    : [];
+
+  const historicalHomeExpenseFunding =
+    historicalFundingBreakdown.find(
+      (expense) =>
+        String(expense?.key || '') === 'homeExpenses'
+    );
+
+  return {
+    shopContribution: Math.max(
+      0,
+      Number(
+        historicalHomeExpenseFunding?.amountFunded || 0
+      )
+    ),
+
+    gasContribution: Math.max(
+      0,
+      Number(
+        position?.gasHomeExpensesContribution || 0
+      )
+    ),
+  };
+};
 const HOME_EXPENSES_MONTHLY_BUDGET = {
   target: 2012000,
   items: [
@@ -782,29 +841,29 @@ const previousMonthKey = useMemo(
           calculationDateKey: dateKey,
         });
 
-        const dailyCentralFunding = Array.isArray(
-          dayPosition?.centralExpenseFundingBreakdown
-        )
-          ? dayPosition.centralExpenseFundingBreakdown
-          : [];
+        const dailyHomeFunding =
+          getHomeExpensesFundingFromPosition(
+            dayPosition,
+            dateKey
+          );
 
-        const homeExpenseFunding = dailyCentralFunding.find(
-          (expense) =>
-            String(expense?.key || '') === 'homeExpenses'
-        );
+        shopContributions +=
+          dailyHomeFunding.shopContribution;
 
-        shopContributions += Math.max(
-          0,
-          Number(homeExpenseFunding?.amountFunded || 0)
-        );
-
-        gasContributions += Math.max(
-          0,
-          Number(dayPosition?.gasHomeExpensesContribution || 0)
-        );
+        gasContributions +=
+          dailyHomeFunding.gasContribution;
       });
     });
-    
+        /*
+     * Home Expenses uses physical cash figures.
+     * Round the two pooled sources once before calculating totals,
+     * balances and debt so every displayed figure reconciles.
+     */
+    shopContributions =
+      roundHomeCashDisplay(shopContributions);
+
+    gasContributions =
+      roundHomeCashDisplay(gasContributions);
     const confirmedFundingBreakdown = (
       data?.centralFundTransactions || []
     ).reduce(
@@ -947,28 +1006,27 @@ const previousMonthKey = useMemo(
         calculationDateKey: todayKey,
       });
 
-      const dailyCentralFunding = Array.isArray(
-        dayPosition?.centralExpenseFundingBreakdown
-      )
-        ? dayPosition.centralExpenseFundingBreakdown
-        : [];
+      const dailyHomeFunding =
+        getHomeExpensesFundingFromPosition(
+          dayPosition,
+          todayKey
+        );
 
-      const homeExpenseFunding = dailyCentralFunding.find(
-        (expense) =>
-          String(expense?.key || '') === 'homeExpenses'
-      );
+      shopContributionsToday +=
+        dailyHomeFunding.shopContribution;
 
-      shopContributionsToday += Math.max(
-        0,
-        Number(homeExpenseFunding?.amountFunded || 0)
-      );
-
-      gasContributionsToday += Math.max(
-        0,
-        Number(dayPosition?.gasHomeExpensesContribution || 0)
-      );
+      gasContributionsToday +=
+        dailyHomeFunding.gasContribution;
     });
+    /*
+     * Use the same cash-rounded source amounts for today's
+     * collection, handover, savings and debt calculations.
+     */
+    shopContributionsToday =
+      roundHomeCashDisplay(shopContributionsToday);
 
+    gasContributionsToday =
+      roundHomeCashDisplay(gasContributionsToday);
     const confirmedFundingToday = (
       data?.centralFundTransactions || []
     ).reduce((sum, transaction) => {
@@ -2495,20 +2553,20 @@ fundSavingToday,
                   <div className="rounded-3xl border-2 border-blue-300 bg-white p-4 shadow-sm">
                     <div className="text-xs font-black uppercase tracking-wide text-blue-700">
                       {t(
-                        language,
-                        'Home Expenses Fund',
-                        'Mfuko wa Matumizi ya Nyumbani'
-                      )}
+  language,
+  "Today's Summary",
+  'Muhtasari wa Leo'
+)}
                     </div>
 
                     <div className="mt-3 space-y-2">
                       <div className="flex items-center justify-between gap-4">
                         <span className="font-bold text-slate-500">
                           {t(
-                            language,
-                            'Collected today',
-                            'Iliyokusanywa Leo'
-                          )}
+  language,
+  'Money received today',
+  'Fedha zilizoingia Leo'
+)}
                         </span>
                         <strong className="text-emerald-700">
                           TZS {money(homeExpensesDailyClosingSummary.collectedToday)}
@@ -2591,13 +2649,21 @@ fundSavingToday,
 
                   <div className="rounded-3xl border-2 border-emerald-300 bg-white p-4 shadow-sm">
                     <div className="text-xs font-black uppercase tracking-wide text-emerald-700">
-                      {t(language, 'Collection', 'Makusanyo')}
+                      {t(
+  language,
+  'Collections This Month',
+  'Makusanyo ya Mwezi Huu'
+)}
                     </div>
 
                     <div className="mt-3 space-y-2">
                       <div className="flex items-center justify-between gap-4">
                         <span className="font-bold text-slate-500">
-                          {t(language, 'Budget', 'Bajeti')}
+                          {t(
+  language,
+  'Monthly budget',
+  'Bajeti ya mwezi'
+)}
                         </span>
                         <strong className="text-slate-950">
                           TZS {money(fundingSummary.monthlyBudget)}
@@ -2606,7 +2672,11 @@ fundSavingToday,
 
                       <div className="flex items-center justify-between gap-4">
                         <span className="font-bold text-slate-500">
-                          {t(language, 'Collected', 'Iliyokusanywa')}
+                          {t(
+  language,
+  'Total collected this month',
+  'Jumla iliyokusanywa mwezi huu'
+)}
                         </span>
                         <strong className="text-emerald-700">
                           TZS {money(fundingSummary.fundedSoFar)}
@@ -2615,7 +2685,11 @@ fundSavingToday,
 
                       <div className="flex items-center justify-between gap-4 border-t border-emerald-200 pt-3">
                         <span className="font-black text-slate-800">
-                          {t(language, 'Remaining', 'Bado')}
+                          {t(
+  language,
+  'Remaining to collect this month',
+  'Bado kukusanywa mwezi huu'
+)}
                         </span>
                         <strong
                           className={
@@ -2632,17 +2706,21 @@ fundSavingToday,
 
                   <div className="rounded-3xl border-2 border-orange-300 bg-white p-4 shadow-sm">
                     <div className="text-xs font-black uppercase tracking-wide text-orange-700">
-                      {t(language, 'Spending', 'Matumizi')}
+                      {t(
+  language,
+  'Expenses This Month',
+  'Matumizi ya Mwezi Huu'
+)}
                     </div>
 
                     <div className="mt-3 space-y-2">
                       <div className="flex items-center justify-between gap-4">
                         <span className="font-bold text-slate-500">
                           {t(
-                            language,
-                            'Spent so far',
-                            'Matumizi hadi sasa'
-                          )}
+  language,
+  'Total spent this month',
+  'Jumla iliyotumika mwezi huu'
+)}
                         </span>
                         <strong className="text-orange-700">
                           TZS {money(fundingSummary.totalSpent)}
@@ -2652,10 +2730,10 @@ fundSavingToday,
                       <div className="flex items-center justify-between gap-4 border-t border-orange-200 pt-3">
                         <span className="font-black text-slate-800">
                           {t(
-                            language,
-                            'Remaining to spend',
-                            'Bado kutumia'
-                          )}
+  language,
+  'Remaining to spend this month',
+  'Bado kutumia mwezi huu'
+)}
                         </span>
                         <strong
                           className={
@@ -2676,7 +2754,11 @@ fundSavingToday,
             <div className="mt-4 grid gap-4 lg:grid-cols-3">
               <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4">
                 <h4 className="text-sm font-black uppercase tracking-wide text-blue-800">
-                  {t(language, 'Money In', 'Fedha Zilizoingia')}
+                  {t(
+  language,
+  'Money Received This Month',
+  'Fedha Zilizoingia Mwezi Huu'
+)}
                 </h4>
 
                 <div className="mt-3 space-y-2 text-sm">
@@ -2715,7 +2797,11 @@ fundSavingToday,
 
               <div className="rounded-2xl border border-orange-100 bg-orange-50 p-4">
                 <h4 className="text-sm font-black uppercase tracking-wide text-orange-800">
-                  {t(language, 'Money Out', 'Matumizi')}
+                  {t(
+  language,
+  'Expenses This Month',
+  'Matumizi ya Mwezi Huu'
+)}
                 </h4>
 
                 <div className="mt-3 space-y-2 text-sm">
@@ -2752,7 +2838,11 @@ fundSavingToday,
                     ? 'text-red-800'
                     : 'text-emerald-800'
                 }`}>
-                  {t(language, 'Balance', 'Salio')}
+                  {t(
+  language,
+  'Balance This Month',
+  'Salio la Mwezi Huu'
+)}
                 </h4>
 
                 <div className="mt-3 space-y-2 text-sm">

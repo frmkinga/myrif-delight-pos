@@ -2263,7 +2263,7 @@ const [newPasswordInput, setNewPasswordInput] = useState('');
 const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
 const [passwordMessage, setPasswordMessage] = useState('');
 const [ownerSalesSource, setOwnerSalesSource] = useState([]);
-const [ownerSalesLoading, setOwnerSalesLoading] = useState(false);
+const [ownerSalesLoading, setOwnerSalesLoading] = useState(true);
 
 const ownerConfirmedPeriodReady = dashboardDataReady && !ownerSalesLoading;
 
@@ -2838,6 +2838,13 @@ const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(e
         </div>
       ) : null}
 
+      <div
+        className={
+          ownerConfirmedPeriodReady
+            ? ''
+            : 'hidden'
+        }
+      >
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
   <StatCard
   title={`${t(language, 'Total Sales', 'Jumla ya Mauzo')} ${ownerPeriodLabel}`}
@@ -3141,6 +3148,8 @@ const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(e
   </div>
 );
         })}
+      </div>
+
       </div>
 
       <div className="mt-6">

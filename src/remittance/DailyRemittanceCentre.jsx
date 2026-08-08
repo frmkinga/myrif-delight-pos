@@ -480,6 +480,13 @@ const AUTOMATIC_EXPENSE_OFFICIAL_START_DATE = '2026-08-01';
 
 const AUTOMATIC_EXPENSE_ACTIVATION_DATE =
   AUTOMATIC_EXPENSE_OFFICIAL_START_DATE;
+
+/*
+ * Performance-based Home Expenses funding begins on 8 August 2026.
+ * Calculations before this date must continue using the previous rules.
+ */
+export const HOME_EXPENSES_PERFORMANCE_START_DATE = '2026-08-08';
+
 const HOME_EXPENSES_MONTHLY_BUDGET = {
   target: 2012000,
   items: [
@@ -502,7 +509,45 @@ const HOME_EXPENSES_MONTHLY_BUDGET = {
     { name: 'Mchele', amount: 270000 },
   ],
 };
+/*
+ * Akiba is not a compulsory daily spending requirement.
+ * It must not force shops to contribute beyond essential Home Expenses.
+ */
+const HOME_EXPENSES_SAVINGS_COMPONENT =
+  HOME_EXPENSES_MONTHLY_BUDGET.items.find(
+    (item) =>
+      String(item?.name || '').trim().toLowerCase() ===
+      'akiba'
+  );
 
+const HOME_EXPENSES_ESSENTIAL_MONTHLY_TARGET = Math.max(
+  0,
+  Number(HOME_EXPENSES_MONTHLY_BUDGET.target || 0) -
+    Number(HOME_EXPENSES_SAVINGS_COMPONENT?.amount || 0)
+);
+
+const getDailyEssentialHomeExpensesTarget = (dateKey) => {
+  if (
+    !dateKey ||
+    dateKey < HOME_EXPENSES_PERFORMANCE_START_DATE
+  ) {
+    return 0;
+  }
+
+  const [year, month] = String(dateKey)
+    .split('-')
+    .map(Number);
+
+  const daysInMonth =
+    year && month
+      ? new Date(year, month, 0).getDate()
+      : 0;
+
+  return daysInMonth > 0
+    ? HOME_EXPENSES_ESSENTIAL_MONTHLY_TARGET /
+        daysInMonth
+    : 0;
+};
 const roundToCashStep = (value, step = 50) => {
   const amount = Number(value || 0);
 
@@ -617,6 +662,25 @@ const getExpenseRequiredAmountForDate = (
       0
     );
 
+  /*
+   * Keep identifying the old fixed Home Expenses requirement
+   * separately. For now it remains inside centralRequired so this
+   * mapping change alone cannot alter any existing POS figure.
+   */
+  const homeExpensesRequired = Object.entries(expenseSetup)
+    .filter(
+      ([key, expense]) =>
+        key === 'homeExpenses' ||
+        String(expense?.name || '')
+          .trim()
+          .toLowerCase() === 'home expenses'
+    )
+    .reduce(
+      (sum, [, expense]) =>
+        sum + getRequiredAmount(expense),
+      0
+    );
+
   const centralRequired = Object.values(expenseSetup)
     .filter((expense) => expense.location === 'owner')
     .reduce(
@@ -625,9 +689,21 @@ const getExpenseRequiredAmountForDate = (
       0
     );
 
+  const nonHomeCentralRequired = Math.max(
+    0,
+    centralRequired - homeExpensesRequired
+  );
+
   return {
     localRequired,
+
+    // Existing combined figure retained for historical calculations.
     centralRequired,
+
+    // Separate mapped figures for the new arrangement.
+    homeExpensesRequired,
+    nonHomeCentralRequired,
+
     totalRequired:
       localRequired + centralRequired,
   };
@@ -715,6 +791,13 @@ const calculationDateKey = `${today.getFullYear()}-${String(
 const automaticExpensesAreActive =
   calculationDateKey >= AUTOMATIC_EXPENSE_ACTIVATION_DATE;
 
+/*
+ * This single switch controls the entire new arrangement:
+ * non-home expenses, 25% reserve and performance-based Home Expenses.
+ */
+const performanceHomeExpensesAreActive =
+  calculationDateKey >= HOME_EXPENSES_PERFORMANCE_START_DATE;
+
 const daysInMonth = new Date(
   today.getFullYear(),
   today.getMonth() + 1,
@@ -754,6 +837,15 @@ const fixedExpenseEntries = Object.entries(expenseSetup).map(
     location: expense.location,
     requiredToday: getDailyExpenseAmount(expense),
     isManual: false,
+
+    /*
+     * This identifies only the old fixed shop contribution
+     * to Home Expenses. Other central expenses remain untouched.
+     */
+    isHomeExpenses:
+      key === 'homeExpenses' ||
+      String(expense?.name || '').trim().toLowerCase() ===
+        'home expenses',
   })
 );
 
@@ -808,16 +900,42 @@ const localExpenseBreakdown = allExpenseEntries.filter(
   (expense) => expense.location === 'shop'
 );
 
+/*
+ * Map central expenses into two separate groups.
+ * centralExpenseBreakdown remains unchanged for now so this step
+ * cannot disturb the current remittance calculation.
+ */
 const centralExpenseBreakdown = allExpenseEntries.filter(
   (expense) => expense.location === 'owner'
 );
+
+const fixedHomeExpenseBreakdown =
+  centralExpenseBreakdown.filter(
+    (expense) => expense.isHomeExpenses === true
+  );
+
+const nonHomeCentralExpenseBreakdown =
+  centralExpenseBreakdown.filter(
+    (expense) => expense.isHomeExpenses !== true
+  );
+
+/*
+ * Before 8 August: retain the complete historical central-expense rules.
+ * From 8 August: use only genuine non-home central expenses here.
+ * The new Home Expenses contribution will be calculated separately.
+ */
+const applicableCentralExpenseBreakdown =
+  performanceHomeExpensesAreActive
+    ? nonHomeCentralExpenseBreakdown
+    : centralExpenseBreakdown;
 
   const localRequired = localExpenseBreakdown.reduce(
     (sum, expense) => sum + Number(expense.requiredToday || 0),
     0
   );
 
-  const centralRequired = centralExpenseBreakdown.reduce(
+  const centralRequired =
+    applicableCentralExpenseBreakdown.reduce(
     (sum, expense) => sum + Number(expense.requiredToday || 0),
     0
   );
@@ -917,7 +1035,7 @@ let remainingTodayCentralFunding =
   todayCentralExpensesPaid;
 
 const centralExpenseFundingBreakdown =
-  centralExpenseBreakdown.map((expense) => {
+  applicableCentralExpenseBreakdown.map((expense) => {
     const amountFunded = Math.min(
       Number(expense.requiredToday || 0),
       remainingTodayCentralFunding
@@ -958,7 +1076,16 @@ const centralExpensesStillOutstanding = Math.max(
 const netProfit = afterCentral;
 
 
-const exactOwnerProfit = netProfit * 0.7;
+/*
+ * Historical dates retain the existing 70%/30% arrangement.
+ * From 8 August 2026, at least 25% remains protected at the shop
+ * and no more than 75% becomes available for remittance.
+ */
+const ownerSideRate =
+  performanceHomeExpensesAreActive ? 0.75 : 0.7;
+
+const exactOwnerProfit =
+  netProfit * ownerSideRate;
 
 const ownerProfit =
   Math.floor(exactOwnerProfit / 50) * 50;
@@ -967,7 +1094,17 @@ const shopReserve = Math.max(
   0,
   netProfit - ownerProfit
 );
+/*
+ * From 8 August, this is the maximum amount available on the
+ * owner side before it is divided between Home Expenses and
+ * the owner's remaining profit.
+ */
+const ownerProfitBeforeHomeExpenses = ownerProfit;
 
+const homeExpensesContributionCapacity =
+  performanceHomeExpensesAreActive
+    ? ownerProfitBeforeHomeExpenses
+    : 0;
 const todayFixedExpenses =
   localRequired + centralRequired;
 
@@ -1010,13 +1147,16 @@ const expectedHome =
     localFunded,
     centralRequired,
    centralExpense,
-centralExpenseBreakdown,
+centralExpenseBreakdown:
+  applicableCentralExpenseBreakdown,
 centralExpenseFundingBreakdown,
 localExpenseBreakdown,
 localExpenseFundingBreakdown,
 netProfit,
     ownerProfit,
-shopReserve,
+    ownerProfitBeforeHomeExpenses,
+    homeExpensesContributionCapacity,
+    shopReserve,
 previousUnpaidLocalExpenses,
 previousUnpaidCentralExpenses,
 previousUnpaidExpenses,
@@ -1041,6 +1181,7 @@ export const getLiveRemittanceShopPosition = ({
   data,
   shopId,
   calculationDateKey,
+  skipHomeExpensesPool = false,
 }) => {
   const safeData = data || {};
   const selectedShopId = String(shopId || '').trim();
@@ -1253,19 +1394,31 @@ export const getLiveRemittanceShopPosition = ({
               previousCentralPaid
           );
 
+        /*
+         * From 8 August 2026, historical Home Expenses obligations
+         * must not become shop arrears. They will be handled separately
+         * through the Home Expenses fund and manual commission support.
+         *
+         * All other genuine central expenses continue carrying forward.
+         */
+        const replayedCentralRequired =
+          todayKey >= HOME_EXPENSES_PERFORMANCE_START_DATE
+            ? Number(
+                dailyRequirement.nonHomeCentralRequired || 0
+              )
+            : Number(
+                dailyRequirement.centralRequired || 0
+              );
+
         const todayCentralPaid = Math.min(
           grossAfterPreviousCentral,
-          Number(
-            dailyRequirement.centralRequired || 0
-          )
+          replayedCentralRequired
         );
 
         const centralUnpaid = Math.max(
           0,
           Number(position.centralUnpaid || 0) +
-            Number(
-              dailyRequirement.centralRequired || 0
-            ) -
+            replayedCentralRequired -
             previousCentralPaid -
             todayCentralPaid
         );
@@ -1458,17 +1611,226 @@ const outstanding = Math.max(
     Number(basePosition.submitted || 0)
 );
 
+/*
+ * Calculate one live Home Expenses pool across all shops.
+ * Recursive raw-position calls skip this pool to prevent a loop.
+ */
+let shopHomeExpensesContribution = 0;
+let pooledGasHomeExpensesContribution =
+  gasHomeExpensesContribution;
+
+let ownerProfitAfterHomeExpenses =
+  Number(basePosition.ownerProfit || 0);
+
+let gasOwnerProfitAfterHomeExpenses =
+  gasOwnerProfit;
+
+if (
+  todayKey >= HOME_EXPENSES_PERFORMANCE_START_DATE &&
+  !skipHomeExpensesPool
+) {
+  const rawShopPositions = shops
+    .map((poolShop) => {
+      const poolShopId = String(
+        poolShop?.id || ''
+      ).trim();
+
+      if (!poolShopId) return null;
+
+      return getLiveRemittanceShopPosition({
+        data: safeData,
+        shopId: poolShopId,
+        calculationDateKey: todayKey,
+        skipHomeExpensesPool: true,
+      });
+    })
+    .filter(Boolean);
+
+  /*
+   * Calculate the cumulative essential target from the beginning
+   * of the new arrangement—or from the beginning of the current
+   * month for later months.
+   *
+   * Only confirmed performance-based Home Expenses contributions
+   * from previous days reduce this target. Therefore, a strong day
+   * can recover a shortage left by a weak day.
+   */
+  const currentMonthStartKey =
+    `${todayKey.slice(0, 7)}-01`;
+
+  const catchUpStartKey =
+    currentMonthStartKey <
+    HOME_EXPENSES_PERFORMANCE_START_DATE
+      ? HOME_EXPENSES_PERFORMANCE_START_DATE
+      : currentMonthStartKey;
+
+  const catchUpDateKeys = getExpenseDateKeys(
+    catchUpStartKey,
+    todayKey
+  );
+
+  const cumulativeHomeExpensesTarget =
+    catchUpDateKeys.reduce(
+      (sum, dateKey) =>
+        sum +
+        getDailyEssentialHomeExpensesTarget(dateKey),
+      0
+    );
+
+  const confirmedHomeExpensesBeforeToday =
+    remittanceRecords
+      .filter((record) => {
+        const recordDateKey = String(
+          record?.date || ''
+        ).slice(0, 10);
+
+        return (
+          recordDateKey >= catchUpStartKey &&
+          recordDateKey < todayKey
+        );
+      })
+      .reduce((total, record) => {
+        const expenseBreakdown = Array.isArray(
+          record?.expenseBreakdown
+        )
+          ? record.expenseBreakdown
+          : [];
+
+        const confirmedPerformanceFunding =
+          expenseBreakdown
+            .filter(
+              (expense) =>
+                String(expense?.key || '') ===
+                  'performanceHomeExpenses'
+            )
+            .reduce(
+              (sum, expense) =>
+                sum +
+                Math.max(
+                  0,
+                  Number(expense?.funded || 0)
+                ),
+              0
+            );
+
+        return total + confirmedPerformanceFunding;
+      }, 0);
+
+  /*
+   * This is today's requirement including any shortage accumulated
+   * under the new arrangement. It excludes every debt before
+   * 8 August 2026.
+   */
+  const dailyHomeExpensesTarget = Math.max(
+    0,
+    cumulativeHomeExpensesTarget -
+      confirmedHomeExpensesBeforeToday
+  );
+
+  const totalGasCapacity = rawShopPositions.reduce(
+    (sum, position) =>
+      sum +
+      Math.max(
+        0,
+        Number(
+          position?.gasHomeExpensesContribution || 0
+        )
+      ),
+    0
+  );
+
+  const totalGasContribution = Math.min(
+    dailyHomeExpensesTarget,
+    totalGasCapacity
+  );
+
+  const gasContributionRate =
+    totalGasCapacity > 0
+      ? totalGasContribution / totalGasCapacity
+      : 0;
+
+  pooledGasHomeExpensesContribution =
+    gasHomeExpensesContribution *
+    gasContributionRate;
+
+  gasOwnerProfitAfterHomeExpenses =
+    gasOwnerProfit +
+    Math.max(
+      0,
+      gasHomeExpensesContribution -
+        pooledGasHomeExpensesContribution
+    );
+
+  const remainingTargetAfterGas = Math.max(
+    0,
+    dailyHomeExpensesTarget -
+      totalGasContribution
+  );
+
+  const totalShopCapacity = rawShopPositions.reduce(
+    (sum, position) =>
+      sum +
+      Math.max(
+        0,
+        Number(
+          position?.homeExpensesContributionCapacity || 0
+        )
+      ),
+    0
+  );
+
+  const totalShopContribution = Math.min(
+    remainingTargetAfterGas,
+    totalShopCapacity
+  );
+
+  const shopContributionRate =
+    totalShopCapacity > 0
+      ? totalShopContribution / totalShopCapacity
+      : 0;
+
+  shopHomeExpensesContribution =
+    Math.max(
+      0,
+      Number(
+        basePosition.homeExpensesContributionCapacity || 0
+      )
+    ) * shopContributionRate;
+
+  ownerProfitAfterHomeExpenses = Math.max(
+    0,
+    Number(basePosition.ownerProfit || 0) -
+      shopHomeExpensesContribution
+  );
+}
+
 return {
   ...basePosition,
+
+  /*
+   * Raw recursive positions retain the full owner-side capacity.
+   * Normal live positions show owner profit after Home Expenses.
+   */
+  ownerProfit: skipHomeExpensesPool
+    ? Number(basePosition.ownerProfit || 0)
+    : ownerProfitAfterHomeExpenses,
 
   gasProfitToday,
   gasReserveAmount,
   gasDistributableAmount,
   gasUsedForArrears,
   gasBalanceAfterArrears,
-  gasOwnerProfit,
+  gasOwnerProfit: skipHomeExpensesPool
+    ? gasOwnerProfit
+    : gasOwnerProfitAfterHomeExpenses,
   gasHomeExpensesContribution,
-
+  shopHomeExpensesContribution,
+  pooledGasHomeExpensesContribution,
+    totalPooledHomeExpensesContribution:
+    shopHomeExpensesContribution +
+    pooledGasHomeExpensesContribution,
+  ownerProfitAfterHomeExpenses,
+  gasOwnerProfitAfterHomeExpenses,
   normalAmountRequiredToSubmit,
   amountRequiredToSubmit,
   cashAmountRequiredToSubmit,
@@ -6274,8 +6636,57 @@ const periodNetProfit = Math.max(
     Number(selectedPeriodExpensePosition.centralFunded || 0)
 );
 
-const periodOwnerProfit = periodNetProfit * 0.7;
-const periodShopReserve = periodNetProfit * 0.3;
+/*
+ * Build period totals from the authoritative daily calculation.
+ * This preserves 70%/30% before 8 August and applies 75%/25%
+ * only from 8 August onward, even where a report crosses the date.
+ */
+const periodProfitAllocation =
+  selectedPeriodDateKeys.reduce(
+    (total, dateKey) => {
+      const dailyPosition =
+        getLiveRemittanceShopPosition({
+          data,
+          shopId,
+          calculationDateKey: dateKey,
+        });
+
+      return {
+        ownerProfit:
+          total.ownerProfit +
+          Number(
+            dailyPosition?.ownerProfitBeforeHomeExpenses ||
+              dailyPosition?.ownerProfit ||
+              0
+          ),
+
+        shopReserve:
+          total.shopReserve +
+          Number(dailyPosition?.shopReserve || 0),
+
+        homeExpensesContributionCapacity:
+          total.homeExpensesContributionCapacity +
+          Number(
+            dailyPosition?.homeExpensesContributionCapacity ||
+              0
+          ),
+      };
+    },
+    {
+      ownerProfit: 0,
+      shopReserve: 0,
+      homeExpensesContributionCapacity: 0,
+    }
+  );
+
+const periodOwnerProfit =
+  periodProfitAllocation.ownerProfit;
+
+const periodShopReserve =
+  periodProfitAllocation.shopReserve;
+
+const periodHomeExpensesContributionCapacity =
+  periodProfitAllocation.homeExpensesContributionCapacity;
 
 const selectedPeriodShopGasEntries = (
   Array.isArray(data?.gasEntries)
@@ -6387,6 +6798,9 @@ return {
 
 netProfit: periodNetProfit,
 ownerProfit: periodOwnerProfit,
+ownerProfitBeforeHomeExpenses: periodOwnerProfit,
+homeExpensesContributionCapacity:
+  periodHomeExpensesContributionCapacity,
 shopReserve: periodShopReserve,
 
 gasProfit,
@@ -6865,20 +7279,139 @@ const ownerProfitAccount = useMemo(() => {
     }
   );
 }, [alignedLedgerFundAccounts, language]);
-const automaticShopHomeExpensesContribution = useMemo(() => {
-  return monthlyExpenseRows
-    .filter(
-      (row) =>
-        String(row.expenseKey || '') ===
-        'homeExpenses'
-    )
-    .reduce(
-      (total, row) =>
-        total +
-        Number(row.fundedThisMonth || 0),
-      0
-    );
-}, [monthlyExpenseRows]);
+/*
+ * One authoritative Home Expenses funding source:
+ * - Before 8 August: preserve the original confirmed calculation.
+ * - From 8 August: read the live pooled shop and gas allocations.
+ */
+const automaticPooledHomeExpensesFunding = useMemo(() => {
+  const now = new Date();
+
+  const todayKey = `${now.getFullYear()}-${String(
+    now.getMonth() + 1
+  ).padStart(2, '0')}-${String(
+    now.getDate()
+  ).padStart(2, '0')}`;
+
+  const monthStartKey = `${todayKey.slice(0, 7)}-01`;
+
+  const startKey =
+    monthStartKey < AUTOMATIC_EXPENSE_ACTIVATION_DATE
+      ? AUTOMATIC_EXPENSE_ACTIVATION_DATE
+      : monthStartKey;
+
+  const fundingDateKeys = getExpenseDateKeys(
+    startKey,
+    todayKey
+  );
+
+  const poolShops = Array.isArray(data?.shops)
+    ? data.shops
+    : [];
+
+  return fundingDateKeys.reduce(
+    (periodTotal, dateKey) => {
+      return poolShops.reduce(
+        (dayTotal, shop) => {
+          const shopId = String(
+            shop?.id || ''
+          ).trim();
+
+          if (!shopId) return dayTotal;
+
+          const position =
+            getLiveRemittanceShopPosition({
+              data,
+              shopId,
+              calculationDateKey: dateKey,
+            });
+
+          if (
+            dateKey <
+            HOME_EXPENSES_PERFORMANCE_START_DATE
+          ) {
+            const legacyHomeFunding = (
+              Array.isArray(
+                position?.centralExpenseFundingBreakdown
+              )
+                ? position.centralExpenseFundingBreakdown
+                : []
+            )
+              .filter(
+                (expense) =>
+                  expense?.isHomeExpenses === true ||
+                  String(expense?.key || '') ===
+                    'homeExpenses'
+              )
+              .reduce(
+                (sum, expense) =>
+                  sum +
+                  Math.max(
+                    0,
+                    Number(expense?.amountFunded || 0)
+                  ),
+                0
+              );
+
+            return {
+              shopContribution:
+                dayTotal.shopContribution +
+                legacyHomeFunding,
+
+              gasContribution:
+                dayTotal.gasContribution +
+                Math.max(
+                  0,
+                  Number(
+                    position?.gasHomeExpensesContribution ||
+                      0
+                  )
+                ),
+            };
+          }
+
+          return {
+            shopContribution:
+              dayTotal.shopContribution +
+              Math.max(
+                0,
+                Number(
+                  position?.shopHomeExpensesContribution ||
+                    0
+                )
+              ),
+
+            gasContribution:
+              dayTotal.gasContribution +
+              Math.max(
+                0,
+                Number(
+                  position
+                    ?.pooledGasHomeExpensesContribution ||
+                    0
+                )
+              ),
+          };
+        },
+        periodTotal
+      );
+    },
+    {
+      shopContribution: 0,
+      gasContribution: 0,
+    }
+  );
+}, [
+  data,
+  data?.shops,
+  data?.sales,
+  data?.products,
+  data?.gasEntries,
+  data?.dailyRemittances,
+]);
+
+const automaticShopHomeExpensesContribution =
+  automaticPooledHomeExpensesFunding.shopContribution;
 
 const combinedHomeExpensesFundingSummary = useMemo(() => {
   const shopContribution = Math.max(
@@ -6894,21 +7427,14 @@ const combinedHomeExpensesFundingSummary = useMemo(() => {
       shopContribution
   );
 
-  const calculatedGasHomeExpensesContribution = (
-  Array.isArray(data?.shops) ? data.shops : []
-).reduce((total, shop) => {
-  const shopId = String(shop?.id || '').trim();
-
-  if (!shopId) return total;
-
-  const shopGasContribution = Number(
-    automaticGasExpenseFunding.get(
-      `${shopId}-homeExpenses`
-    ) || 0
+const calculatedGasHomeExpensesContribution =
+  Math.max(
+    0,
+    Number(
+      automaticPooledHomeExpensesFunding.gasContribution ||
+        0
+    )
   );
-
-  return total + Math.max(0, shopGasContribution);
-}, 0);
 
   const gasContribution = Math.min(
     remainingAfterShopContribution,
@@ -6976,6 +7502,7 @@ const combinedHomeExpensesFundingSummary = useMemo(() => {
   };
 }, [
   automaticShopHomeExpensesContribution,
+  automaticPooledHomeExpensesFunding,
   rows,
   previousMonthCombinedCommissionAllocation,
 ]);
@@ -7336,6 +7863,19 @@ const simpleIncomeExpenseSummary = useMemo(() => {
     );
 
     dateKeys.forEach((dateKey) => {
+            /*
+       * Historical dates retain fixed Home Expenses.
+       * From 8 August, this summary must use only non-home
+       * central expenses; pooled Home funding is added separately.
+       */
+      const applicableCentralExpenseEntriesForDate =
+        dateKey >= HOME_EXPENSES_PERFORMANCE_START_DATE
+          ? centralExpenseEntries.filter(
+              ([expenseKey]) =>
+                expenseKey !== 'homeExpenses'
+            )
+          : centralExpenseEntries;
+          
       const daySalesPosition =
         getShopSalesPositionForDate(shopId, dateKey);
 
@@ -7452,28 +7992,46 @@ const simpleIncomeExpenseSummary = useMemo(() => {
       );
 
       payUsingShopGross(
-        centralExpenseEntries,
+        applicableCentralExpenseEntriesForDate,
         centralArrears,
         true
       );
 
       addTodayObligations(
-        centralExpenseEntries,
+        applicableCentralExpenseEntriesForDate,
         centralArrears
       );
 
       payUsingShopGross(
-        centralExpenseEntries,
+        applicableCentralExpenseEntriesForDate,
         centralArrears,
         true
       );
 
-      const ownerProfitFromShopSales =
-        Math.floor((Math.max(0, availableGross) * 0.7) / 50) *
-        50;
+      /*
+       * Read owner profit from the authoritative daily position.
+       * This preserves historical 70%/30% and applies the new
+       * 75%/25% plus pooled Home Expenses rules from 8 August.
+       */
+      const authoritativeDayPosition =
+        getLiveRemittanceShopPosition({
+          data,
+          shopId,
+          calculationDateKey: dateKey,
+        });
 
-      ownerProfitAccumulated += ownerProfitFromShopSales;
-      shopSummary.ownerProfit += ownerProfitFromShopSales;
+      const ownerProfitFromShopSales = Math.max(
+        0,
+        Number(
+          authoritativeDayPosition?.ownerProfit || 0
+        )
+      );
+
+      ownerProfitAccumulated +=
+        ownerProfitFromShopSales;
+
+      shopSummary.ownerProfit +=
+        ownerProfitFromShopSales;
 
       let gasAvailable = getGasDistributableForDate(
         shopId,
@@ -7503,7 +8061,7 @@ const simpleIncomeExpenseSummary = useMemo(() => {
         );
       });
 
-      centralExpenseEntries.forEach(
+      applicableCentralExpenseEntriesForDate.forEach(
         ([expenseKey, expense]) => {
           if (gasAvailable <= 0) return;
 
@@ -7538,19 +8096,61 @@ const simpleIncomeExpenseSummary = useMemo(() => {
         }
       );
 
-      const gasBalanceAfterExpenses = Math.max(
+      /*
+       * Use the same authoritative pooled allocations already used
+       * by the dashboards and Home Expenses section.
+       */
+      const gasOwnerProfit = Math.max(
         0,
-        gasAvailable
+        Number(
+          authoritativeDayPosition?.gasOwnerProfit || 0
+        )
       );
 
-      const gasOwnerProfit =
-        gasBalanceAfterExpenses * 0.5;
+      const shopHomeExpensesContribution =
+        dateKey >= HOME_EXPENSES_PERFORMANCE_START_DATE
+          ? Math.max(
+              0,
+              Number(
+                authoritativeDayPosition
+                  ?.shopHomeExpensesContribution || 0
+              )
+            )
+          : 0;
 
       const gasHomeExpensesContribution =
-        gasBalanceAfterExpenses * 0.5;
+        dateKey >= HOME_EXPENSES_PERFORMANCE_START_DATE
+          ? Math.max(
+              0,
+              Number(
+                authoritativeDayPosition
+                  ?.pooledGasHomeExpensesContribution || 0
+              )
+            )
+          : Math.max(
+              0,
+              Number(
+                authoritativeDayPosition
+                  ?.gasHomeExpensesContribution || 0
+              )
+            );
 
       ownerProfitAccumulated += gasOwnerProfit;
       shopSummary.ownerProfit += gasOwnerProfit;
+
+      if (shopHomeExpensesContribution > 0) {
+        const row = ensureExpenseRow('homeExpenses', {
+          name: 'Home Expenses',
+        });
+
+        if (row) {
+          row.fromShops +=
+            shopHomeExpensesContribution;
+
+          shopSummary.fromShops +=
+            shopHomeExpensesContribution;
+        }
+      }
 
       if (gasHomeExpensesContribution > 0) {
         const row = ensureExpenseRow('homeExpenses', {
@@ -7558,8 +8158,11 @@ const simpleIncomeExpenseSummary = useMemo(() => {
         });
 
         if (row) {
-          row.fromGas += gasHomeExpensesContribution;
-          shopSummary.fromGas += gasHomeExpensesContribution;
+          row.fromGas +=
+            gasHomeExpensesContribution;
+
+          shopSummary.fromGas +=
+            gasHomeExpensesContribution;
         }
       }
     });
@@ -9046,7 +9649,35 @@ if (existingTodayRecord) {
   );
   return;
 }
+/*
+ * Preserve today's pooled Home Expenses funding inside the confirmed
+ * remittance. Future strong days will read these confirmed amounts
+ * when calculating how much weak days still need.
+ */
+const proposedHomeExpensesContribution =
+  todayKey >= HOME_EXPENSES_PERFORMANCE_START_DATE
+    ? Math.max(
+        0,
+        Number(
+          selectedShop
+            .totalPooledHomeExpensesContribution || 0
+        )
+      )
+    : 0;
 
+/*
+ * Central expenses are paid first. Only money actually covered by
+ * the confirmed remittance is recorded as funded for Home Expenses.
+ */
+const amountAvailableForHomeExpenses = Math.max(
+  0,
+  sent - Number(selectedShop.centralExpense || 0)
+);
+
+const confirmedHomeExpensesContribution = Math.min(
+  proposedHomeExpensesContribution,
+  amountAvailableForHomeExpenses
+);
 const newRecord = {
   id: `remittance-${Date.now()}`,
   shop_id: selectedShop.id,
@@ -9076,6 +9707,27 @@ shortReason: showShortReason ? shortReason : '',
     funded: Number(expense.amountFunded || 0),
     outstanding: Number(expense.amountOutstanding || 0),
   })),
+
+  ...(
+    proposedHomeExpensesContribution > 0
+      ? [
+          {
+            key: 'performanceHomeExpenses',
+            name: 'Performance Home Expenses',
+            location: 'owner',
+            required: proposedHomeExpensesContribution,
+            funded: confirmedHomeExpensesContribution,
+            outstanding: Math.max(
+              0,
+              proposedHomeExpensesContribution -
+                confirmedHomeExpensesContribution
+            ),
+            activationDate:
+              HOME_EXPENSES_PERFORMANCE_START_DATE,
+          },
+        ]
+      : []
+  ),
 ],
 expensesOutstanding: Number(
   selectedShop.expensesStillOutstanding || 0
