@@ -1,6 +1,7 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { supabase } from '../supabaseClient';
 import {
+  getDailyEssentialHomeExpensesTarget,
   getLiveRemittanceShopPosition,
   HOME_EXPENSES_PERFORMANCE_START_DATE,
 } from '../remittance/DailyRemittanceCentre';
@@ -1087,12 +1088,7 @@ const previousMonthKey = useMemo(
       totalUsedSoFar - totalCollectedSoFar
     );
 
-    const fundSavingToday = Math.max(
-  0,
-  totalCollectedSoFar - totalUsedSoFar
-);
-
-const oldDebtBeforeToday = Math.max(
+    const oldDebtBeforeToday = Math.max(
   0,
   (totalUsedSoFar - usedToday) -
     (totalCollectedSoFar - collectedToday)
@@ -1103,14 +1099,35 @@ const debtReducedToday = Math.min(
   Math.max(0, collectedToday - usedToday)
 );
 
+const fundSavingToday = Math.max(
+  0,
+  collectedToday -
+    usedToday -
+    debtReducedToday
+);
+
+const fundBalanceBeforeToday = Math.max(
+  0,
+  (totalCollectedSoFar - collectedToday) -
+    (totalUsedSoFar - usedToday)
+);
+
+const expenseShortfallToday = Math.max(
+  0,
+  usedToday -
+    collectedToday -
+    fundBalanceBeforeToday
+);
+
 return {
-      collectedToday,
-      usedToday,
-      amountToHandOverToday: Math.min(collectedToday, usedToday),
-      remainingOldDebt,
-debtReducedToday,
-fundSavingToday,
-    };
+  collectedToday,
+  usedToday,
+  amountToHandOverToday: Math.min(collectedToday, usedToday),
+  remainingOldDebt,
+  debtReducedToday,
+  expenseShortfallToday,
+  fundSavingToday,
+};
   }, [data, currentMonthHomeExpenseItems, cashTransactions, fundingSummary]);
 
   const commissionConfirmationId = `home-expense-commission-${currentMonthRange.monthKey}`;
@@ -2560,13 +2577,26 @@ fundSavingToday,
                     </div>
 
                     <div className="mt-3 space-y-2">
-                      <div className="flex items-center justify-between gap-4">
-                        <span className="font-bold text-slate-500">
-                          {t(
-  language,
-  'Money received today',
-  'Fedha zilizoingia Leo'
-)}
+  <div className="flex items-center justify-between gap-4">
+    <span className="font-bold text-slate-500">
+      {t(
+        language,
+        "Today's target",
+        'Lengo la Leo'
+      )}
+    </span>
+    <strong className="text-blue-700">
+      TZS {money(getDailyEssentialHomeExpensesTarget(todayISO()))}
+    </strong>
+  </div>
+
+  <div className="flex items-center justify-between gap-4">
+    <span className="font-bold text-slate-500">
+      {t(
+        language,
+        'Money received today',
+        'Fedha zilizoingia Leo'
+      )}
                         </span>
                         <strong className="text-emerald-700">
                           TZS {money(homeExpensesDailyClosingSummary.collectedToday)}
@@ -2587,17 +2617,23 @@ fundSavingToday,
                       </div>
 
                       <div className="flex items-center justify-between gap-4">
-                        <span className="font-bold text-slate-500">
-                          {t(
-                            language,
-                            'Debt reduced today',
-                            'Deni lililopunguzwa Leo'
-                          )}
-                        </span>
-                        <strong className="text-emerald-700">
-                          TZS {money(homeExpensesDailyClosingSummary.debtReducedToday)}
-                        </strong>
-                      </div>
+  <span className="font-bold text-slate-500">
+    {t(
+      language,
+      "Today's expense shortfall",
+      'Pungufu ya Matumizi Leo'
+    )}
+  </span>
+  <strong
+    className={
+      homeExpensesDailyClosingSummary.expenseShortfallToday > 0
+        ? 'text-red-700'
+        : 'text-emerald-700'
+    }
+  >
+    TZS {money(homeExpensesDailyClosingSummary.expenseShortfallToday)}
+  </strong>
+</div>
 
                       <div className="flex items-center justify-between gap-4">
                         <span className="font-bold text-slate-500">
@@ -2635,10 +2671,10 @@ fundSavingToday,
                       <div className="flex items-center justify-between gap-4">
                         <span className="font-bold text-slate-500">
                           {t(
-                            language,
-                            'Fund saving today',
-                            'Akiba ya Mfuko Leo'
-                          )}
+  language,
+  'Money available in the fund',
+  'Fedha iliyopo kwenye Mfuko'
+)}
                         </span>
                         <strong className="text-emerald-800">
                           TZS {money(homeExpensesDailyClosingSummary.fundSavingToday)}

@@ -526,7 +526,7 @@ const HOME_EXPENSES_ESSENTIAL_MONTHLY_TARGET = Math.max(
     Number(HOME_EXPENSES_SAVINGS_COMPONENT?.amount || 0)
 );
 
-const getDailyEssentialHomeExpensesTarget = (dateKey) => {
+export const getDailyEssentialHomeExpensesTarget = (dateKey) => {
   if (
     !dateKey ||
     dateKey < HOME_EXPENSES_PERFORMANCE_START_DATE
@@ -15887,8 +15887,30 @@ const shortfall = Number(
   {[
     [t('previousShortfall'), selectedShop.previous],
     [t('netAfter'), selectedShop.netProfit],
-    [t('ownerProfit'), selectedShop.ownerProfit],
-    [t('shopReserve'), selectedShop.shopReserve],
+[
+  language === 'sw'
+    ? 'Faida ya Mmiliki kabla ya mchango wa Matumizi ya Nyumbani'
+    : 'Owner profit before Home Expenses contribution',
+  selectedShop.ownerProfitBeforeHomeExpenses,
+],
+[
+  language === 'sw'
+    ? 'Mchango wa Matumizi ya Nyumbani hadi sasa'
+    : 'Home Expenses contribution so far',
+  selectedShop.shopHomeExpensesContribution,
+],
+[
+  language === 'sw'
+    ? 'Faida ya Mmiliki iliyobaki'
+    : 'Remaining owner profit',
+  selectedShop.ownerProfit,
+],
+    [
+  language === 'sw'
+    ? 'Akiba ya duka inayolindwa (25%)'
+    : 'Protected shop reserve (25%)',
+  selectedShop.shopReserve,
+],
     [
       language === 'sw'
         ? 'Kiasi cha fedha taslimu unachotakiwa kutoa'
