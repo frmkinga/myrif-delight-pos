@@ -2005,6 +2005,11 @@ const [
 ] = useState('');
 
 const [
+  expensePaymentBeneficiaryShopId,
+  setExpensePaymentBeneficiaryShopId,
+] = useState('');
+
+const [
   expensePaymentPurpose,
   setExpensePaymentPurpose,
 ] = useState('');
@@ -7259,6 +7264,47 @@ const alignedLedgerFundAccounts = useMemo(() => {
   monthlyExpenseRows,
 ]);
 
+const consolidatedExpenseFundOptions = useMemo(() => {
+  const categoryMap = new Map();
+
+  alignedLedgerFundAccounts
+    .filter(
+      (account) =>
+        account?.type === 'expense_fund' &&
+        Number(account?.availableBalance || 0) > 0
+    )
+    .forEach((account) => {
+      const categoryName = String(
+        account?.name || 'Expense Fund'
+      ).trim();
+
+      const existingCategory =
+        categoryMap.get(categoryName) || {
+          key: `consolidated:${categoryName}`,
+          name: categoryName,
+          type: 'consolidated_expense_fund',
+          availableBalance: 0,
+          accounts: [],
+        };
+
+      existingCategory.availableBalance += Math.max(
+        0,
+        Number(account?.availableBalance || 0)
+      );
+
+      existingCategory.accounts.push(account);
+
+      categoryMap.set(categoryName, existingCategory);
+    });
+
+  return Array.from(categoryMap.values()).sort(
+    (firstCategory, secondCategory) =>
+      firstCategory.name.localeCompare(
+        secondCategory.name
+      )
+  );
+}, [alignedLedgerFundAccounts]);
+
 const ownerProfitAccount = useMemo(() => {
   return (
     alignedLedgerFundAccounts.find(
@@ -9252,12 +9298,27 @@ const destinationAccount = alignedLedgerFundAccounts.find(
 };
 
 const saveExpensePayment = async () => {
-  const selectedFund = alignedLedgerFundAccounts.find(
-  (account) =>
-    String(account?.key || '') ===
-    String(expensePaymentFundKey || '')
-);
+  const selectedConsolidatedFund =
+  consolidatedExpenseFundOptions.find(
+    (category) =>
+      String(category?.key || '') ===
+      String(expensePaymentFundKey || '')
+  );
 
+const selectedFund =
+  selectedConsolidatedFund ||
+  alignedLedgerFundAccounts.find(
+    (account) =>
+      String(account?.key || '') ===
+      String(expensePaymentFundKey || '')
+  );
+const beneficiaryShop = (
+  Array.isArray(data?.shops) ? data.shops : []
+).find(
+  (shopItem) =>
+    String(shopItem?.id || '') ===
+    String(expensePaymentBeneficiaryShopId || '')
+);
   const paymentAmount = Number(
     String(expensePaymentAmount || '').replace(
       /,/g,
@@ -9274,14 +9335,19 @@ const saveExpensePayment = async () => {
     return;
   }
 
-  if (selectedFund.type !== 'expense_fund') {
-    alert(
-      language === 'sw'
-        ? 'Malipo ya matumizi hayawezi kutolewa kwenye akaunti ya faida ya mmiliki.'
-        : 'A business expense cannot be paid from the owner-profit account.'
-    );
-    return;
-  }
+  if (
+  ![
+    'expense_fund',
+    'consolidated_expense_fund',
+  ].includes(selectedFund.type)
+) {
+  alert(
+    language === 'sw'
+      ? 'Malipo ya matumizi hayawezi kutolewa kwenye akaunti ya faida ya mmiliki.'
+      : 'A business expense cannot be paid from the owner-profit account.'
+  );
+  return;
+}
 
   if (!paymentAmount || paymentAmount <= 0) {
     alert(
@@ -9350,74 +9416,159 @@ const saveExpensePayment = async () => {
     );
     return;
   }
+const allocationAccounts =
+  selectedConsolidatedFund
+    ? selectedConsolidatedFund.accounts.filter(
+        (account) =>
+          Number(account?.availableBalance || 0) > 0
+      )
+    : [selectedFund];
 
+let remainingPayment = paymentAmount;
+
+let remainingAvailableBalance =
+  allocationAccounts.reduce(
+    (sum, account) =>
+      sum +
+      Math.max(
+        0,
+        Number(account?.availableBalance || 0)
+      ),
+    0
+  );
+
+const paymentAllocations = allocationAccounts
+  .map((account, accountIndex) => {
+    const accountAvailableBalance = Math.max(
+      0,
+      Number(account?.availableBalance || 0)
+    );
+
+    const isLastAccount =
+      accountIndex === allocationAccounts.length - 1;
+
+    const allocatedAmount = isLastAccount
+      ? Math.min(
+          accountAvailableBalance,
+          remainingPayment
+        )
+      : Math.min(
+          accountAvailableBalance,
+          Math.round(
+            (remainingPayment *
+              accountAvailableBalance) /
+              Math.max(1, remainingAvailableBalance)
+          )
+        );
+
+    remainingPayment = Math.max(
+      0,
+      remainingPayment - allocatedAmount
+    );
+
+    remainingAvailableBalance = Math.max(
+      0,
+      remainingAvailableBalance -
+        accountAvailableBalance
+    );
+
+    return {
+      account,
+      amount: allocatedAmount,
+    };
+  })
+  .filter(
+    (allocation) =>
+      Number(allocation.amount || 0) > 0
+  );
+  
   const confirmedAt = new Date().toISOString();
 
-  const transactionId = `expense-payment-${Date.now()}-${Math.random()
-    .toString(36)
-    .slice(2, 8)}`;
+const paymentGroupId = `expense-payment-${Date.now()}-${Math.random()
+  .toString(36)
+  .slice(2, 8)}`;
 
-  const transactionRow = {
-    id: transactionId,
+const transactionRows = paymentAllocations.map(
+  (allocation, allocationIndex) => {
+    const sourceAccount = allocation.account;
 
-    transaction_type: 'expense_payment',
-    transaction_date: expensePaymentDate,
+    return {
+      id: `${paymentGroupId}-${allocationIndex + 1}`,
 
-    shop_id: selectedFund.shopId || null,
-    shop_name: selectedFund.shopName || null,
+      transaction_type: 'expense_payment',
+      transaction_date: expensePaymentDate,
 
-    expense_key: selectedFund.key,
-    expense_name: selectedFund.name,
+      shop_id: sourceAccount.shopId || null,
+      shop_name: sourceAccount.shopName || null,
 
-    source_fund_type: 'expense_fund',
-    source_fund_key: selectedFund.key,
-    source_fund_name: selectedFund.name,
+      expense_key: sourceAccount.key,
+      expense_name: sourceAccount.name,
 
-    source_shop_id:
-      selectedFund.shopId || null,
+      source_fund_type: 'expense_fund',
+      source_fund_key: sourceAccount.key,
+      source_fund_name: sourceAccount.name,
 
-    source_shop_name:
-      selectedFund.shopName || null,
+      source_shop_id:
+        sourceAccount.shopId || null,
 
-    amount: paymentAmount,
+      source_shop_name:
+        sourceAccount.shopName || null,
 
-    payee: String(expensePaymentPayee).trim(),
+      destination_shop_id:
+        beneficiaryShop?.id || null,
 
-    purpose: String(
-      expensePaymentPurpose
-    ).trim(),
+      destination_shop_name:
+        beneficiaryShop?.name || null,
 
-    payment_method:
-      expensePaymentMethod || 'cash',
+      amount: Number(allocation.amount || 0),
 
-    payment_reference:
-      String(
-        expensePaymentReference || ''
-      ).trim() || null,
+      payee:
+        String(expensePaymentPayee).trim(),
 
-    status: 'confirmed',
+      purpose:
+        String(expensePaymentPurpose).trim(),
 
-    recorded_by_user_id:
-      String(currentUser?.id || ''),
+      payment_method:
+        expensePaymentMethod || 'cash',
 
-    recorded_by_name:
-      currentUser?.name ||
-      currentUser?.username ||
-      'Owner',
+      payment_reference:
+        String(
+          expensePaymentReference || ''
+        ).trim() || null,
 
-    recorded_by_role:
-      currentUser?.role || 'owner',
+      notes: selectedConsolidatedFund
+        ? `Consolidated payment: ${selectedConsolidatedFund.name}`
+        : null,
 
-    created_at: confirmedAt,
-    updated_at: confirmedAt,
-  };
+      status: 'confirmed',
+
+      recorded_by_user_id:
+        String(currentUser?.id || ''),
+
+      recorded_by_name:
+        currentUser?.name ||
+        currentUser?.username ||
+        'Owner',
+
+      recorded_by_role:
+        currentUser?.role || 'owner',
+
+      created_at: confirmedAt,
+      updated_at: confirmedAt,
+    };
+  }
+);
+
+const transactionRow = transactionRows[0];
+const transactionId =
+  transactionRow?.id || paymentGroupId;
 
   setExpensePaymentSaving(true);
 
-  const { data: savedRows, error } = await supabase
-    .from('centralFundTransactions')
-    .insert([transactionRow])
-    .select();
+ const { data: savedRows, error } = await supabase
+  .from('centralFundTransactions')
+  .insert(transactionRows)
+  .select();
 
   if (error) {
     setExpensePaymentSaving(false);
@@ -9431,111 +9582,154 @@ const saveExpensePayment = async () => {
     return;
   }
 
-  const savedRow =
-    savedRows?.[0] || transactionRow;
+const normalizedTransactions = (
+  Array.isArray(savedRows) && savedRows.length > 0
+    ? savedRows
+    : transactionRows
+).map((savedPaymentRow, paymentIndex) => {
+  const fallbackRow =
+    transactionRows[paymentIndex] ||
+    transactionRows[0];
 
-  const normalizedTransaction = {
-    id: savedRow.id || transactionId,
+  return {
+    id:
+      savedPaymentRow.id ||
+      fallbackRow.id,
 
     transactionType:
-      savedRow.transaction_type ||
-      'expense_payment',
+      savedPaymentRow.transaction_type ||
+      fallbackRow.transaction_type,
 
     transactionDate:
-      savedRow.transaction_date ||
-      expensePaymentDate,
+      savedPaymentRow.transaction_date ||
+      fallbackRow.transaction_date,
 
     shop_id:
-      savedRow.shop_id ||
-      selectedFund.shopId ||
+      savedPaymentRow.shop_id ||
+      fallbackRow.shop_id ||
       '',
 
     shopName:
-      savedRow.shop_name ||
-      selectedFund.shopName ||
+      savedPaymentRow.shop_name ||
+      fallbackRow.shop_name ||
       '',
 
     expenseKey:
-      savedRow.expense_key ||
-      selectedFund.key,
+      savedPaymentRow.expense_key ||
+      fallbackRow.expense_key,
 
     expenseName:
-      savedRow.expense_name ||
-      selectedFund.name,
+      savedPaymentRow.expense_name ||
+      fallbackRow.expense_name,
 
     sourceFundType:
-      savedRow.source_fund_type ||
-      'expense_fund',
+      savedPaymentRow.source_fund_type ||
+      fallbackRow.source_fund_type,
 
     sourceFundKey:
-      savedRow.source_fund_key ||
-      selectedFund.key,
+      savedPaymentRow.source_fund_key ||
+      fallbackRow.source_fund_key,
 
     sourceFundName:
-      savedRow.source_fund_name ||
-      selectedFund.name,
+      savedPaymentRow.source_fund_name ||
+      fallbackRow.source_fund_name,
 
     sourceShopId:
-      savedRow.source_shop_id ||
-      selectedFund.shopId ||
+      savedPaymentRow.source_shop_id ||
+      fallbackRow.source_shop_id ||
       '',
 
     sourceShopName:
-      savedRow.source_shop_name ||
-      selectedFund.shopName ||
+      savedPaymentRow.source_shop_name ||
+      fallbackRow.source_shop_name ||
+      '',
+
+    destinationShopId:
+      savedPaymentRow.destination_shop_id ||
+      fallbackRow.destination_shop_id ||
+      '',
+
+    destinationShopName:
+      savedPaymentRow.destination_shop_name ||
+      fallbackRow.destination_shop_name ||
       '',
 
     amount: Number(
-      savedRow.amount || paymentAmount
+      savedPaymentRow.amount ||
+      fallbackRow.amount ||
+      0
     ),
 
     payee:
-      savedRow.payee ||
-      String(expensePaymentPayee).trim(),
+      savedPaymentRow.payee ||
+      fallbackRow.payee ||
+      '',
 
     purpose:
-      savedRow.purpose ||
-      String(expensePaymentPurpose).trim(),
+      savedPaymentRow.purpose ||
+      fallbackRow.purpose ||
+      '',
 
     paymentMethod:
-      savedRow.payment_method ||
-      expensePaymentMethod,
+      savedPaymentRow.payment_method ||
+      fallbackRow.payment_method ||
+      'cash',
 
     paymentReference:
-      savedRow.payment_reference || '',
+      savedPaymentRow.payment_reference ||
+      fallbackRow.payment_reference ||
+      '',
+
+    notes:
+      savedPaymentRow.notes ||
+      fallbackRow.notes ||
+      '',
 
     status:
-      savedRow.status || 'confirmed',
+      savedPaymentRow.status ||
+      fallbackRow.status ||
+      'confirmed',
 
     recordedByUserId:
-      savedRow.recorded_by_user_id || '',
+      savedPaymentRow.recorded_by_user_id ||
+      fallbackRow.recorded_by_user_id ||
+      '',
 
     recordedByName:
-      savedRow.recorded_by_name || '',
+      savedPaymentRow.recorded_by_name ||
+      fallbackRow.recorded_by_name ||
+      '',
 
     recordedByRole:
-      savedRow.recorded_by_role || 'owner',
+      savedPaymentRow.recorded_by_role ||
+      fallbackRow.recorded_by_role ||
+      'owner',
 
     created_at:
-      savedRow.created_at || confirmedAt,
+      savedPaymentRow.created_at ||
+      fallbackRow.created_at ||
+      confirmedAt,
 
     updated_at:
-      savedRow.updated_at || confirmedAt,
+      savedPaymentRow.updated_at ||
+      fallbackRow.updated_at ||
+      confirmedAt,
   };
+});
 
-  await saveData({
-    ...data,
+await saveData({
+  ...data,
 
-    centralFundTransactions: [
-      normalizedTransaction,
+  centralFundTransactions: [
+    ...normalizedTransactions,
 
-      ...(Array.isArray(
-        data?.centralFundTransactions
-      )
-        ? data.centralFundTransactions
-        : []),
-    ],
-  });
+    ...(Array.isArray(
+      data?.centralFundTransactions
+    )
+      ? data.centralFundTransactions
+      : []),
+  ],
+});
 
   setExpensePaymentFundKey('');
   setExpensePaymentAmount('');
@@ -9543,7 +9737,8 @@ const saveExpensePayment = async () => {
     new Date().toISOString().slice(0, 10)
   );
   setExpensePaymentPayee('');
-  setExpensePaymentPurpose('');
+setExpensePaymentBeneficiaryShopId('');
+setExpensePaymentPurpose('');
   setExpensePaymentMethod('cash');
   setExpensePaymentReference('');
   setExpensePaymentSaving(false);
@@ -13153,27 +13348,52 @@ alert(
             ? '-- Chagua fungu --'
             : '-- Select fund --'}
         </option>
+<optgroup
+  label={
+    language === 'sw'
+      ? 'JUMLA ZA MADUKA YOTE'
+      : 'CONSOLIDATED TOTALS'
+  }
+>
+  {consolidatedExpenseFundOptions.map(
+    (category) => (
+      <option
+        key={category.key}
+        value={category.key}
+      >
+        {category.name} — Jumla TZS{' '}
+        {money(category.availableBalance)}
+      </option>
+    )
+  )}
+</optgroup>
 
-        {alignedLedgerFundAccounts
-          .filter(
-            (account) =>
-              account.type === 'expense_fund' &&
-              Number(
-                account.availableBalance || 0
-              ) > 0
-          )
-          .map((account) => (
-            <option
-              key={account.key}
-              value={account.key}
-            >
-              {account.shopName
-                ? `${account.shopName} — `
-                : ''}
-              {account.name} — TZS{' '}
-              {money(account.availableBalance)}
-            </option>
-          ))}
+<optgroup
+  label={
+    language === 'sw'
+      ? 'MAFUNGU YA DUKA MOJA MOJA'
+      : 'INDIVIDUAL SHOP FUNDS'
+  }
+>
+  {alignedLedgerFundAccounts
+    .filter(
+      (account) =>
+        account.type === 'expense_fund' &&
+        Number(account.availableBalance || 0) > 0
+    )
+    .map((account) => (
+      <option
+        key={account.key}
+        value={account.key}
+      >
+        {account.shopName
+          ? `${account.shopName} — `
+          : ''}
+        {account.name} — TZS{' '}
+        {money(account.availableBalance)}
+      </option>
+    ))}
+</optgroup>
       </select>
     </label>
 
@@ -13243,7 +13463,40 @@ alert(
         className="h-11 w-full rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none focus:border-emerald-500"
       />
     </label>
+<label className="space-y-2">
+  <span className="text-sm font-bold text-slate-700">
+    {language === 'sw'
+      ? 'Duka ambalo matumizi yameelekezwa — si lazima'
+      : 'Beneficiary shop — optional'}
+  </span>
 
+  <select
+    value={expensePaymentBeneficiaryShopId}
+    onChange={(event) =>
+      setExpensePaymentBeneficiaryShopId(
+        event.target.value
+      )
+    }
+    className="h-11 w-full rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none focus:border-emerald-500"
+  >
+    <option value="">
+      {language === 'sw'
+        ? 'Matumizi ya jumla / maduka yote'
+        : 'General expense / all shops'}
+    </option>
+
+    {(Array.isArray(data?.shops) ? data.shops : []).map(
+      (shopItem) => (
+        <option
+          key={shopItem.id}
+          value={shopItem.id}
+        >
+          {shopItem.name}
+        </option>
+      )
+    )}
+  </select>
+</label>
     <label className="space-y-2">
       <span className="text-sm font-bold text-slate-700">
         {language === 'sw'
