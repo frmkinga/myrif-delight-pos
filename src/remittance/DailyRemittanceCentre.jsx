@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../supabaseClient';
 import { getGasDashboardSummary } from '../GasBusinessSection';
 
@@ -1912,8 +1912,8 @@ const [
   showEmergencyBorrowingForm,
   setShowEmergencyBorrowingForm,
 ] = useState(false);
-
 const [activeReport, setActiveReport] = useState('daily-remittance');
+const homeFundingSnapshotSaveRef = useRef(new Map());
   
   const [selectedShopId, setSelectedShopId] = useState(
     resolvedShopId || 'shop-1'
@@ -7410,6 +7410,167 @@ const automaticPooledHomeExpensesFunding = useMemo(() => {
   data?.dailyRemittances,
 ]);
 
+/*
+ * Save today's live Home Expenses contribution as an authoritative snapshot.
+ * Today's snapshot may update as performance changes. Previous dates remain fixed.
+ */
+useEffect(() => {
+  const todayKey = new Date().toISOString().slice(0, 10);
+
+  const snapshotShops =
+    resolvedRole === 'owner'
+      ? Array.isArray(data?.shops)
+        ? data.shops
+        : []
+      : (Array.isArray(data?.shops) ? data.shops : []).filter(
+          (shop) =>
+            String(shop?.id || '').trim() ===
+            String(resolvedShopId || '').trim()
+        );
+
+  const snapshotRows = snapshotShops.flatMap((shop) => {
+    const shopId = String(shop?.id || '').trim();
+
+    if (!shopId) return [];
+
+    const position = getLiveRemittanceShopPosition({
+      data,
+      shopId,
+      calculationDateKey: todayKey,
+    });
+
+    const shopContribution = Math.max(
+      0,
+      Number(position?.shopHomeExpensesContribution || 0)
+    );
+
+    const gasContribution = Math.max(
+      0,
+      Number(position?.pooledGasHomeExpensesContribution || 0)
+    );
+
+    const now = new Date().toISOString();
+    const shopName = String(shop?.name || shopId);
+
+    return [
+      {
+        id: `home-funding-shop-${todayKey}-${shopId}`,
+        transaction_type: 'home_expense_shop_snapshot',
+        transaction_date: todayKey,
+        source_fund_type: 'shop_profit',
+        source_fund_key: `shop-profit-${shopId}`,
+        source_fund_name: `${shopName} Profit`,
+        source_shop_id: shopId,
+        source_shop_name: shopName,
+        destination_fund_type: 'home_expenses_fund',
+        destination_fund_key: 'homeExpenses',
+        destination_fund_name: 'Home Expenses Fund',
+        expense_key: 'homeExpenses',
+        expense_name: 'Home Expenses',
+        amount: shopContribution,
+        purpose: 'Live daily shop contribution snapshot',
+        status: 'snapshot',
+        updated_at: now,
+      },
+      {
+        id: `home-funding-gas-${todayKey}-${shopId}`,
+        transaction_type: 'home_expense_gas_snapshot',
+        transaction_date: todayKey,
+        source_fund_type: 'gas_profit',
+        source_fund_key: `gas-profit-${shopId}`,
+        source_fund_name: `${shopName} Gas Profit`,
+        source_shop_id: shopId,
+        source_shop_name: shopName,
+        destination_fund_type: 'home_expenses_fund',
+        destination_fund_key: 'homeExpenses',
+        destination_fund_name: 'Home Expenses Fund',
+        expense_key: 'homeExpenses',
+        expense_name: 'Home Expenses',
+        amount: gasContribution,
+        purpose: 'Live daily gas contribution snapshot',
+        status: 'snapshot',
+        updated_at: now,
+      },
+    ];
+  });
+
+  if (snapshotRows.length === 0) return;
+
+  const snapshotSignature = snapshotRows
+    .map((row) => `${row.id}:${Number(row.amount || 0).toFixed(2)}`)
+    .join('|');
+
+  if (
+    homeFundingSnapshotSaveRef.current.get(todayKey) ===
+    snapshotSignature
+  ) {
+    return;
+  }
+
+  homeFundingSnapshotSaveRef.current.set(
+    todayKey,
+    snapshotSignature
+  );
+
+  let cancelled = false;
+
+  const saveSnapshots = async () => {
+    const { data: savedRows, error } = await supabase
+      .from('centralFundTransactions')
+      .upsert(snapshotRows, { onConflict: 'id' })
+      .select();
+
+    if (cancelled) return;
+
+    if (error) {
+      homeFundingSnapshotSaveRef.current.delete(todayKey);
+      console.error(
+        'Home Expenses contribution snapshot failed:',
+        error
+      );
+      return;
+    }
+
+    const savedIds = new Set(
+      snapshotRows.map((row) => String(row.id))
+    );
+
+    const existingTransactions = Array.isArray(
+      data?.centralFundTransactions
+    )
+      ? data.centralFundTransactions
+      : [];
+
+    const nextTransactions = [
+      ...(Array.isArray(savedRows) ? savedRows : snapshotRows),
+      ...existingTransactions.filter(
+        (transaction) =>
+          !savedIds.has(String(transaction?.id || ''))
+      ),
+    ];
+
+    await saveData({
+      ...data,
+      centralFundTransactions: nextTransactions,
+    });
+  };
+
+  saveSnapshots();
+
+  return () => {
+    cancelled = true;
+  };
+}, [
+  data,
+  data?.shops,
+  data?.sales,
+  data?.products,
+  data?.gasEntries,
+  data?.dailyRemittances,
+  resolvedRole,
+  resolvedShopId,
+  saveData,
+]);
 const automaticShopHomeExpensesContribution =
   automaticPooledHomeExpensesFunding.shopContribution;
 
