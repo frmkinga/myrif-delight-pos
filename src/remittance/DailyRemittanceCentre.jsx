@@ -10862,8 +10862,8 @@ alert(
                       {
                         label:
                           language === 'sw'
-                            ? 'Jumla Yote ya Mwezi'
-                            : 'Full Monthly Expenses',
+                            ? 'Mahitaji Yote ya Mwezi'
+: 'Full Monthly Expenses',
                         value:
                           simpleIncomeExpenseSummary
                             .totalMonthlyExpenses,
