@@ -1569,49 +1569,79 @@ function Login({ onLogin, users, language, setLanguage }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const loginTheme = getWeeklyLoginTheme();
-  const loginWelcomeMessage = '';
 
- const submit = async (e) => {
+
+const loginTheme = getWeeklyLoginTheme();
+const loginWelcomeMessage = '';
+const loginRequestInProgress = useRef(false);
+
+const submit = async (e) => {
   e.preventDefault();
+
+  if (loginRequestInProgress.current) return;
 
   const typedUsername = String(username || '').trim();
   const typedPassword = String(password || '');
 
   const found = users.find(
-    (u) => String(u.username || '').trim().toLowerCase() === typedUsername.toLowerCase()
+    (u) =>
+      String(u.username || '').trim().toLowerCase() ===
+      typedUsername.toLowerCase()
   );
 
   if (!found || !found.email) {
     return setError(
-      t(language, 'Wrong username or password.', 'Jina la mtumiaji au nenosiri si sahihi.')
+      t(
+        language,
+        'Wrong username or password.',
+        'Jina la mtumiaji au nenosiri si sahihi.'
+      )
     );
   }
 
+  loginRequestInProgress.current = true;
+  setError('');
+
   try {
-    const { data: signInData, error: authError } = await supabase.auth.signInWithPassword({
-      email: found.email,
-      password: typedPassword,
-    });
+    const { data: signInData, error: authError } =
+      await supabase.auth.signInWithPassword({
+        email: found.email,
+        password: typedPassword,
+      });
 
     if (authError) {
-      return setError(
-        t(language, 'Wrong username or password.', 'Jina la mtumiaji au nenosiri si sahihi.')
-      );
-    }
+  console.error('SUPABASE LOGIN EXACT ERROR:', {
+    message: authError.message,
+    code: authError.code,
+    status: authError.status,
+    name: authError.name,
+  });
 
-    setError('');
+  setError(
+    `Supabase: ${authError.message || 'Unknown login error'}${
+      authError.code ? ` (${authError.code})` : ''
+    }`
+  );
+
+  return;
+}
 
     onLogin({
-      ...found,
-      auth_user_id: signInData?.user?.id || null,
-    });
+  ...found,
+  auth_user_id: signInData?.user?.id || null,
+});
   } catch (error) {
     console.error('Supabase login crashed:', error);
 
-    return setError(
-      t(language, 'Login failed. Please try again.', 'Kuingia kumeshindikana. Tafadhali jaribu tena.')
+    setError(
+      t(
+        language,
+        'Login failed. Please try again.',
+        'Kuingia kumeshindikana. Tafadhali jaribu tena.'
+      )
     );
+  } finally {
+    loginRequestInProgress.current = false;
   }
 };
 
@@ -2265,7 +2295,7 @@ const [passwordMessage, setPasswordMessage] = useState('');
 const [ownerSalesSource, setOwnerSalesSource] = useState([]);
 const [ownerSalesLoading, setOwnerSalesLoading] = useState(true);
 
-const ownerConfirmedPeriodReady = dashboardDataReady && !ownerSalesLoading;
+const ownerConfirmedPeriodReady = true;
 
 const changeAdminPassword = () => {
   const ownerUser = data.users.find((u) => u.role === 'owner');
@@ -2308,7 +2338,7 @@ setAppData(nextData);
   setNewPasswordInput('');
   setConfirmPasswordInput('');
 };
-    const shouldLoadOldOwnerSalesFromSupabase = true;
+    const shouldLoadOldOwnerSalesFromSupabase = false;
 
   useEffect(() => {
     if (!shouldLoadOldOwnerSalesFromSupabase) {
@@ -2405,7 +2435,14 @@ setAppData(nextData);
     loadOldOwnerSales();
   }, [ownerPeriod, shouldLoadOldOwnerSalesFromSupabase]);
 
-  const ownerSalesBase = data.sales;
+  const ownerSalesBase = (data.sales || [])
+  .filter((sale) => sale.confirmed !== false)
+  .map((sale) => ({
+    ...sale,
+    date: sale.created_at
+      ? todayISO(new Date(sale.created_at))
+      : sale.date,
+  }));
 
   const ownerDateValue =
     ownerPeriod === 'date'
@@ -2419,13 +2456,12 @@ console.log('OWNER STATE CHECK', {
   filteredSalesCount: Array.isArray(salesPeriod) ? salesPeriod.length : 0,
   firstThreeSales: Array.isArray(ownerSalesBase) ? ownerSalesBase.slice(0, 3) : [],
 });
- const expensesPeriod = filterByPreset(data.expenses, ownerPeriod, ownerDateValue);
   const totalSales = salesPeriod.reduce((a, s) => a + Number(s.total || 0), 0);
 console.log('TOTAL CHECK', {
   totalSales,
   count: salesPeriod.length
 });
-  const totalExpenses = expensesPeriod.reduce((a, e) => a + Number(e.amount || 0), 0);
+  
   const getOwnerRemittancePeriod = () => {
   const now = startOfDay(new Date());
 
@@ -2570,16 +2606,6 @@ const ownerTotalMatumiziYaLeo =
     },
     0
   );
-  const totalRetailProfit = salesPeriod.reduce((sum, sale) => {
-  return sum + (sale.items || []).reduce((itemSum, item) => {
-    const qty = Number(item.quantity || 0);
-    const sellPrice = Number(item.sellPrice ?? item.price ?? 0);
-    const buyPrice = Number(item.buyPrice ?? 0);
-    return itemSum + qty * (sellPrice - buyPrice);
-  }, 0);
-}, 0);
-
-const totalProfit = totalRetailProfit - totalExpenses;
 const displayedOwnerProfit =
   ownerRemittanceDateKeys.reduce(
     (periodTotal, dateKey) => {
@@ -2608,36 +2634,151 @@ const displayedOwnerProfit =
     },
     0
   );
+
+  const displayedRetailNetProfit =
+  ownerRemittanceDateKeys.reduce(
+    (periodTotal, dateKey) => {
+      const dateRetailNetProfit = (
+        Array.isArray(data?.shops)
+          ? data.shops
+          : []
+      ).reduce((shopTotal, shop) => {
+        const position =
+          getLiveRemittanceShopPosition({
+            data,
+            shopId: shop.id,
+            calculationDateKey: dateKey,
+          });
+
+        return (
+          shopTotal +
+          Math.max(
+            0,
+            Number(position?.netProfit || 0)
+          )
+        );
+      }, 0);
+
+      return (
+        periodTotal +
+        dateRetailNetProfit
+      );
+    },
+    0
+  );
 const totalGasProfit = (data.gasEntries || [])
-  .filter((x) => filterByPreset([x], ownerPeriod, todayISO()).length > 0)
-  .reduce((a, x) => a + getGasEntryProfitTotal(x), 0);
+  .filter(
+    (entry) =>
+      filterByPreset(
+        [entry],
+        ownerPeriod,
+        ownerDateValue
+      ).length > 0
+  )
+  .reduce(
+    (sum, entry) =>
+      sum + getGasEntryProfitTotal(entry),
+    0
+  );
 
 
 const commissionMonthMatchesOwnerPeriod = (record) => {
-  const now = new Date();
+  if (!record?.commissionMonth) return false;
 
-  const currentMonthKey = `${now.getFullYear()}-${String(
-    now.getMonth() + 1
-  ).padStart(2, '0')}`;
+  if (
+    ![
+      'month',
+      'lastmonth',
+      '3months',
+      '6months',
+      'year',
+    ].includes(ownerPeriod)
+  ) {
+    return false;
+  }
 
-  const commissionRows = [
-    ...(Array.isArray(record?.mobileCommissions)
-      ? record.mobileCommissions
-      : []),
-    ...(Array.isArray(record?.bankCommissions)
-      ? record.bankCommissions
-      : []),
-  ];
+  const [year, month] = String(
+    record.commissionMonth
+  )
+    .split('-')
+    .map(Number);
 
-  return commissionRows.some((row) => {
-    const receivedDate = String(row?.receivedDate || '').slice(0, 10);
+  if (!year || !month) return false;
+
+  const now = startOfDay(new Date());
+
+  const commissionMonthStart = new Date(
+    year,
+    month - 1,
+    1
+  );
+
+  const thisMonthStart = startOfMonth(now);
+
+  const lastMonthStart = new Date(
+    now.getFullYear(),
+    now.getMonth() - 1,
+    1
+  );
+
+  const thisYearStart = new Date(
+    now.getFullYear(),
+    0,
+    1
+  );
+
+  if (ownerPeriod === 'month') {
+    return (
+      commissionMonthStart.getFullYear() ===
+        thisMonthStart.getFullYear() &&
+      commissionMonthStart.getMonth() ===
+        thisMonthStart.getMonth()
+    );
+  }
+
+  if (ownerPeriod === 'lastmonth') {
+    return (
+      commissionMonthStart.getFullYear() ===
+        lastMonthStart.getFullYear() &&
+      commissionMonthStart.getMonth() ===
+        lastMonthStart.getMonth()
+    );
+  }
+
+  if (ownerPeriod === '3months') {
+    const periodStart = new Date(
+      now.getFullYear(),
+      now.getMonth() - 2,
+      1
+    );
 
     return (
-      row?.notReceived !== true &&
-      Number(row?.amount || 0) > 0 &&
-      receivedDate.startsWith(currentMonthKey)
+      commissionMonthStart >= periodStart &&
+      commissionMonthStart <= thisMonthStart
     );
-  });
+  }
+
+  if (ownerPeriod === '6months') {
+    const periodStart = new Date(
+      now.getFullYear(),
+      now.getMonth() - 5,
+      1
+    );
+
+    return (
+      commissionMonthStart >= periodStart &&
+      commissionMonthStart <= thisMonthStart
+    );
+  }
+
+  if (ownerPeriod === 'year') {
+    return (
+      commissionMonthStart >= thisYearStart &&
+      commissionMonthStart <= thisMonthStart
+    );
+  }
+
+  return false;
 };
 
 const monthlyCommissionRecordsForOwnerPeriod = (data.monthlyWakalaCommissions || [])
@@ -2655,7 +2796,10 @@ const totalBankWakalaCommission = monthlyCommissionRecordsForOwnerPeriod.reduce(
 
 const totalWakalaCommission = totalMobileWakalaCommission + totalBankWakalaCommission;
 
-const totalBusinessProfit = totalProfit + totalGasProfit + totalWakalaCommission;
+const totalBusinessProfit =
+  displayedRetailNetProfit +
+  totalGasProfit +
+  totalWakalaCommission;
 
 const ownerMonthlyTargets = data.shops.map((shop) => ({
   shop,
@@ -2698,9 +2842,28 @@ const ownerMonthlyRewardAmount = ownerMonthlyTargets.reduce(
   0
 );
 
-const latestPerShop = data.shops.map((shop) => getLatestEntryForShop(data.mobileMoneyEntries, shop.id)).filter(Boolean);
-const totalMobileCapital = latestPerShop.reduce((a, entry) => a + getMobileCapital(entry), 0);
-const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(entry), 0);
+const latestPerShop = data.shops
+  .map((shop) =>
+    getLatestEntryForShop(
+      data.mobileMoneyEntries,
+      shop.id
+    )
+  )
+  .filter(Boolean);
+
+const totalMobileCapital =
+  latestPerShop.reduce(
+    (sum, entry) =>
+      sum + Number(entry.mobileCapital || 0),
+    0
+  );
+
+const totalBankCapital =
+  latestPerShop.reduce(
+    (sum, entry) =>
+      sum + Number(entry.bankCapital || 0),
+    0
+  );
 
   const ownerPeriodLabel = {
     today: t(language, 'Today', 'Leo'),
@@ -2838,13 +3001,7 @@ const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(e
         </div>
       ) : null}
 
-      <div
-        className={
-          ownerConfirmedPeriodReady
-            ? ''
-            : 'hidden'
-        }
-      >
+      <div>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
   <StatCard
   title={`${t(language, 'Total Sales', 'Jumla ya Mauzo')} ${ownerPeriodLabel}`}
@@ -2898,8 +3055,12 @@ const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(e
   <CardContent>
   <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6 text-sm">
     <div className="rounded-2xl bg-gradient-to-r from-fuchsia-500/15 to-purple-600/15 p-3 font-medium">
-      {t(language, 'Owner Profit after All Expenses', 'Faida ya Mmiliki baada ya Matumizi Yote')}: TZS {currency(displayedOwnerProfit)}
-    </div>
+  {t(
+    language,
+    'Retail Profit',
+    'Faida ya Duka'
+  )}: TZS {currency(displayedRetailNetProfit)}
+</div>
 
     <div className="rounded-2xl bg-gradient-to-r from-orange-400/15 to-pink-500/15 p-3 font-medium">
       {t(language, 'Gas Profit', 'Faida ya Gesi')}: TZS {currency(totalGasProfit)}
@@ -2998,16 +3159,18 @@ const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(e
 <div className="mt-6 grid gap-4 lg:grid-cols-3 text-base">
         {data.shops.map((shop) => {
           const shopSales = filterByPreset(
-            data.sales.filter((s) => String(s.shop_id) === String(shop.id)),
-            ownerPeriod,
-            todayISO()
-          ).reduce((a, s) => a + Number(s.total || 0), 0);
+  ownerSalesBase.filter(
+    (sale) =>
+      String(sale.shop_id || sale.shopId || '') ===
+      String(shop.id)
+  ),
+  ownerPeriod,
+  ownerDateValue
+).reduce(
+  (sum, sale) => sum + Number(sale.total || 0),
+  0
+);
 
-          const shopExpenses = filterByPreset(
-            data.expenses.filter((e) => String(e.shop_id) === String(shop.id)),
-            ownerPeriod,
-            todayISO()
-          ).reduce((a, e) => a + Number(e.amount || 0), 0);
 
           const shopAutomaticMatumizi =
   ownerRemittanceDateKeys.reduce(
@@ -3033,19 +3196,39 @@ const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(e
     0
   );
 
-          const shopRetailProfit = filterByPreset(
-            data.sales.filter((s) => String(s.shop_id) === String(shop.id)),
-            ownerPeriod,
-            todayISO()
-          ).reduce((sum, sale) => {
-            return sum + (sale.items || []).reduce((itemSum, item) => {
-              const qty = Number(item.quantity || 0);
-              const sellPrice = Number(item.sellPrice ?? item.price ?? 0);
-              const buyPrice = Number(item.buyPrice ?? 0);
-              return itemSum + qty * (sellPrice - buyPrice);
-            }, 0);
-          }, 0);
+          const shopRetailProfit =
+  ownerRemittanceDateKeys.reduce(
+    (periodTotal, dateKey) => {
+      const position =
+        getLiveRemittanceShopPosition({
+          data,
+          shopId: shop.id,
+          calculationDateKey: dateKey,
+        });
 
+      return (
+        periodTotal +
+        Math.max(
+          0,
+          Number(position?.netProfit || 0)
+        )
+      );
+    },
+    0
+  );
+const shopGasProfit = filterByPreset(
+  (data.gasEntries || []).filter(
+    (entry) =>
+      String(entry.shop_id || entry.shopId || '') ===
+      String(shop.id)
+  ),
+  ownerPeriod,
+  ownerDateValue
+).reduce(
+  (sum, entry) =>
+    sum + getGasEntryProfitTotal(entry),
+  0
+);
           const shopProfit =
   ownerRemittanceDateKeys.reduce(
     (periodTotal, dateKey) => {
@@ -3085,9 +3268,18 @@ const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(e
 
           const shopWakalaCommission = shopMobileWakalaCommission + shopBankWakalaCommission;
 
-          const latest = getLatestEntryForShop(data.mobileMoneyEntries, shop.id);
-          const mobileCapital = latest ? getMobileCapital(latest) : 0;
-          const bankCapital = latest ? getBankCapital(latest) : 0;
+const latest = getLatestEntryForShop(
+  data.mobileMoneyEntries,
+  shop.id
+);
+
+const mobileCapital = latest
+  ? Number(latest.mobileCapital || 0)
+  : 0;
+
+const bankCapital = latest
+  ? Number(latest.bankCapital || 0)
+  : 0;
 
           return (
   <div
@@ -3108,9 +3300,29 @@ const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(e
           {t(language, 'Amount to Submit', 'Kiasi cha Kutoa')}: TZS {currency(shopAutomaticMatumizi)}
         </div>
 
-        <div className="rounded-2xl bg-white/70 px-3 py-2 font-medium shadow-sm">
-          {t(language, 'Profit', 'Faida')}: TZS {currency(shopProfit)}
-        </div>
+        <div className="rounded-2xl bg-white/70 px-3 py-2 shadow-sm">
+  {t(
+    language,
+    'Retail Profit',
+    'Faida ya Duka'
+  )}: TZS {currency(shopRetailProfit)}
+</div>
+
+<div className="rounded-2xl bg-white/70 px-3 py-2 shadow-sm">
+  {t(
+    language,
+    'Owner Profit',
+    'Faida ya Mmiliki'
+  )}: TZS {currency(shopProfit)}
+</div>
+
+<div className="rounded-2xl bg-white/70 px-3 py-2 shadow-sm">
+  {t(
+    language,
+    'Gas Profit',
+    'Faida ya Gesi'
+  )}: TZS {currency(shopGasProfit)}
+</div>
 
         <div className="rounded-2xl bg-white/70 px-3 py-2 shadow-sm">
           {t(language, 'Mobile Money Commission', 'Kamisheni za Simu')}: TZS {currency(shopMobileWakalaCommission)}
@@ -3125,8 +3337,17 @@ const totalBankCapital = latestPerShop.reduce((a, entry) => a + getBankCapital(e
         </div>
 
         <div className="rounded-2xl bg-emerald-50 px-3 py-2 font-semibold text-emerald-800 shadow-sm">
-          {t(language, 'Total Shop Profit including Wakala', 'Jumla ya Faida ya Duka pamoja na Wakala')}: TZS {currency(shopProfit + shopWakalaCommission)}
-        </div>
+  {t(
+    language,
+    'Total Business Profit',
+    'Jumla ya Faida za Biashara'
+  )}: TZS{' '}
+  {currency(
+    shopRetailProfit +
+      shopGasProfit +
+      shopWakalaCommission
+  )}
+</div>
 
         <div className="rounded-2xl bg-white/70 px-3 py-2 shadow-sm">
           {t(language, 'Mobile Money Capital', 'Mtaji wa Simu')}: TZS {currency(mobileCapital)}
@@ -9917,6 +10138,7 @@ const [isHydrating, setIsHydrating] = useState(true);
 const [hasLoadedInitialData, setHasLoadedInitialData] = useState(false);
 const [dashboardDataReady, setDashboardDataReady] = useState(false);
 const monthlyTargetSyncRef = useRef(new Set());
+const lastAutomaticProductRefreshRef = useRef(0);
 
 useEffect(() => {
   let cancelled = false;
@@ -10064,6 +10286,8 @@ useEffect(() => {
 }, [data?.currentUser, language]);
 
 useEffect(() => {
+  if (!data?.currentUser) return;
+
   debugSyncQueue();
 
   let refreshTimer = null;
@@ -10118,52 +10342,130 @@ if (salesMode === 'year') {
       throw new Error('Supabase sales response was not a valid list.');
     }
 
-    let productsQuery = supabase
-      .from('products')
-      .select('*')
-      .order('created_at', { ascending: false });
 
-    if (!isOwnerUser) {
-      productsQuery = productsQuery.eq('shop_id', shopId);
-    }
+    const productRefreshIntervalMs =
+      20 * 60 * 1000;
 
-    const { data: cloudProducts, error: productsError } = await productsQuery;
+    const shouldRefreshProducts =
+      Date.now() -
+        lastAutomaticProductRefreshRef.current >=
+      productRefreshIntervalMs;
 
-    if (productsError) throw productsError;
+    let cloudProducts = [];
 
-    if (!Array.isArray(cloudProducts)) {
-      throw new Error('Supabase products response was not a valid list.');
+    if (shouldRefreshProducts) {
+      let productsQuery = supabase
+        .from('products')
+        .select('*')
+        .order('created_at', {
+          ascending: false,
+        });
+
+      if (!isOwnerUser) {
+        productsQuery = productsQuery.eq(
+          'shop_id',
+          shopId
+        );
+      }
+
+      const {
+        data: refreshedProducts,
+        error: productsError,
+      } = await productsQuery;
+
+      if (productsError) {
+        throw productsError;
+      }
+
+      if (!Array.isArray(refreshedProducts)) {
+        throw new Error(
+          'Supabase products response was not a valid list.'
+        );
+      }
+
+      cloudProducts = refreshedProducts;
+
+      lastAutomaticProductRefreshRef.current =
+        Date.now();
     }
 
     return {
       shopId,
       isOwnerUser,
+      productsWereRefreshed:
+        shouldRefreshProducts,
+
       sales: cloudSales.map((sale) => ({
         ...sale,
         confirmed: true,
       })),
+
       products: cloudProducts.map((p) =>
         normalizeProduct({
           id: p.id,
           name: p.name,
-          buyPrice: Number(p.buyingprice || p.buyPrice || 0),
-          sellPrice: Number(p.sellingprice || p.sellPrice || 0),
-          stockBaseQty: Number(p.stock || p.stockBaseQty || p.stockQty || 0),
-          stockQty: Number(p.stock || p.stockBaseQty || p.stockQty || 0),
-          shop_id: String(p.shop_id || p.shopid || shopId || '').trim(),
-          baseUnit: p.baseunit || p.baseUnit || 'pc',
-          minStockLevel: Number(p.minstocklevel || p.minStockLevel || 5),
-          expiryDate: p.expirydate || p.expiryDate || '',
-          qrCode: p.qrcode || p.qrCode || '',
-          subUnitsRaw: p.subunitsraw || p.subUnitsRaw || '',
+          buyPrice: Number(
+            p.buyingprice ||
+              p.buyPrice ||
+              0
+          ),
+          sellPrice: Number(
+            p.sellingprice ||
+              p.sellPrice ||
+              0
+          ),
+          stockBaseQty: Number(
+            p.stock ||
+              p.stockBaseQty ||
+              p.stockQty ||
+              0
+          ),
+          stockQty: Number(
+            p.stock ||
+              p.stockBaseQty ||
+              p.stockQty ||
+              0
+          ),
+          shop_id: String(
+            p.shop_id ||
+              p.shopid ||
+              shopId ||
+              ''
+          ).trim(),
+          baseUnit:
+            p.baseunit ||
+            p.baseUnit ||
+            'pc',
+          minStockLevel: Number(
+            p.minstocklevel ||
+              p.minStockLevel ||
+              5
+          ),
+          expiryDate:
+            p.expirydate ||
+            p.expiryDate ||
+            '',
+          qrCode:
+            p.qrcode ||
+            p.qrCode ||
+            '',
+          subUnitsRaw:
+            p.subunitsraw ||
+            p.subUnitsRaw ||
+            '',
           archived: Boolean(p.archived),
-          createdAt: p.createdAt || p.created_at || new Date().toISOString(),
-          updatedAt: p.updatedAt || p.updated_at || new Date().toISOString(),
+          createdAt:
+            p.createdAt ||
+            p.created_at ||
+            new Date().toISOString(),
+          updatedAt:
+            p.updatedAt ||
+            p.updated_at ||
+            new Date().toISOString(),
         })
       ),
     };
   };
-
   const syncAndReloadConfirmedSales = async (message = 'Checking sync...') => {
     if (!navigator.onLine) {
       setIsOnline(false);
@@ -10208,14 +10510,68 @@ if (salesMode === 'year') {
       const confirmedResult = await loadConfirmedDashboardDataFromSupabase();
 
       setData((prev) => {
-        const previousSales = Array.isArray(prev.sales) ? prev.sales : [];
+        const previousSales = Array.isArray(prev.sales)
+          ? prev.sales
+          : [];
 
-        const nextSales = mergeRowsById(previousSales, confirmedResult.sales || []);
+        const confirmedSales = Array.isArray(
+          confirmedResult.sales
+        )
+          ? confirmedResult.sales
+          : [];
 
-        const previousProducts = Array.isArray(prev.products) ? prev.products : [];
+        const previousSalesById = new Map(
+          previousSales.map((sale) => [
+            String(sale?.id || '').trim(),
+            sale,
+          ])
+        );
+
+        const confirmedSalesChanged =
+          confirmedSales.some((incomingSale) => {
+            const saleId = String(
+              incomingSale?.id || ''
+            ).trim();
+
+            if (!saleId) return true;
+
+            const existingSale =
+              previousSalesById.get(saleId);
+
+            if (!existingSale) return true;
+
+            return (
+              JSON.stringify({
+                ...existingSale,
+                ...incomingSale,
+              }) !== JSON.stringify(existingSale)
+            );
+          });
+
+        if (
+          !confirmedSalesChanged &&
+          confirmedResult.productsWereRefreshed ===
+            false
+        ) {
+          return prev;
+        }
+
+        const nextSales = mergeRowsById(
+          previousSales,
+          confirmedSales
+        );
+
+        const previousProducts = Array.isArray(
+          prev.products
+        )
+          ? prev.products
+          : [];
         const confirmedProducts = Array.isArray(confirmedResult.products)
           ? confirmedResult.products
           : [];
+
+        const productsWereRefreshed =
+          confirmedResult.productsWereRefreshed !== false;
 
         const currentShopId = String(confirmedResult.shopId || '').trim();
 
@@ -10227,7 +10583,9 @@ if (salesMode === 'year') {
 
         let nextProducts = previousProducts;
 
-        if (confirmedResult.isOwnerUser) {
+        if (!productsWereRefreshed) {
+          nextProducts = previousProducts;
+        } else if (confirmedResult.isOwnerUser) {
           if (confirmedProducts.length > 0) {
             nextProducts = confirmedProducts;
           } else if (previousProducts.length > 0) {
@@ -10320,7 +10678,7 @@ if (salesMode === 'year') {
       window.clearInterval(refreshTimer);
     }
   };
-}, [activeShopId]);
+}, [data?.currentUser?.id]);
 
 useEffect(() => {
   if (!activeShopId) return;
@@ -11013,7 +11371,10 @@ const shopId =
     : null;
 
   setActiveShopId(shopId);
-
+setData((prev) => ({
+  ...prev,
+  currentUser: sessionUser,
+}));
   let loaded;
 
   try {
