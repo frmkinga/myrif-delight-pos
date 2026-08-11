@@ -1228,7 +1228,20 @@ export const getLiveRemittanceShopPosition = ({
   )
     ? safeData.dailyRemittances
     : [];
-
+const homeExpensesSnapshots = Array.isArray(
+  safeData.centralFundTransactions
+)
+  ? safeData.centralFundTransactions.filter(
+      (transaction) =>
+        String(transaction?.status || '') === 'snapshot' &&
+        [
+          'home_expense_shop_snapshot',
+          'home_expense_gas_snapshot',
+        ].includes(
+          String(transaction?.transaction_type || '')
+        )
+    )
+  : [];
   const selectedShop =
     shops.find(
       (shop) =>
@@ -1677,44 +1690,27 @@ if (
       0
     );
 
-  const confirmedHomeExpensesBeforeToday =
-    remittanceRecords
-      .filter((record) => {
-        const recordDateKey = String(
-          record?.date || ''
-        ).slice(0, 10);
+const confirmedHomeExpensesBeforeToday =
+  homeExpensesSnapshots
+    .filter((transaction) => {
+      const transactionDateKey = String(
+        transaction?.transaction_date || ''
+      ).slice(0, 10);
 
-        return (
-          recordDateKey >= catchUpStartKey &&
-          recordDateKey < todayKey
-        );
-      })
-      .reduce((total, record) => {
-        const expenseBreakdown = Array.isArray(
-          record?.expenseBreakdown
-        )
-          ? record.expenseBreakdown
-          : [];
-
-        const confirmedPerformanceFunding =
-          expenseBreakdown
-            .filter(
-              (expense) =>
-                String(expense?.key || '') ===
-                  'performanceHomeExpenses'
-            )
-            .reduce(
-              (sum, expense) =>
-                sum +
-                Math.max(
-                  0,
-                  Number(expense?.funded || 0)
-                ),
-              0
-            );
-
-        return total + confirmedPerformanceFunding;
-      }, 0);
+      return (
+        transactionDateKey >= catchUpStartKey &&
+        transactionDateKey < todayKey
+      );
+    })
+    .reduce(
+      (total, transaction) =>
+        total +
+        Math.max(
+          0,
+          Number(transaction?.amount || 0)
+        ),
+      0
+    );
 
   /*
    * This is today's requirement including any shortage accumulated
@@ -7752,12 +7748,31 @@ const simpleIncomeExpenseSummary = useMemo(() => {
     now.getMonth() + 1
   ).padStart(2, '0')}`;
 
-  const currentMonthStartKey = `${currentMonthKey}-01`;
+  const currentMonthStartKey =
+  `${todayKey.slice(0, 7)}-01`;
 
-  const summaryStartKey =
-    currentMonthStartKey < AUTOMATIC_EXPENSE_OFFICIAL_START_DATE
-      ? AUTOMATIC_EXPENSE_OFFICIAL_START_DATE
-      : currentMonthStartKey;
+const configuredCatchUpStartKey =
+  currentMonthStartKey <
+  HOME_EXPENSES_PERFORMANCE_START_DATE
+    ? HOME_EXPENSES_PERFORMANCE_START_DATE
+    : currentMonthStartKey;
+
+const firstSnapshotDateKey =
+  homeExpensesSnapshots
+    .map((transaction) =>
+      String(transaction?.transaction_date || '').slice(0, 10)
+    )
+    .filter(
+      (dateKey) =>
+        dateKey >= configuredCatchUpStartKey &&
+        dateKey <= todayKey
+    )
+    .sort()[0] || todayKey;
+
+const catchUpStartKey =
+  firstSnapshotDateKey > configuredCatchUpStartKey
+    ? firstSnapshotDateKey
+    : configuredCatchUpStartKey;
 
   const todayKey = `${now.getFullYear()}-${String(
     now.getMonth() + 1
