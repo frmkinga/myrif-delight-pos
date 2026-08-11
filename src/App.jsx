@@ -1390,8 +1390,14 @@ const normalized = normalizeData({
       gasEntries: cloudGasEntries || [],
     });
 
-        await writeToDB(DB_DATA_KEY, normalized);
-    return normalized;
+        if (isOwnerUser) {
+          await writeToDB(
+            DB_DATA_KEY,
+            normalized
+          );
+        }
+
+        return normalized;
   } catch (error) {
     if (!preferFresh) {
       console.error('Cloud read failed during background refresh:', error);
@@ -10629,9 +10635,17 @@ if (salesMode === 'year') {
           products: nextProducts,
         };
 
-        writeToDB(DB_DATA_KEY, nextData).catch((dbError) => {
-          console.error('Failed to save confirmed dashboard data to IndexedDB:', dbError);
-        });
+        if (confirmedResult.isOwnerUser) {
+          writeToDB(
+            DB_DATA_KEY,
+            nextData
+          ).catch((dbError) => {
+            console.error(
+              'Failed to save confirmed dashboard data to IndexedDB:',
+              dbError
+            );
+          });
+        }
 
         return nextData;
       });
@@ -11470,9 +11484,28 @@ setData((prev) => ({
       return Array.from(merged.values());
     };
 
-    const applyBackgroundData = (loadedData) => {
-      setData((prev) => {
-        const mergedSales = mergeRowsById(prev.sales || [], loadedData.sales || []);
+  const applyBackgroundData = (loadedData) => {
+  setData((prev) => {
+    const activeUserId = String(
+      prev.currentUser?.auth_user_id ||
+        prev.currentUser?.id ||
+        ''
+    ).trim();
+
+    const backgroundUserId = String(
+      sessionUser?.auth_user_id ||
+        sessionUser?.id ||
+        ''
+    ).trim();
+
+    if (
+      !activeUserId ||
+      activeUserId !== backgroundUserId
+    ) {
+      return prev;
+    }
+
+    const mergedSales = mergeRowsById(prev.sales || [], loadedData.sales || []);
         const mergedPurchases = mergeRowsById(prev.purchases || [], loadedData.purchases || []);
         const mergedExpenses = mergeRowsById(prev.expenses || [], loadedData.expenses || []);
         const mergedCreditSales = mergeRowsById(prev.creditSales || [], loadedData.creditSales || []);
@@ -11606,18 +11639,22 @@ ensureCurrentMonthSalesTargets(selectedShopId).catch((error) => {
 });
 };
 const logout = async () => {
-  writeStorage(STORAGE_SESSION_KEY, null);
-  setActiveShopId(null);
-
-  setData((prev) => ({
-    ...prev,
-    currentUser: null,
-  }));
-
   try {
     await supabase.auth.signOut();
   } catch (error) {
-    console.error('Supabase logout failed, but local session was cleared:', error);
+    console.error(
+      'Supabase logout failed, but local session will still be cleared:',
+      error
+    );
+  } finally {
+    writeStorage(STORAGE_SESSION_KEY, null);
+    setActiveShopId(null);
+    setDashboardDataReady(false);
+
+    setData((prev) => ({
+      ...prev,
+      currentUser: null,
+    }));
   }
 };
 
