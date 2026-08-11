@@ -652,12 +652,11 @@ export default function HomeExpensesCentre({
   const [cashPurpose, setCashPurpose] = useState('');
   const [cashNotes, setCashNotes] = useState('');
   const [cashSaving, setCashSaving] = useState(false);
-
   const [commissionAmount, setCommissionAmount] = useState('');
   const [commissionSaving, setCommissionSaving] = useState(false);
   const [showCommissionSupport, setShowCommissionSupport] = useState(false);
 
-  const [reportPreset, setReportPreset] = useState('all');
+  const [reportPreset, setReportPreset] = useState('month');
   const [reportView, setReportView] = useState('products');
   const [customStartDate, setCustomStartDate] = useState(todayISO());
   const [customEndDate, setCustomEndDate] = useState(todayISO());
@@ -1671,6 +1670,7 @@ return {
       cashLock.current = false;
     }
   };
+
   const saveCommissionConfirmation = async () => {
     if (!isShopOne) return;
 
@@ -1983,6 +1983,221 @@ return {
       ),
     [stockUsedReportGroups]
   );
+
+  const dailyFundReportRows = useMemo(() => {
+  const allHomeExpenseItems = getHomeExpenseItemRows(
+    data?.sales || []
+  );
+
+  const transactions = Array.isArray(
+    data?.centralFundTransactions
+  )
+    ? data.centralFundTransactions
+    : [];
+
+  const calculationDateKeys = getDateKeys(
+    HOME_EXPENSES_START_DATE,
+    reportRange.endKey
+  );
+
+  let runningOldDebt = 0;
+  let runningSavings = 0;
+
+  return calculationDateKeys
+    .map((dateKey) => {
+      let shopContribution = 0;
+      let gasContribution = 0;
+
+      (data?.shops || []).forEach((fundingShop) => {
+        const fundingShopId = String(
+          fundingShop?.id || ''
+        ).trim();
+
+        if (!fundingShopId) return;
+
+        const dayPosition =
+          getLiveRemittanceShopPosition({
+            data,
+            shopId: fundingShopId,
+            calculationDateKey: dateKey,
+          });
+
+        const dailyFunding =
+          getHomeExpensesFundingFromPosition(
+            dayPosition,
+            dateKey
+          );
+
+        shopContribution += Number(
+          dailyFunding.shopContribution || 0
+        );
+
+        gasContribution += Number(
+          dailyFunding.gasContribution || 0
+        );
+      });
+
+      shopContribution =
+        roundHomeCashDisplay(shopContribution);
+
+      gasContribution =
+        roundHomeCashDisplay(gasContribution);
+
+      const confirmedAdditionalFunding =
+        transactions.reduce((sum, transaction) => {
+          const transactionDate = String(
+            transaction?.transactionDate ||
+              transaction?.transaction_date ||
+              transaction?.date ||
+              transaction?.created_at ||
+              ''
+          ).slice(0, 10);
+
+          const transactionType = String(
+            transaction?.transactionType ||
+              transaction?.transaction_type ||
+              ''
+          ).toLowerCase();
+
+          const transactionStatus = String(
+            transaction?.status || ''
+          ).toLowerCase();
+
+          const destinationKey = String(
+            transaction?.destinationFundKey ||
+              transaction?.destination_fund_key ||
+              transaction?.expenseKey ||
+              transaction?.expense_key ||
+              ''
+          );
+
+          if (transactionDate !== dateKey) return sum;
+          if (transactionStatus !== 'confirmed') return sum;
+
+          if (
+            [
+              'home_expense_cash_taken',
+              'home_expense_handover_confirmed',
+            ].includes(transactionType)
+          ) {
+            return sum;
+          }
+
+          if (!destinationKey.includes('homeExpenses')) {
+            return sum;
+          }
+
+          return (
+            sum +
+            Math.max(
+              0,
+              Number(transaction?.amount || 0)
+            )
+          );
+        }, 0);
+
+      const moneyReceived =
+        shopContribution +
+        gasContribution +
+        confirmedAdditionalFunding;
+
+      const productsUsed = allHomeExpenseItems
+        .filter(
+          (row) =>
+            String(row?.date || '').slice(0, 10) ===
+            dateKey
+        )
+        .reduce(
+          (sum, row) =>
+            sum + Number(row?.total || 0),
+          0
+        );
+
+      const cashUsed = cashTransactions
+        .filter(
+          (row) =>
+            String(row?.date || '').slice(0, 10) ===
+            dateKey
+        )
+        .reduce(
+          (sum, row) =>
+            sum + Number(row?.amount || 0),
+          0
+        );
+
+      const moneyUsed = roundHomeCashDisplay(
+  productsUsed + cashUsed
+);
+
+      const debtBeforeToday = runningOldDebt;
+      const savingsBeforeToday = runningSavings;
+
+      const debtReduced = Math.min(
+        debtBeforeToday,
+        Math.max(0, moneyReceived - moneyUsed)
+      );
+
+      const savingsUsedToday = Math.min(
+        savingsBeforeToday,
+        Math.max(0, moneyUsed - moneyReceived)
+      );
+
+      const dailyShortfall = Math.max(
+        0,
+        moneyUsed -
+          moneyReceived -
+          savingsBeforeToday
+      );
+
+      const savingsAddedToday = Math.max(
+        0,
+        moneyReceived -
+          moneyUsed -
+          debtReduced
+      );
+
+      runningOldDebt = Math.max(
+        0,
+        debtBeforeToday -
+          debtReduced +
+          dailyShortfall
+      );
+
+      runningSavings = Math.max(
+        0,
+        savingsBeforeToday -
+          savingsUsedToday +
+          savingsAddedToday
+      );
+
+      return {
+        date: dateKey,
+        target:
+          getDailyEssentialHomeExpensesTarget(
+            dateKey
+          ),
+        moneyReceived,
+        moneyUsed,
+        dailyShortfall,
+        remainingOldDebt: runningOldDebt,
+        debtReduced,
+        savingsAddedToday,
+        closingSavings: runningSavings,
+      };
+    })
+    .filter(
+      (row) =>
+        row.date >= reportRange.startKey &&
+        row.date <= reportRange.endKey
+    )
+    .sort((a, b) =>
+      String(b.date).localeCompare(String(a.date))
+    );
+}, [
+  data,
+  reportRange,
+  cashTransactions,
+]);
 
   const ledgerRows = useMemo(() => {
     const fundingRows = [
@@ -2677,7 +2892,12 @@ return {
 )}
                         </span>
                         <strong className="text-emerald-800">
-                          TZS {money(homeExpensesDailyClosingSummary.fundSavingToday)}
+                          TZS {money(
+  Math.max(
+    0,
+    Number(fundingSummary.balanceRemaining || 0)
+  )
+)}
                         </strong>
                       </div>
                     </div>
@@ -3130,14 +3350,22 @@ return {
                   ),
                 ],
                 [
-                  'stock',
-                  t(
-                    language,
-                    'Home Stock Consumption Summary',
-                    'Muhtasari wa Stock Iliyotumika Nyumbani'
-                  ),
-                ],
-              ].map(([key, label]) => (
+  'stock',
+  t(
+    language,
+    'Home Stock Consumption Summary',
+    'Muhtasari wa Stock Iliyotumika Nyumbani'
+  ),
+],
+[
+  'daily-fund',
+  t(
+    language,
+    'Daily Fund Activity Report',
+    'Ripoti ya Mwenendo wa Mfuko kwa Kila Siku'
+  ),
+],
+].map(([key, label]) => (                  
                 <button
                   key={key}
                   type="button"
@@ -3526,6 +3754,188 @@ return {
             </div>
           </div>
           ) : null}
+          {reportView === 'daily-fund' ? (
+  <div className="rounded-2xl border border-slate-200 bg-white p-4">
+    <h3 className="text-lg font-black text-slate-950">
+      {t(
+        language,
+        'Daily Fund Activity Report',
+        'Ripoti ya Mwenendo wa Mfuko kwa Kila Siku'
+      )}
+    </h3>
+
+    <p className="mt-1 text-sm font-bold text-slate-500">
+      t(
+  language,
+  'This report tracks daily Home Expenses funding, usage, surplus or shortfall, remaining debt and fund balance.',
+  'Ripoti hii inafuatilia fedha za Matumizi ya Nyumbani zilizoingia, zilizotumika, ziada au pungufu, deni lililobaki na salio la mfuko kwa kila siku.'
+)
+    </p>
+    <div className="mt-4 grid gap-3 md:grid-cols-3">
+  <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm">
+    <strong className="text-emerald-900">
+      Ziada/Pungufu
+    </strong>
+    <p className="mt-1 text-slate-600">
+      Alama <strong className="text-emerald-700">+</strong> inaonyesha
+      fedha zilizozidi baada ya matumizi. Alama{' '}
+      <strong className="text-red-700">−</strong> inaonyesha
+      matumizi yalizidi fedha zilizoingia.
+    </p>
+  </div>
+
+  <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm">
+    <strong className="text-red-900">
+      Deni Lililobaki
+    </strong>
+    <p className="mt-1 text-slate-600">
+      Hili ni deni la Matumizi ya Nyumbani linalobaki baada
+      ya fedha za siku hiyo kutumika kupunguza deni la nyuma.
+    </p>
+  </div>
+
+  <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm">
+    <strong className="text-blue-900">
+      Salio la Mfuko
+    </strong>
+    <p className="mt-1 text-slate-600">
+      Hizi ni fedha zilizobaki baada ya matumizi na kulipa
+madeni. Fedha hizo zinabaki kwenye mfuko na kuunganishwa
+na fedha zitakazoingia siku inayofuata.
+    </p>
+  </div>
+</div>
+<div className="mt-4 overflow-x-auto rounded-2xl border border-slate-200">
+    <table className="min-w-[1100px] w-full text-left text-sm">
+  <thead className="bg-slate-900 text-xs uppercase text-white">
+    <tr>
+      <th className="px-4 py-3">
+        {t(language, 'Date', 'Tarehe')}
+      </th>
+
+      <th className="px-4 py-3 text-right">
+        {t(language, 'Daily target', 'Lengo la Siku')}
+      </th>
+
+      <th className="px-4 py-3 text-right">
+        {t(language, 'Money received', 'Fedha Zilizoingia')}
+      </th>
+
+      <th className="px-4 py-3 text-right">
+        {t(language, 'Money used', 'Iliyotumika')}
+      </th>
+
+      <th className="px-4 py-3 text-right">
+        {t(language, 'Surplus/Shortfall', 'Ziada/Pungufu')}
+      </th>
+
+      <th className="px-4 py-3 text-right">
+        {t(language, 'Remaining debt', 'Deni Lililobaki')}
+      </th>
+
+      <th className="px-4 py-3 text-right">
+        {t(language, 'Fund balance', 'Salio la Mfuko')}
+      </th>
+    </tr>
+  </thead>
+
+        <tbody>
+          {dailyFundReportRows.map((row) => (
+            <tr
+              key={`daily-fund-${row.date}`}
+              className="border-t border-slate-200"
+            >
+<td className="px-4 py-3 font-black text-slate-950">
+  {row.date}
+</td>
+
+<td className="px-4 py-3 text-right font-bold text-blue-700">
+  TZS {money(row.target)}
+</td>
+
+<td className="px-4 py-3 text-right font-bold text-emerald-700">
+  TZS {money(row.moneyReceived)}
+</td>
+
+<td className="px-4 py-3 text-right font-bold text-orange-700">
+  TZS {money(row.moneyUsed)}
+</td>
+
+<td
+  className={`px-4 py-3 text-right font-black ${
+    Number(row.moneyReceived || 0) -
+      Number(row.moneyUsed || 0) >
+    0
+      ? 'text-emerald-700'
+      : Number(row.moneyReceived || 0) -
+            Number(row.moneyUsed || 0) <
+          0
+        ? 'text-red-700'
+        : 'text-slate-500'
+  }`}
+>
+  {Number(row.moneyReceived || 0) -
+    Number(row.moneyUsed || 0) >
+  0
+    ? '+ '
+    : Number(row.moneyReceived || 0) -
+          Number(row.moneyUsed || 0) <
+        0
+      ? '− '
+      : ''}
+  TZS{' '}
+  {money(
+    Math.abs(
+      Number(row.moneyReceived || 0) -
+        Number(row.moneyUsed || 0)
+    )
+  )}
+</td>
+
+<td className="px-4 py-3 text-right">
+  <div
+    className={`font-black ${
+      Number(row.remainingOldDebt || 0) > 0
+        ? 'text-red-700'
+        : 'text-emerald-700'
+    }`}
+  >
+    TZS {money(row.remainingOldDebt)}
+  </div>
+
+  {Number(row.debtReduced || 0) > 0 ? (
+    <div className="mt-1 text-xs font-bold text-emerald-700">
+      Deni lililopunguzwa: TZS{' '}
+      {money(row.debtReduced)}
+    </div>
+  ) : null}
+</td>
+
+<td className="px-4 py-3 text-right font-black text-blue-800">
+  TZS {money(row.closingSavings)}
+</td>
+            </tr>
+          ))}
+
+          {!dailyFundReportRows.length ? (
+            <tr>
+              <td
+                colSpan="7"
+                className="px-4 py-8 text-center text-slate-500"
+              >
+                {t(
+                  language,
+                  'No daily fund activity is available for this period.',
+                  'Hakuna mwenendo wa kila siku wa mfuko katika kipindi hiki.'
+                )}
+              </td>
+            </tr>
+          ) : null}
+        </tbody>
+      </table>
+    </div>
+  </div>
+) : null}
         </div>
       ) : null}
     </div>

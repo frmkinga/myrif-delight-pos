@@ -1575,15 +1575,10 @@ const gasProfitToday = Math.max(
 const gasReserveAmount = gasProfitToday * 0.2;
 const gasDistributableAmount = gasProfitToday * 0.8;
 
-const gasUsedForArrears = Math.min(
-  gasDistributableAmount,
-  Number(basePosition.expensesStillOutstanding || 0)
-);
+const gasUsedForArrears = 0;
 
-const gasBalanceAfterArrears = Math.max(
-  0,
-  gasDistributableAmount - gasUsedForArrears
-);
+const gasBalanceAfterArrears =
+  gasDistributableAmount;
 
 const gasOwnerProfit =
   gasBalanceAfterArrears * 0.5;
@@ -1975,8 +1970,28 @@ const [
 ] = useState('');
 
 const [
+  emergencyBorrowingBeneficiaryShopId,
+  setEmergencyBorrowingBeneficiaryShopId,
+] = useState('');
+
+const [
   emergencyBorrowingSaving,
   setEmergencyBorrowingSaving,
+] = useState(false);
+
+const [
+  emergencyRepaymentBorrowingId,
+  setEmergencyRepaymentBorrowingId,
+] = useState('');
+
+const [
+  emergencyRepaymentAmount,
+  setEmergencyRepaymentAmount,
+] = useState('');
+
+const [
+  emergencyRepaymentSaving,
+  setEmergencyRepaymentSaving,
 ] = useState(false);
 const [
   expensePaymentFundKey,
@@ -2893,429 +2908,11 @@ const automaticHistoricalExpenseFunding = useMemo(() => {
   data?.sales,
   data?.products,
 ]);
-const automaticGasExpenseFunding = useMemo(() => {
-  const shops = Array.isArray(data?.shops)
-    ? data.shops
-    : [];
 
-  const sales = Array.isArray(data?.sales)
-    ? data.sales
-    : [];
-
-  const products = Array.isArray(data?.products)
-    ? data.products
-    : [];
-
-  const gasEntries = Array.isArray(data?.gasEntries)
-    ? data.gasEntries
-    : [];
-
-  const productById = new Map(
-    products.map((product) => [
-      String(product?.id || ''),
-      product,
-    ])
-  );
-
-  const formatDateKey = (date) =>
-    `${date.getFullYear()}-${String(
-      date.getMonth() + 1
-    ).padStart(2, '0')}-${String(
-      date.getDate()
-    ).padStart(2, '0')}`;
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  const finalDateKey = formatDateKey(today);
-
-  if (
-    finalDateKey <
-    AUTOMATIC_EXPENSE_ACTIVATION_DATE
-  ) {
-    return new Map();
-  }
-
-  const replayDateKeys = getExpenseDateKeys(
-    AUTOMATIC_EXPENSE_ACTIVATION_DATE,
-    finalDateKey
-  );
-
-  const gasFundingByFundKey = new Map();
-
-  const getGrossProfitForDate = (
-    shopId,
-    dateKey
-  ) => {
-    const dateSales = sales.filter((sale) => {
-      const saleShopId = String(
-        sale?.shop_id ||
-          sale?.shopId ||
-          sale?.shopid ||
-          ''
-      ).trim();
-
-      const saleDateKey = String(
-        sale?.date ||
-          sale?.created_at ||
-          ''
-      ).slice(0, 10);
-
-      return (
-        saleShopId === String(shopId) &&
-        saleDateKey === dateKey
-      );
-    });
-
-    const salesAmount = dateSales.reduce(
-      (sum, sale) =>
-        sum + Number(sale?.total || 0),
-      0
-    );
-
-    const replacementAmount =
-      dateSales.reduce((saleTotal, sale) => {
-        const items = Array.isArray(sale?.items)
-          ? sale.items
-          : [];
-
-        return (
-          saleTotal +
-          items.reduce((itemTotal, item) => {
-            const product = productById.get(
-              String(item?.productId || '')
-            );
-
-            const quantity = Number(
-              item?.quantity || 0
-            );
-
-            const buyingPrice = Number(
-              item?.buyPrice ||
-                product?.buyPrice ||
-                product?.buyingprice ||
-                0
-            );
-
-            return (
-              itemTotal +
-              quantity * buyingPrice
-            );
-          }, 0)
-        );
-      }, 0);
-
-    return Math.max(
-      0,
-      salesAmount - replacementAmount
-    );
-  };
-
-  const getGasDistributableForDate = (
-    shopId,
-    dateKey
-  ) => {
-    const matchingGasEntries = gasEntries.filter(
-      (entry) => {
-        const entryShopId = String(
-          entry?.shop_id ||
-            entry?.shopId ||
-            ''
-        ).trim();
-
-        const entryDateKey = String(
-          entry?.date ||
-            entry?.created_at ||
-            ''
-        ).slice(0, 10);
-
-        return (
-          entryShopId === String(shopId) &&
-          entryDateKey === dateKey &&
-          entry?.confirmed !== false
-        );
-      }
-    );
-
-    const gasSummary = getGasDashboardSummary(
-      matchingGasEntries
-    );
-
-    const gasProfit = Math.max(
-      0,
-      Number(gasSummary?.totalProfit || 0)
-    );
-
-    return gasProfit * 0.8;
-  };
-
-  shops.forEach((shop) => {
-    const shopId = String(
-      shop?.id || ''
-    ).trim();
-
-    if (!shopId) return;
-
-    const expenseEntries = Object.entries(
-      MASTER_EXPENSE_SETUP[shopId]
-        ?.expenses || {}
-    );
-
-    const localExpenseEntries =
-      expenseEntries.filter(
-        ([, expense]) =>
-          expense?.location === 'shop'
-      );
-
-    const centralExpenseEntries =
-      expenseEntries.filter(
-        ([, expense]) =>
-          expense?.location === 'owner'
-      );
-
-    const localArrears = new Map(
-      localExpenseEntries.map(
-        ([expenseKey]) => [expenseKey, 0]
-      )
-    );
-
-    const centralArrears = new Map(
-      centralExpenseEntries.map(
-        ([expenseKey]) => [expenseKey, 0]
-      )
-    );
-
-    replayDateKeys.forEach((dateKey) => {
-      let ordinaryGross =
-        getGrossProfitForDate(
-          shopId,
-          dateKey
-        );
-
-      const addObligations = (
-        entries,
-        arrearsMap
-      ) => {
-        entries.forEach(
-          ([expenseKey, expense]) => {
-            const requiredAmount =
-              getExpenseRequiredAmountForDate(
-                expense,
-                dateKey
-              );
-
-            arrearsMap.set(
-              expenseKey,
-              Number(
-                arrearsMap.get(expenseKey) ||
-                  0
-              ) +
-                Math.max(
-                  0,
-                  Number(requiredAmount || 0)
-                )
-            );
-          }
-        );
-      };
-
-      const payUsingOrdinaryGross = (
-        entries,
-        arrearsMap
-      ) => {
-        entries.forEach(([expenseKey]) => {
-          if (ordinaryGross <= 0) return;
-
-          const outstandingAmount =
-            Math.max(
-              0,
-              Number(
-                arrearsMap.get(expenseKey) ||
-                  0
-              )
-            );
-
-          const amountPaid = Math.min(
-            ordinaryGross,
-            outstandingAmount
-          );
-
-          if (amountPaid <= 0) return;
-
-          ordinaryGross -= amountPaid;
-
-          arrearsMap.set(
-            expenseKey,
-            outstandingAmount - amountPaid
-          );
-        });
-      };
-
-      /*
-       * Ordinary shop sales continue using
-       * the existing agreed funding order.
-       */
-
-      payUsingOrdinaryGross(
-        localExpenseEntries,
-        localArrears
-      );
-
-      addObligations(
-        localExpenseEntries,
-        localArrears
-      );
-
-      payUsingOrdinaryGross(
-        localExpenseEntries,
-        localArrears
-      );
-
-      payUsingOrdinaryGross(
-        centralExpenseEntries,
-        centralArrears
-      );
-
-      addObligations(
-        centralExpenseEntries,
-        centralArrears
-      );
-
-      payUsingOrdinaryGross(
-        centralExpenseEntries,
-        centralArrears
-      );
-
-      let gasAvailable =
-        getGasDistributableForDate(
-          shopId,
-          dateKey
-        );
-
-      /*
-       * Gas clears local outstanding expenses
-       * before central outstanding expenses,
-       * following the same existing rule.
-       */
-
-      localExpenseEntries.forEach(
-        ([expenseKey]) => {
-          if (gasAvailable <= 0) return;
-
-          const outstandingAmount =
-            Math.max(
-              0,
-              Number(
-                localArrears.get(
-                  expenseKey
-                ) || 0
-              )
-            );
-
-          const amountPaid = Math.min(
-            gasAvailable,
-            outstandingAmount
-          );
-
-          if (amountPaid <= 0) return;
-
-          gasAvailable -= amountPaid;
-
-          localArrears.set(
-            expenseKey,
-            outstandingAmount - amountPaid
-          );
-        }
-      );
-
-      centralExpenseEntries.forEach(
-        ([expenseKey]) => {
-          if (gasAvailable <= 0) return;
-
-          const outstandingAmount =
-            Math.max(
-              0,
-              Number(
-                centralArrears.get(
-                  expenseKey
-                ) || 0
-              )
-            );
-
-          const amountPaid = Math.min(
-            gasAvailable,
-            outstandingAmount
-          );
-
-          if (amountPaid <= 0) return;
-
-          gasAvailable -= amountPaid;
-
-          centralArrears.set(
-            expenseKey,
-            outstandingAmount - amountPaid
-          );
-
-          const fundKey =
-            `${shopId}-${expenseKey}`;
-
-          gasFundingByFundKey.set(
-            fundKey,
-            Number(
-              gasFundingByFundKey.get(
-                fundKey
-              ) || 0
-            ) + amountPaid
-          );
-        }
-      );
-
-      /*
-       * After all outstanding expenses are
-       * cleared, half of the remaining gas
-       * amount enters Home Expenses.
-       */
-
-      const homeExpensesContribution =
-        Math.max(0, gasAvailable) * 0.5;
-
-      const ownerGasProfit =
-        Math.max(0, gasAvailable) * 0.5;
-
-      if (ownerGasProfit > 0) {
-        gasFundingByFundKey.set(
-          'owner-profit',
-          Number(
-            gasFundingByFundKey.get(
-              'owner-profit'
-            ) || 0
-          ) + ownerGasProfit
-        );
-      }
-
-      if (homeExpensesContribution > 0) {
-        const homeExpensesFundKey =
-          `${shopId}-homeExpenses`;
-
-        gasFundingByFundKey.set(
-          homeExpensesFundKey,
-          Number(
-            gasFundingByFundKey.get(
-              homeExpensesFundKey
-            ) || 0
-          ) + homeExpensesContribution
-        );
-      }
-    });
-  });
-
-  return gasFundingByFundKey;
-}, [
-  data?.shops,
-  data?.sales,
-  data?.products,
-  data?.gasEntries,
-]);
+const automaticGasExpenseFunding = useMemo(
+  () => new Map(),
+  []
+);
 const centralFundAccounts = useMemo(() => {
   const expenseFunds = Array.isArray(
     data?.remittanceExpenseFunds
@@ -3774,11 +3371,155 @@ const emergencyBorrowingRecords = useMemo(() => {
         ).toLowerCase() === 'emergency_repayment'
     );
 
+  const borrowingGroupsMap = new Map();
+
+  borrowingTransactions.forEach((borrowing) => {
+    const borrowingId = String(
+      borrowing?.id || ''
+    ).trim();
+
+    const groupId = String(
+      borrowing?.relatedTransactionId ||
+        borrowing?.related_transaction_id ||
+        borrowingId
+    ).trim();
+
+    if (!groupId) return;
+
+    const existingGroup =
+      borrowingGroupsMap.get(groupId) || [];
+
+    existingGroup.push(borrowing);
+    borrowingGroupsMap.set(groupId, existingGroup);
+  });
+
+  const groupedBorrowingTransactions =
+    Array.from(borrowingGroupsMap.entries()).map(
+      ([groupId, groupRows]) => {
+        const firstRow = groupRows[0] || {};
+
+        const sourceShopNames = Array.from(
+          new Set(
+            groupRows
+              .map(
+                (row) =>
+                  row?.sourceShopName ||
+                  row?.source_shop_name ||
+                  ''
+              )
+              .filter(Boolean)
+          )
+        );
+
+        const sourceFundNames = Array.from(
+          new Set(
+            groupRows
+              .map(
+                (row) =>
+                  row?.sourceFundName ||
+                  row?.source_fund_name ||
+                  ''
+              )
+              .filter(Boolean)
+          )
+        );
+
+        return {
+          ...firstRow,
+
+          id: groupId,
+
+          borrowingIds: groupRows
+            .map((row) => String(row?.id || '').trim())
+            .filter(Boolean),
+
+          sourceAllocations: groupRows.map((row) => ({
+            borrowingId: String(row?.id || '').trim(),
+
+            sourceFundType:
+              row?.sourceFundType ||
+              row?.source_fund_type ||
+              'expense_fund',
+
+            sourceFundKey:
+              row?.sourceFundKey ||
+              row?.source_fund_key ||
+              '',
+
+            sourceFundName:
+              row?.sourceFundName ||
+              row?.source_fund_name ||
+              '',
+
+            sourceShopId:
+              row?.sourceShopId ||
+              row?.source_shop_id ||
+              '',
+
+            sourceShopName:
+              row?.sourceShopName ||
+              row?.source_shop_name ||
+              '',
+
+            borrowedAmount: Math.max(
+              0,
+              Number(
+                row?.borrowedAmount ||
+                  row?.borrowed_amount ||
+                  row?.amount ||
+                  0
+              )
+            ),
+          })),
+
+          sourceFundName:
+            sourceFundNames.join(' / '),
+
+          sourceShopName:
+            sourceShopNames.join(', '),
+
+          borrowedAmount: groupRows.reduce(
+            (sum, row) =>
+              sum +
+              Math.max(
+                0,
+                Number(
+                  row?.borrowedAmount ||
+                    row?.borrowed_amount ||
+                    row?.amount ||
+                    0
+                )
+              ),
+            0
+          ),
+
+          repaidAmount: groupRows.reduce(
+            (sum, row) =>
+              sum +
+              Math.max(
+                0,
+                Number(
+                  row?.repaidAmount ||
+                    row?.repaid_amount ||
+                    0
+                )
+              ),
+            0
+          ),
+        };
+      }
+    );
+
   const todayKey = new Date().toISOString().slice(0, 10);
 
-  return borrowingTransactions
+  return groupedBorrowingTransactions
     .map((borrowing) => {
       const borrowingId = String(borrowing?.id || '');
+
+      const underlyingBorrowingIds =
+        Array.isArray(borrowing?.borrowingIds)
+          ? borrowing.borrowingIds
+          : [borrowingId];
 
       const borrowedAmount = Math.max(
         0,
@@ -3792,14 +3533,18 @@ const emergencyBorrowingRecords = useMemo(() => {
 
       const repaymentTransactionsTotal =
         repaymentTransactions
-          .filter(
-            (repayment) =>
-              String(
-                repayment?.relatedTransactionId ||
-                  repayment?.related_transaction_id ||
-                  ''
-              ) === borrowingId
-          )
+          .filter((repayment) => {
+            const relatedId = String(
+              repayment?.relatedTransactionId ||
+                repayment?.related_transaction_id ||
+                ''
+            );
+
+            return (
+              relatedId === borrowingId ||
+              underlyingBorrowingIds.includes(relatedId)
+            );
+          })
           .reduce(
             (sum, repayment) =>
               sum +
@@ -3864,6 +3609,26 @@ const emergencyBorrowingRecords = useMemo(() => {
       return {
         id: borrowingId,
 
+        borrowingIds:
+          Array.isArray(borrowing?.borrowingIds)
+            ? borrowing.borrowingIds
+            : [borrowingId],
+
+        sourceAllocations:
+          Array.isArray(borrowing?.sourceAllocations)
+            ? borrowing.sourceAllocations
+            : [],
+
+        beneficiaryShopId:
+          borrowing?.shop_id ||
+          borrowing?.shopId ||
+          '',
+
+        beneficiaryShopName:
+          borrowing?.shopName ||
+          borrowing?.shop_name ||
+          '',
+
         sourceFundName:
           borrowing?.sourceFundName ||
           borrowing?.source_fund_name ||
@@ -3874,9 +3639,24 @@ const emergencyBorrowingRecords = useMemo(() => {
           borrowing?.source_shop_name ||
           '',
 
+        destinationFundType:
+          borrowing?.destinationFundType ||
+          borrowing?.destination_fund_type ||
+          'expense_fund',
+
+        destinationFundKey:
+          borrowing?.destinationFundKey ||
+          borrowing?.destination_fund_key ||
+          '',
+
         destinationFundName:
           borrowing?.destinationFundName ||
           borrowing?.destination_fund_name ||
+          '',
+
+        destinationShopId:
+          borrowing?.destinationShopId ||
+          borrowing?.destination_shop_id ||
           '',
 
         destinationShopName:
@@ -6727,23 +6507,10 @@ const gasReserveAmount = gasProfit * 0.2;
 
 const gasDistributableAmount = gasProfit * 0.8;
 
-const normalOutstandingExpenses =
-  Number(
-    selectedPeriodExpensePosition.localOutstanding || 0
-  ) +
-  Number(
-    selectedPeriodExpensePosition.centralOutstanding || 0
-  );
+const gasUsedForArrears = 0;
 
-const gasUsedForArrears = Math.min(
-  gasDistributableAmount,
-  normalOutstandingExpenses
-);
-
-const gasBalanceAfterArrears = Math.max(
-  0,
-  gasDistributableAmount - gasUsedForArrears
-);
+const gasBalanceAfterArrears =
+  gasDistributableAmount;
 
 const gasOwnerProfit =
   gasBalanceAfterArrears * 0.5;
@@ -7265,10 +7032,13 @@ const consolidatedExpenseFundOptions = useMemo(() => {
 
   alignedLedgerFundAccounts
     .filter(
-      (account) =>
-        account?.type === 'expense_fund' &&
-        Number(account?.availableBalance || 0) > 0
-    )
+  (account) =>
+    account?.type === 'expense_fund' &&
+    String(account?.key || '')
+      .trim()
+      .endsWith('-homeExpenses') === false &&
+    Number(account?.availableBalance || 0) > 0
+)
     .forEach((account) => {
       const categoryName = String(
         account?.name || 'Expense Fund'
@@ -7740,39 +7510,45 @@ const localExpenseRows = useMemo(() => {
     }));
   });
 }, [rows]);
+const localExpenseSummaryRows = useMemo(() => {
+  return rows.map((shopRow) => {
+    const shopExpenseRows = localExpenseRows.filter(
+      (expenseRow) =>
+        String(expenseRow.shop_id) ===
+        String(shopRow.id)
+    );
 
+    return {
+      id: `${shopRow.id}-local-summary`,
+      shop_id: shopRow.id,
+      shop: shopRow.name,
+      requiredToday: shopExpenseRows.reduce(
+        (sum, expenseRow) =>
+          sum +
+          Number(expenseRow.requiredToday || 0),
+        0
+      ),
+      fundedToday: shopExpenseRows.reduce(
+        (sum, expenseRow) =>
+          sum +
+          Number(expenseRow.fundedToday || 0),
+        0
+      ),
+      outstandingToday: shopExpenseRows.reduce(
+        (sum, expenseRow) =>
+          sum +
+          Number(expenseRow.outstandingToday || 0),
+        0
+      ),
+    };
+  });
+}, [rows, localExpenseRows]);
 const simpleIncomeExpenseSummary = useMemo(() => {
   const now = new Date();
 
   const currentMonthKey = `${now.getFullYear()}-${String(
     now.getMonth() + 1
   ).padStart(2, '0')}`;
-
-  const currentMonthStartKey =
-  `${todayKey.slice(0, 7)}-01`;
-
-const configuredCatchUpStartKey =
-  currentMonthStartKey <
-  HOME_EXPENSES_PERFORMANCE_START_DATE
-    ? HOME_EXPENSES_PERFORMANCE_START_DATE
-    : currentMonthStartKey;
-
-const firstSnapshotDateKey =
-  homeExpensesSnapshots
-    .map((transaction) =>
-      String(transaction?.transaction_date || '').slice(0, 10)
-    )
-    .filter(
-      (dateKey) =>
-        dateKey >= configuredCatchUpStartKey &&
-        dateKey <= todayKey
-    )
-    .sort()[0] || todayKey;
-
-const catchUpStartKey =
-  firstSnapshotDateKey > configuredCatchUpStartKey
-    ? firstSnapshotDateKey
-    : configuredCatchUpStartKey;
 
   const todayKey = `${now.getFullYear()}-${String(
     now.getMonth() + 1
@@ -7781,10 +7557,60 @@ const catchUpStartKey =
     '0'
   )}`;
 
-  const dateKeys = getExpenseDateKeys(
-    summaryStartKey,
-    todayKey
-  );
+  const currentMonthStartKey =
+    `${todayKey.slice(0, 7)}-01`;
+
+  const configuredCatchUpStartKey =
+    currentMonthStartKey <
+    HOME_EXPENSES_PERFORMANCE_START_DATE
+      ? HOME_EXPENSES_PERFORMANCE_START_DATE
+      : currentMonthStartKey;
+
+  const homeExpensesSnapshots = Array.isArray(
+    data?.centralFundTransactions
+  )
+    ? data.centralFundTransactions.filter(
+        (transaction) =>
+          String(transaction?.status || '') ===
+            'snapshot' &&
+          [
+            'home_expense_shop_snapshot',
+            'home_expense_gas_snapshot',
+          ].includes(
+            String(
+              transaction?.transactionType ||
+                transaction?.transaction_type ||
+                ''
+            )
+          )
+      )
+    : [];
+
+  const firstSnapshotDateKey =
+    homeExpensesSnapshots
+      .map((transaction) =>
+        String(
+          transaction?.transaction_date || ''
+        ).slice(0, 10)
+      )
+      .filter(
+        (dateKey) =>
+          dateKey >= configuredCatchUpStartKey &&
+          dateKey <= todayKey
+      )
+      .sort()[0] || todayKey;
+
+  const catchUpStartKey =
+  firstSnapshotDateKey > configuredCatchUpStartKey
+    ? firstSnapshotDateKey
+    : configuredCatchUpStartKey;
+
+const summaryStartKey = currentMonthStartKey;
+
+const dateKeys = getExpenseDateKeys(
+  summaryStartKey,
+  todayKey
+);
 
   const [summaryYear, summaryMonth] = currentMonthKey
     .split('-')
@@ -8255,69 +8081,6 @@ const catchUpStartKey =
       shopSummary.ownerProfit +=
         ownerProfitFromShopSales;
 
-      let gasAvailable = getGasDistributableForDate(
-        shopId,
-        dateKey
-      );
-
-      localExpenseEntries.forEach(([expenseKey]) => {
-        if (gasAvailable <= 0) return;
-
-        const outstandingAmount = Math.max(
-          0,
-          Number(localArrears.get(expenseKey) || 0)
-        );
-
-        const gasUsed = Math.min(
-          gasAvailable,
-          outstandingAmount
-        );
-
-        if (gasUsed <= 0) return;
-
-        gasAvailable = Math.max(0, gasAvailable - gasUsed);
-
-        localArrears.set(
-          expenseKey,
-          Math.max(0, outstandingAmount - gasUsed)
-        );
-      });
-
-      applicableCentralExpenseEntriesForDate.forEach(
-        ([expenseKey, expense]) => {
-          if (gasAvailable <= 0) return;
-
-          const outstandingAmount = Math.max(
-            0,
-            Number(centralArrears.get(expenseKey) || 0)
-          );
-
-          const gasUsed = Math.min(
-            gasAvailable,
-            outstandingAmount
-          );
-
-          if (gasUsed <= 0) return;
-
-          gasAvailable = Math.max(0, gasAvailable - gasUsed);
-
-          centralArrears.set(
-            expenseKey,
-            Math.max(0, outstandingAmount - gasUsed)
-          );
-
-          const row = ensureExpenseRow(
-            expenseKey,
-            expense
-          );
-
-          if (row) {
-            row.fromGas += gasUsed;
-            shopSummary.fromGas += gasUsed;
-          }
-        }
-      );
-
       /*
        * Use the same authoritative pooled allocations already used
        * by the dashboards and Home Expenses section.
@@ -8392,42 +8155,64 @@ const catchUpStartKey =
     shopSummaryRows.push(shopSummary);
   });
 
-  const commissionRows = Array.isArray(
-    eligibleCurrentMonthCommissionAllocation?.rows
-  )
-    ? eligibleCurrentMonthCommissionAllocation.rows
-    : [];
+const confirmedCommissionTransactions =
+  transactions.filter((transaction) => {
+    const status = String(
+      transaction?.status || ''
+    ).toLowerCase();
 
-  commissionRows.forEach((commissionRow) => {
+    const transactionType = String(
+      transaction?.transactionType ||
+        transaction?.transaction_type ||
+        ''
+    ).toLowerCase();
+
+    const transactionDate = String(
+      transaction?.transactionDate ||
+        transaction?.transaction_date ||
+        transaction?.date ||
+        transaction?.created_at ||
+        ''
+    ).slice(0, 10);
+
+    return (
+      status === 'confirmed' &&
+      transactionType ===
+        'home_expense_commission_confirmed' &&
+      transactionDate >= summaryStartKey &&
+      transactionDate <= todayKey
+    );
+  });
+
+confirmedCommissionTransactions.forEach(
+  (transaction) => {
     const expenseKey = String(
-      commissionRow?.expenseKey || ''
+      transaction?.expenseKey ||
+        transaction?.expense_key ||
+        transaction?.destinationFundKey ||
+        transaction?.destination_fund_key ||
+        ''
     ).trim();
 
-    const commissionAllocated = Math.max(
+    const amount = Math.max(
       0,
-      Number(commissionRow?.commissionAllocated || 0)
+      Number(transaction?.amount || 0)
     );
 
-    if (!expenseKey || commissionAllocated <= 0) return;
+    if (!expenseKey || amount <= 0) return;
 
     const row = ensureExpenseRow(expenseKey, {
-      name: commissionRow?.expenseName || expenseKey,
+      name:
+        transaction?.expenseName ||
+        transaction?.expense_name ||
+        expenseKey,
     });
 
     if (row) {
-      row.fromCommission += commissionAllocated;
+      row.fromCommission += amount;
     }
-  });
-
-  const ownerProfitFromCommission = Math.max(
-    0,
-    Number(
-      eligibleCurrentMonthCommissionAllocation
-        ?.ownerProfitFromCommission || 0
-    )
-  );
-
-  ownerProfitAccumulated += ownerProfitFromCommission;
+  }
+);
 
   const findExpenseKeyFromTransaction = (transaction) => {
     const fundKey = String(
@@ -9000,22 +8785,53 @@ const saveOwnerDrawing = async () => {
   );
 };
 const saveEmergencyBorrowing = async () => {
-  const sourceAccount = alignedLedgerFundAccounts.find(
-  (account) =>
-    String(account?.key || '') ===
-    String(emergencySourceFundKey || '')
-);
+  const selectedConsolidatedSource =
+    consolidatedExpenseFundOptions.find(
+      (category) =>
+        String(category?.key || '') ===
+        String(emergencySourceFundKey || '')
+    );
 
-const destinationAccount = alignedLedgerFundAccounts.find(
-  (account) =>
-    String(account?.key || '') ===
-    String(emergencyDestinationFundKey || '')
-);
+  const sourceAccount =
+    selectedConsolidatedSource ||
+    alignedLedgerFundAccounts.find(
+      (account) =>
+        String(account?.key || '') ===
+        String(emergencySourceFundKey || '')
+    );
+
+  const destinationAccount =
+    alignedLedgerFundAccounts.find(
+      (account) =>
+        String(account?.key || '') ===
+        String(emergencyDestinationFundKey || '')
+    );
+
+  const beneficiaryShop = (
+    Array.isArray(data?.shops) ? data.shops : []
+  ).find(
+    (shopItem) =>
+      String(shopItem?.id || '') ===
+      String(emergencyBorrowingBeneficiaryShopId || '')
+  );
 
   const borrowingAmount = Number(
     String(emergencyBorrowingAmount || '').replace(/,/g, '')
   );
+const isHomeExpensesBorrowingSource =
+  !selectedConsolidatedSource &&
+  String(sourceAccount?.key || '')
+    .trim()
+    .endsWith('-homeExpenses');
 
+if (isHomeExpensesBorrowingSource) {
+  alert(
+    language === 'sw'
+      ? 'Mfuko wa Matumizi ya Nyumbani hauwezi kutumika kama chanzo cha mkopo wa dharura.'
+      : 'The Home Expenses fund cannot be used as an emergency borrowing source.'
+  );
+  return;
+}
   if (!sourceAccount) {
     alert(
       language === 'sw'
@@ -9098,75 +8914,200 @@ const destinationAccount = alignedLedgerFundAccounts.find(
     return;
   }
 
+  const allocationAccounts =
+    selectedConsolidatedSource
+      ? selectedConsolidatedSource.accounts.filter(
+          (account) =>
+            Number(account?.availableBalance || 0) > 0
+        )
+      : [sourceAccount];
+
+  if (
+    selectedConsolidatedSource &&
+    allocationAccounts.some(
+      (account) =>
+        String(account?.key || '') ===
+        String(destinationAccount?.key || '')
+    )
+  ) {
+    alert(
+      language === 'sw'
+        ? 'Fungu linalopokea fedha haliwezi kuwa sehemu ya jumla ileile inayotoa fedha.'
+        : 'The destination fund cannot be one of the accounts contained in the consolidated source.'
+    );
+    return;
+  }
+
+  let remainingBorrowingAmount = borrowingAmount;
+
+  let remainingSourceBalance =
+    allocationAccounts.reduce(
+      (sum, account) =>
+        sum +
+        Math.max(
+          0,
+          Number(account?.availableBalance || 0)
+        ),
+      0
+    );
+
+  const borrowingAllocations = allocationAccounts
+    .map((account, accountIndex) => {
+      const accountAvailableBalance = Math.max(
+        0,
+        Number(account?.availableBalance || 0)
+      );
+
+      const isLastAccount =
+        accountIndex === allocationAccounts.length - 1;
+
+      const allocatedAmount = isLastAccount
+        ? Math.min(
+            accountAvailableBalance,
+            remainingBorrowingAmount
+          )
+        : Math.min(
+            accountAvailableBalance,
+            Math.round(
+              (remainingBorrowingAmount *
+                accountAvailableBalance) /
+                Math.max(1, remainingSourceBalance)
+            )
+          );
+
+      remainingBorrowingAmount = Math.max(
+        0,
+        remainingBorrowingAmount - allocatedAmount
+      );
+
+      remainingSourceBalance = Math.max(
+        0,
+        remainingSourceBalance -
+          accountAvailableBalance
+      );
+
+      return {
+        account,
+        amount: allocatedAmount,
+      };
+    })
+    .filter(
+      (allocation) =>
+        Number(allocation.amount || 0) > 0
+    );
+
   const confirmedAt = new Date().toISOString();
 
-  const transactionId = `emergency-borrowing-${Date.now()}-${Math.random()
-    .toString(36)
-    .slice(2, 8)}`;
+  const borrowingGroupId =
+    `emergency-borrowing-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
 
-  const transactionRow = {
-    id: transactionId,
+  const transactionRows = borrowingAllocations.map(
+    (allocation, allocationIndex) => {
+      const underlyingSourceAccount =
+        allocation.account;
 
-    transaction_type: 'emergency_borrowing',
-    transaction_date: confirmedAt.slice(0, 10),
+      return {
+        id: `${borrowingGroupId}-${allocationIndex + 1}`,
 
-    source_fund_type: sourceAccount.type,
-    source_fund_key: sourceAccount.key,
-    source_fund_name: sourceAccount.name,
-    source_shop_id: sourceAccount.shopId || null,
-    source_shop_name: sourceAccount.shopName || null,
+        transaction_type: 'emergency_borrowing',
+        transaction_date: confirmedAt.slice(0, 10),
 
-    destination_fund_type: destinationAccount.type,
-    destination_fund_key: destinationAccount.key,
-    destination_fund_name: destinationAccount.name,
-    destination_shop_id:
-      destinationAccount.shopId || null,
-    destination_shop_name:
-      destinationAccount.shopName || null,
+        shop_id: beneficiaryShop?.id || null,
+        shop_name: beneficiaryShop?.name || null,
 
-    amount: borrowingAmount,
+        expense_key: underlyingSourceAccount.key,
+        expense_name: underlyingSourceAccount.name,
 
-    purpose: String(
-      emergencyBorrowingPurpose
-    ).trim(),
+        source_fund_type:
+          underlyingSourceAccount.type ||
+          'expense_fund',
 
-    payment_reference:
-      String(
-        emergencyBorrowingReference || ''
-      ).trim() || null,
+        source_fund_key:
+          underlyingSourceAccount.key,
 
-    status: 'confirmed',
+        source_fund_name:
+          underlyingSourceAccount.name,
 
-    borrowing_due_date:
-      emergencyBorrowingDueDate,
+        source_shop_id:
+          underlyingSourceAccount.shopId || null,
 
-    borrowing_status: 'outstanding',
+        source_shop_name:
+          underlyingSourceAccount.shopName || null,
 
-    borrowed_amount: borrowingAmount,
-    repaid_amount: 0,
+        destination_fund_type:
+          destinationAccount.type,
 
-    recorded_by_user_id:
-      String(currentUser?.id || ''),
+        destination_fund_key:
+          destinationAccount.key,
 
-    recorded_by_name:
-      currentUser?.name ||
-      currentUser?.username ||
-      'Owner',
+        destination_fund_name:
+          destinationAccount.name,
 
-    recorded_by_role:
-      currentUser?.role || 'owner',
+        destination_shop_id:
+          destinationAccount.shopId || null,
 
-    created_at: confirmedAt,
-    updated_at: confirmedAt,
-  };
+        destination_shop_name:
+          destinationAccount.shopName || null,
+
+        amount: Number(allocation.amount || 0),
+
+        purpose: String(
+          emergencyBorrowingPurpose
+        ).trim(),
+
+        payment_reference:
+          String(
+            emergencyBorrowingReference || ''
+          ).trim() || null,
+
+        notes: selectedConsolidatedSource
+          ? `Consolidated emergency borrowing: ${selectedConsolidatedSource.name}`
+          : 'Individual emergency borrowing',
+
+        status: 'confirmed',
+
+        borrowing_due_date:
+          emergencyBorrowingDueDate,
+
+        borrowing_status: 'outstanding',
+
+        borrowed_amount:
+          Number(allocation.amount || 0),
+
+        repaid_amount: 0,
+
+        related_transaction_id:
+          borrowingGroupId,
+
+        recorded_by_user_id:
+          String(currentUser?.id || ''),
+
+        recorded_by_name:
+          currentUser?.name ||
+          currentUser?.username ||
+          'Owner',
+
+        recorded_by_role:
+          currentUser?.role || 'owner',
+
+        created_at: confirmedAt,
+        updated_at: confirmedAt,
+      };
+    }
+  );
+
+  const transactionRow = transactionRows[0];
+  const transactionId =
+    transactionRow?.id || borrowingGroupId;
 
   setEmergencyBorrowingSaving(true);
 
   const { data: savedRows, error } = await supabase
     .from('centralFundTransactions')
-    .insert([transactionRow])
+    .insert(transactionRows)
     .select();
-
   if (error) {
     setEmergencyBorrowingSaving(false);
 
@@ -9179,115 +9120,176 @@ const destinationAccount = alignedLedgerFundAccounts.find(
     return;
   }
 
-  const savedRow = savedRows?.[0] || transactionRow;
+  const normalizedTransactions = (
+    Array.isArray(savedRows) && savedRows.length > 0
+      ? savedRows
+      : transactionRows
+  ).map((savedBorrowingRow, borrowingIndex) => {
+    const fallbackRow =
+      transactionRows[borrowingIndex] ||
+      transactionRows[0];
 
-  const normalizedTransaction = {
-    id: savedRow.id || transactionId,
+    return {
+      id:
+        savedBorrowingRow.id ||
+        fallbackRow.id,
 
-    transactionType:
-      savedRow.transaction_type ||
-      'emergency_borrowing',
+      transactionType:
+        savedBorrowingRow.transaction_type ||
+        fallbackRow.transaction_type,
 
-    transactionDate:
-      savedRow.transaction_date ||
-      confirmedAt.slice(0, 10),
+      transactionDate:
+        savedBorrowingRow.transaction_date ||
+        fallbackRow.transaction_date,
 
-    sourceFundType:
-      savedRow.source_fund_type ||
-      sourceAccount.type,
+      shop_id:
+        savedBorrowingRow.shop_id ||
+        fallbackRow.shop_id ||
+        '',
 
-    sourceFundKey:
-      savedRow.source_fund_key ||
-      sourceAccount.key,
+      shopName:
+        savedBorrowingRow.shop_name ||
+        fallbackRow.shop_name ||
+        '',
 
-    sourceFundName:
-      savedRow.source_fund_name ||
-      sourceAccount.name,
+      expenseKey:
+        savedBorrowingRow.expense_key ||
+        fallbackRow.expense_key ||
+        '',
 
-    sourceShopId:
-      savedRow.source_shop_id ||
-      sourceAccount.shopId ||
-      '',
+      expenseName:
+        savedBorrowingRow.expense_name ||
+        fallbackRow.expense_name ||
+        '',
 
-    sourceShopName:
-      savedRow.source_shop_name ||
-      sourceAccount.shopName ||
-      '',
+      sourceFundType:
+        savedBorrowingRow.source_fund_type ||
+        fallbackRow.source_fund_type,
 
-    destinationFundType:
-      savedRow.destination_fund_type ||
-      destinationAccount.type,
+      sourceFundKey:
+        savedBorrowingRow.source_fund_key ||
+        fallbackRow.source_fund_key,
 
-    destinationFundKey:
-      savedRow.destination_fund_key ||
-      destinationAccount.key,
+      sourceFundName:
+        savedBorrowingRow.source_fund_name ||
+        fallbackRow.source_fund_name,
 
-    destinationFundName:
-      savedRow.destination_fund_name ||
-      destinationAccount.name,
+      sourceShopId:
+        savedBorrowingRow.source_shop_id ||
+        fallbackRow.source_shop_id ||
+        '',
 
-    destinationShopId:
-      savedRow.destination_shop_id ||
-      destinationAccount.shopId ||
-      '',
+      sourceShopName:
+        savedBorrowingRow.source_shop_name ||
+        fallbackRow.source_shop_name ||
+        '',
 
-    destinationShopName:
-      savedRow.destination_shop_name ||
-      destinationAccount.shopName ||
-      '',
+      destinationFundType:
+        savedBorrowingRow.destination_fund_type ||
+        fallbackRow.destination_fund_type,
 
-    amount: Number(
-      savedRow.amount || borrowingAmount
-    ),
+      destinationFundKey:
+        savedBorrowingRow.destination_fund_key ||
+        fallbackRow.destination_fund_key,
 
-    purpose:
-      savedRow.purpose ||
-      String(emergencyBorrowingPurpose).trim(),
+      destinationFundName:
+        savedBorrowingRow.destination_fund_name ||
+        fallbackRow.destination_fund_name,
 
-    paymentReference:
-      savedRow.payment_reference || '',
+      destinationShopId:
+        savedBorrowingRow.destination_shop_id ||
+        fallbackRow.destination_shop_id ||
+        '',
 
-    status:
-      savedRow.status || 'confirmed',
+      destinationShopName:
+        savedBorrowingRow.destination_shop_name ||
+        fallbackRow.destination_shop_name ||
+        '',
 
-    borrowingDueDate:
-      savedRow.borrowing_due_date ||
-      emergencyBorrowingDueDate,
+      amount: Number(
+        savedBorrowingRow.amount ||
+        fallbackRow.amount ||
+        0
+      ),
 
-    borrowingStatus:
-      savedRow.borrowing_status ||
-      'outstanding',
+      purpose:
+        savedBorrowingRow.purpose ||
+        fallbackRow.purpose ||
+        '',
 
-    borrowedAmount: Number(
-      savedRow.borrowed_amount ||
-      borrowingAmount
-    ),
+      paymentReference:
+        savedBorrowingRow.payment_reference ||
+        fallbackRow.payment_reference ||
+        '',
 
-    repaidAmount: Number(
-      savedRow.repaid_amount || 0
-    ),
+      notes:
+        savedBorrowingRow.notes ||
+        fallbackRow.notes ||
+        '',
 
-    recordedByUserId:
-      savedRow.recorded_by_user_id || '',
+      status:
+        savedBorrowingRow.status ||
+        fallbackRow.status ||
+        'confirmed',
 
-    recordedByName:
-      savedRow.recorded_by_name || '',
+      borrowingDueDate:
+        savedBorrowingRow.borrowing_due_date ||
+        fallbackRow.borrowing_due_date,
 
-    recordedByRole:
-      savedRow.recorded_by_role || 'owner',
+      borrowingStatus:
+        savedBorrowingRow.borrowing_status ||
+        fallbackRow.borrowing_status ||
+        'outstanding',
 
-    created_at:
-      savedRow.created_at || confirmedAt,
+      borrowedAmount: Number(
+        savedBorrowingRow.borrowed_amount ||
+        fallbackRow.borrowed_amount ||
+        0
+      ),
 
-    updated_at:
-      savedRow.updated_at || confirmedAt,
-  };
+      repaidAmount: Number(
+        savedBorrowingRow.repaid_amount ||
+        fallbackRow.repaid_amount ||
+        0
+      ),
+
+      relatedTransactionId:
+        savedBorrowingRow.related_transaction_id ||
+        fallbackRow.related_transaction_id ||
+        borrowingGroupId,
+
+      recordedByUserId:
+        savedBorrowingRow.recorded_by_user_id ||
+        fallbackRow.recorded_by_user_id ||
+        '',
+
+      recordedByName:
+        savedBorrowingRow.recorded_by_name ||
+        fallbackRow.recorded_by_name ||
+        '',
+
+      recordedByRole:
+        savedBorrowingRow.recorded_by_role ||
+        fallbackRow.recorded_by_role ||
+        'owner',
+
+      created_at:
+        savedBorrowingRow.created_at ||
+        fallbackRow.created_at ||
+        confirmedAt,
+
+      updated_at:
+        savedBorrowingRow.updated_at ||
+        fallbackRow.updated_at ||
+        confirmedAt,
+    };
+  });
 
   await saveData({
     ...data,
 
     centralFundTransactions: [
-      normalizedTransaction,
+      ...normalizedTransactions,
 
       ...(Array.isArray(
         data?.centralFundTransactions
@@ -9303,12 +9305,512 @@ const destinationAccount = alignedLedgerFundAccounts.find(
   setEmergencyBorrowingDueDate('');
   setEmergencyBorrowingPurpose('');
   setEmergencyBorrowingReference('');
+  setEmergencyBorrowingBeneficiaryShopId('');
   setEmergencyBorrowingSaving(false);
 
   alert(
     language === 'sw'
       ? 'Mkopo wa dharura umehifadhiwa. Mfumo utaendelea kuonyesha kuwa fedha zinapaswa kurejeshwa.'
       : 'Emergency borrowing was recorded. The system will continue showing that the money must be repaid.'
+  );
+};
+const saveEmergencyRepayment = async () => {
+  const borrowingRecord = emergencyBorrowingRecords.find(
+    (record) =>
+      String(record?.id || '') ===
+      String(emergencyRepaymentBorrowingId || '')
+  );
+
+  const repaymentAmount = Number(
+    String(emergencyRepaymentAmount || '').replace(
+      /,/g,
+      ''
+    )
+  );
+
+  if (!borrowingRecord) {
+    alert(
+      language === 'sw'
+        ? 'Chagua mkopo unaorejeshwa.'
+        : 'Select the emergency loan being repaid.'
+    );
+    return;
+  }
+
+  if (!repaymentAmount || repaymentAmount <= 0) {
+    alert(
+      language === 'sw'
+        ? 'Weka kiasi halali kinachorejeshwa.'
+        : 'Enter a valid repayment amount.'
+    );
+    return;
+  }
+
+  if (
+    repaymentAmount >
+    Number(borrowingRecord.remainingAmount || 0)
+  ) {
+    alert(
+      language === 'sw'
+        ? `Kiasi hiki kinazidi salio la mkopo. Salio linalotakiwa kurejeshwa ni TZS ${money(
+            borrowingRecord.remainingAmount
+          )}.`
+        : `This amount exceeds the outstanding loan balance. The amount still due is TZS ${money(
+            borrowingRecord.remainingAmount
+          )}.`
+    );
+    return;
+  }
+
+  const repaymentSourceAccount =
+    alignedLedgerFundAccounts.find(
+      (account) =>
+        String(account?.key || '') ===
+        String(
+          borrowingRecord.destinationFundKey || ''
+        )
+    );
+
+  if (!repaymentSourceAccount) {
+    alert(
+      language === 'sw'
+        ? 'Fungu lililopokea mkopo halijapatikana.'
+        : 'The fund that received the loan could not be found.'
+    );
+    return;
+  }
+
+  if (
+    repaymentAmount >
+    Number(
+      repaymentSourceAccount.availableBalance || 0
+    )
+  ) {
+    alert(
+      language === 'sw'
+        ? `Fungu lililopokea mkopo halina salio la kutosha. Salio linalopatikana ni TZS ${money(
+            repaymentSourceAccount.availableBalance
+          )}.`
+        : `The borrowing fund does not have enough money to make this repayment. Its available balance is TZS ${money(
+            repaymentSourceAccount.availableBalance
+          )}.`
+    );
+    return;
+  }
+
+  const allTransactions = Array.isArray(
+    data?.centralFundTransactions
+  )
+    ? data.centralFundTransactions
+    : [];
+
+  const confirmedRepayments = allTransactions.filter(
+    (transaction) =>
+      String(
+        transaction?.transactionType ||
+          transaction?.transaction_type ||
+          ''
+      ).toLowerCase() === 'emergency_repayment' &&
+      String(transaction?.status || '').toLowerCase() ===
+        'confirmed'
+  );
+
+  const sourceBalances = (
+    Array.isArray(borrowingRecord.sourceAllocations)
+      ? borrowingRecord.sourceAllocations
+      : []
+  )
+    .map((sourceAllocation) => {
+      const originalBorrowingId = String(
+        sourceAllocation?.borrowingId || ''
+      );
+
+      const alreadyRepaidToSource =
+        confirmedRepayments
+          .filter(
+            (repayment) =>
+              String(
+                repayment?.relatedTransactionId ||
+                  repayment?.related_transaction_id ||
+                  ''
+              ) === originalBorrowingId
+          )
+          .reduce(
+            (sum, repayment) =>
+              sum +
+              Math.max(
+                0,
+                Number(repayment?.amount || 0)
+              ),
+            0
+          );
+
+      return {
+        ...sourceAllocation,
+
+        remainingAmount: Math.max(
+          0,
+          Number(
+            sourceAllocation?.borrowedAmount || 0
+          ) - alreadyRepaidToSource
+        ),
+      };
+    })
+    .filter(
+      (sourceAllocation) =>
+        Number(sourceAllocation.remainingAmount || 0) >
+        0
+    );
+
+  if (!sourceBalances.length) {
+    alert(
+      language === 'sw'
+        ? 'Hakuna fungu la awali linalodai marejesho ya mkopo huu.'
+        : 'No original source fund is awaiting repayment for this loan.'
+    );
+    return;
+  }
+
+  let remainingRepayment = repaymentAmount;
+
+  let remainingOutstandingSources =
+    sourceBalances.reduce(
+      (sum, sourceAllocation) =>
+        sum +
+        Number(
+          sourceAllocation.remainingAmount || 0
+        ),
+      0
+    );
+
+  const repaymentAllocations = sourceBalances
+    .map((sourceAllocation, sourceIndex) => {
+      const sourceRemaining = Math.max(
+        0,
+        Number(
+          sourceAllocation.remainingAmount || 0
+        )
+      );
+
+      const isLastSource =
+        sourceIndex === sourceBalances.length - 1;
+
+      const allocatedAmount = isLastSource
+        ? Math.min(
+            sourceRemaining,
+            remainingRepayment
+          )
+        : Math.min(
+            sourceRemaining,
+            Math.round(
+              (remainingRepayment *
+                sourceRemaining) /
+                Math.max(
+                  1,
+                  remainingOutstandingSources
+                )
+            )
+          );
+
+      remainingRepayment = Math.max(
+        0,
+        remainingRepayment - allocatedAmount
+      );
+
+      remainingOutstandingSources = Math.max(
+        0,
+        remainingOutstandingSources -
+          sourceRemaining
+      );
+
+      return {
+        sourceAllocation,
+        amount: allocatedAmount,
+      };
+    })
+    .filter(
+      (allocation) =>
+        Number(allocation.amount || 0) > 0
+    );
+
+  const confirmedAt = new Date().toISOString();
+
+  const repaymentGroupId =
+    `emergency-repayment-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
+
+  const repaymentRows = repaymentAllocations.map(
+    (allocation, allocationIndex) => {
+      const originalSource =
+        allocation.sourceAllocation;
+
+      return {
+        id: `${repaymentGroupId}-${allocationIndex + 1}`,
+
+        transaction_type: 'emergency_repayment',
+        transaction_date: confirmedAt.slice(0, 10),
+
+        shop_id:
+          borrowingRecord.beneficiaryShopId || null,
+
+        shop_name:
+          borrowingRecord.beneficiaryShopName || null,
+
+        source_fund_type:
+          repaymentSourceAccount.type,
+
+        source_fund_key:
+          repaymentSourceAccount.key,
+
+        source_fund_name:
+          repaymentSourceAccount.name,
+
+        source_shop_id:
+          repaymentSourceAccount.shopId || null,
+
+        source_shop_name:
+          repaymentSourceAccount.shopName || null,
+
+        destination_fund_type:
+          originalSource.sourceFundType ||
+          'expense_fund',
+
+        destination_fund_key:
+          originalSource.sourceFundKey,
+
+        destination_fund_name:
+          originalSource.sourceFundName,
+
+        destination_shop_id:
+          originalSource.sourceShopId || null,
+
+        destination_shop_name:
+          originalSource.sourceShopName || null,
+
+        amount: Number(allocation.amount || 0),
+
+        purpose:
+          `Emergency loan repayment: ${
+            borrowingRecord.purpose || ''
+          }`,
+
+        notes:
+          `Repayment for borrowing group ${borrowingRecord.id}`,
+
+        status: 'confirmed',
+
+        borrowing_status: 'repayment',
+
+        borrowed_amount: 0,
+
+        repaid_amount:
+          Number(allocation.amount || 0),
+
+        related_transaction_id:
+          originalSource.borrowingId,
+
+        recorded_by_user_id:
+          String(currentUser?.id || ''),
+
+        recorded_by_name:
+          currentUser?.name ||
+          currentUser?.username ||
+          'Owner',
+
+        recorded_by_role:
+          currentUser?.role || 'owner',
+
+        created_at: confirmedAt,
+        updated_at: confirmedAt,
+      };
+    }
+  );
+
+  setEmergencyRepaymentSaving(true);
+
+  const { data: savedRepaymentRows, error } =
+    await supabase
+      .from('centralFundTransactions')
+      .insert(repaymentRows)
+      .select();
+
+  if (error) {
+    setEmergencyRepaymentSaving(false);
+
+    alert(
+      language === 'sw'
+        ? `Marejesho hayajahifadhiwa: ${error.message}`
+        : `The repayment was not saved: ${error.message}`
+    );
+
+    return;
+  }
+
+  const normalizedRepayments = (
+    Array.isArray(savedRepaymentRows) &&
+    savedRepaymentRows.length > 0
+      ? savedRepaymentRows
+      : repaymentRows
+  ).map((savedRepayment, repaymentIndex) => {
+    const fallbackRow =
+      repaymentRows[repaymentIndex] ||
+      repaymentRows[0];
+
+    return {
+      id:
+        savedRepayment.id ||
+        fallbackRow.id,
+
+      transactionType:
+        savedRepayment.transaction_type ||
+        fallbackRow.transaction_type,
+
+      transactionDate:
+        savedRepayment.transaction_date ||
+        fallbackRow.transaction_date,
+
+      shop_id:
+        savedRepayment.shop_id ||
+        fallbackRow.shop_id ||
+        '',
+
+      shopName:
+        savedRepayment.shop_name ||
+        fallbackRow.shop_name ||
+        '',
+
+      sourceFundType:
+        savedRepayment.source_fund_type ||
+        fallbackRow.source_fund_type,
+
+      sourceFundKey:
+        savedRepayment.source_fund_key ||
+        fallbackRow.source_fund_key,
+
+      sourceFundName:
+        savedRepayment.source_fund_name ||
+        fallbackRow.source_fund_name,
+
+      sourceShopId:
+        savedRepayment.source_shop_id ||
+        fallbackRow.source_shop_id ||
+        '',
+
+      sourceShopName:
+        savedRepayment.source_shop_name ||
+        fallbackRow.source_shop_name ||
+        '',
+
+      destinationFundType:
+        savedRepayment.destination_fund_type ||
+        fallbackRow.destination_fund_type,
+
+      destinationFundKey:
+        savedRepayment.destination_fund_key ||
+        fallbackRow.destination_fund_key,
+
+      destinationFundName:
+        savedRepayment.destination_fund_name ||
+        fallbackRow.destination_fund_name,
+
+      destinationShopId:
+        savedRepayment.destination_shop_id ||
+        fallbackRow.destination_shop_id ||
+        '',
+
+      destinationShopName:
+        savedRepayment.destination_shop_name ||
+        fallbackRow.destination_shop_name ||
+        '',
+
+      amount: Number(
+        savedRepayment.amount ||
+        fallbackRow.amount ||
+        0
+      ),
+
+      purpose:
+        savedRepayment.purpose ||
+        fallbackRow.purpose ||
+        '',
+
+      notes:
+        savedRepayment.notes ||
+        fallbackRow.notes ||
+        '',
+
+      status:
+        savedRepayment.status ||
+        fallbackRow.status ||
+        'confirmed',
+
+      borrowingStatus:
+        savedRepayment.borrowing_status ||
+        fallbackRow.borrowing_status ||
+        'repayment',
+
+      borrowedAmount: Number(
+        savedRepayment.borrowed_amount ||
+        fallbackRow.borrowed_amount ||
+        0
+      ),
+
+      repaidAmount: Number(
+        savedRepayment.repaid_amount ||
+        fallbackRow.repaid_amount ||
+        0
+      ),
+
+      relatedTransactionId:
+        savedRepayment.related_transaction_id ||
+        fallbackRow.related_transaction_id,
+
+      recordedByUserId:
+        savedRepayment.recorded_by_user_id ||
+        fallbackRow.recorded_by_user_id ||
+        '',
+
+      recordedByName:
+        savedRepayment.recorded_by_name ||
+        fallbackRow.recorded_by_name ||
+        '',
+
+      recordedByRole:
+        savedRepayment.recorded_by_role ||
+        fallbackRow.recorded_by_role ||
+        'owner',
+
+      created_at:
+        savedRepayment.created_at ||
+        fallbackRow.created_at ||
+        confirmedAt,
+
+      updated_at:
+        savedRepayment.updated_at ||
+        fallbackRow.updated_at ||
+        confirmedAt,
+    };
+  });
+
+  await saveData({
+    ...data,
+
+    centralFundTransactions: [
+      ...normalizedRepayments,
+
+      ...allTransactions,
+    ],
+  });
+
+  setEmergencyRepaymentBorrowingId('');
+  setEmergencyRepaymentAmount('');
+  setEmergencyRepaymentSaving(false);
+
+  alert(
+    language === 'sw'
+      ? 'Marejesho yamehifadhiwa na fedha zimerudishwa kwenye mafungu halisi yaliyotoa mkopo.'
+      : 'The repayment was saved and returned to the exact original source funds.'
   );
 };
 
@@ -9340,7 +9842,20 @@ const beneficiaryShop = (
       ''
     )
   );
+const isHomeExpensesPaymentSource =
+  !selectedConsolidatedFund &&
+  String(selectedFund?.key || '')
+    .trim()
+    .endsWith('-homeExpenses');
 
+if (isHomeExpensesPaymentSource) {
+  alert(
+    language === 'sw'
+      ? 'Matumizi ya Nyumbani yanasimamiwa kwenye sehemu yake maalum na hayawezi kulipwa kupitia fomu hii.'
+      : 'Home Expenses is managed in its dedicated section and cannot be paid through this form.'
+  );
+  return;
+}
   if (!selectedFund) {
     alert(
       language === 'sw'
@@ -11515,9 +12030,6 @@ const outstandingAmount = Number(
                             ? '80% ya kupelekwa nyumbani'
                             : '80% distributable',
                           language === 'sw'
-                            ? 'Iliyotumika kulipa matumizi ya nyuma'
-                            : 'Used to clear arrears',
-                          language === 'sw'
                             ? 'Salio baada ya matumizi ya nyuma'
                             : 'Balance after arrears',
                           language === 'sw'
@@ -11556,11 +12068,7 @@ const outstandingAmount = Number(
                             TZS {money(row.gasDistributableAmount)}
                           </td>
 
-                          <td className="px-4 py-3 font-bold text-red-700">
-                            TZS {money(row.gasUsedForArrears)}
-                          </td>
-
-                          <td className="px-4 py-3">
+                                                    <td className="px-4 py-3">
                             TZS {money(row.gasBalanceAfterArrears)}
                           </td>
 
@@ -12870,10 +13378,14 @@ alert(
 <div className="mt-5 space-y-6">
   {Object.values(
     alignedLedgerFundAccounts
-      .filter(
-        (account) => account.type === 'expense_fund'
-      )
-      .reduce((groupedShops, account) => {
+  .filter(
+    (account) =>
+      account.type === 'expense_fund' &&
+      String(account?.key || '')
+        .trim()
+        .endsWith('-homeExpenses') === false
+  )
+  .reduce((groupedShops, account) => {
         const shopKey = String(
           account.shopId ||
             account.shopName ||
@@ -13121,7 +13633,14 @@ alert(
 
 <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
   {Object.values(
-    alignedLedgerFundAccounts.reduce(
+  alignedLedgerFundAccounts
+    .filter(
+      (account) =>
+        String(account?.key || '')
+          .trim()
+          .endsWith('-homeExpenses') === false
+    )
+    .reduce(
       (totals, account) => {
         const categoryName = String(
           account?.name ||
@@ -13252,6 +13771,12 @@ alert(
 
       <tbody>
         {alignedLedgerFundAccounts
+  .filter(
+    (account) =>
+      String(account?.key || '')
+        .trim()
+        .endsWith('-homeExpenses') === false
+  )
   .filter((account) => {
     if (ledgerShopFilter === 'all') {
       return true;
@@ -13390,13 +13915,17 @@ alert(
       : 'INDIVIDUAL SHOP FUNDS'
   }
 >
-  {alignedLedgerFundAccounts
-    .filter(
-      (account) =>
-        account.type === 'expense_fund' &&
-        Number(account.availableBalance || 0) > 0
-    )
-    .map((account) => (
+  
+{alignedLedgerFundAccounts
+  .filter(
+    (account) =>
+      account.type === 'expense_fund' &&
+      String(account?.key || '')
+        .trim()
+        .endsWith('-homeExpenses') === false &&
+      Number(account.availableBalance || 0) > 0
+  )
+  .map((account) => (
       <option
         key={account.key}
         value={account.key}
@@ -14140,6 +14669,108 @@ alert(
       </tbody>
     </table>
   </div>
+
+  {emergencyBorrowingRecords.some(
+    (record) =>
+      Number(record.remainingAmount || 0) > 0
+  ) ? (
+    <div className="mt-5 rounded-2xl border border-emerald-200 bg-white p-5">
+      <h4 className="text-base font-black text-slate-950">
+        {language === 'sw'
+          ? 'Rejesha Mkopo wa Dharura'
+          : 'Repay Emergency Loan'}
+      </h4>
+
+      <p className="mt-1 text-sm text-slate-600">
+        {language === 'sw'
+          ? 'Fedha zitapunguzwa kwenye fungu lililopokea mkopo na kurudishwa kwenye mafungu halisi yaliyotoa fedha.'
+          : 'Money will leave the borrowing fund and return to the exact original source funds.'}
+      </p>
+
+      <div className="mt-4 grid gap-4 md:grid-cols-2">
+        <label className="space-y-2">
+          <span className="text-sm font-bold text-slate-700">
+            {language === 'sw'
+              ? 'Mkopo unaorejeshwa'
+              : 'Loan being repaid'}
+          </span>
+
+          <select
+            value={emergencyRepaymentBorrowingId}
+            onChange={(event) =>
+              setEmergencyRepaymentBorrowingId(
+                event.target.value
+              )
+            }
+            className="h-11 w-full rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none focus:border-emerald-500"
+          >
+            <option value="">
+              {language === 'sw'
+                ? '-- Chagua mkopo --'
+                : '-- Select loan --'}
+            </option>
+
+            {emergencyBorrowingRecords
+              .filter(
+                (record) =>
+                  Number(record.remainingAmount || 0) > 0
+              )
+              .map((record) => (
+                <option
+                  key={record.id}
+                  value={record.id}
+                >
+                  {record.sourceFundName} →{' '}
+                  {record.destinationFundName} — Salio TZS{' '}
+                  {money(record.remainingAmount)}
+                </option>
+              ))}
+          </select>
+        </label>
+
+        <label className="space-y-2">
+          <span className="text-sm font-bold text-slate-700">
+            {language === 'sw'
+              ? 'Kiasi kinachorejeshwa'
+              : 'Repayment amount'}
+          </span>
+
+          <input
+            type="text"
+            inputMode="decimal"
+            value={emergencyRepaymentAmount}
+            onChange={(event) =>
+              setEmergencyRepaymentAmount(
+                event.target.value.replace(
+                  /[^\d,]/g,
+                  ''
+                )
+              )
+            }
+            placeholder="0"
+            className="h-11 w-full rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none focus:border-emerald-500"
+          />
+        </label>
+      </div>
+
+      <div className="mt-4 flex justify-end">
+        <button
+          type="button"
+          onClick={saveEmergencyRepayment}
+          disabled={emergencyRepaymentSaving}
+          className="rounded-2xl bg-emerald-700 px-5 py-3 text-sm font-black text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {emergencyRepaymentSaving
+            ? language === 'sw'
+              ? 'Inahifadhi...'
+              : 'Saving...'
+            : language === 'sw'
+              ? 'Thibitisha Marejesho'
+              : 'Confirm Repayment'}
+        </button>
+      </div>
+    </div>
+  ) : null}
 </div>
 
 {activeAccountabilitySection === 'emergency' ? (
@@ -14209,23 +14840,55 @@ alert(
             : '-- Select fund --'}
         </option>
 
-        {alignedLedgerFundAccounts
-          .filter(
-            (account) =>
-              Number(account.availableBalance || 0) > 0
-          )
-          .map((account) => (
-            <option
-              key={account.key}
-              value={account.key}
-            >
-              {account.shopName
-                ? `${account.shopName} — `
-                : ''}
-              {account.name} — TZS{' '}
-              {money(account.availableBalance)}
-            </option>
-          ))}
+        <optgroup
+          label={
+            language === 'sw'
+              ? 'JUMLA ZA MADUKA YOTE'
+              : 'CONSOLIDATED TOTALS'
+          }
+        >
+          {consolidatedExpenseFundOptions.map(
+            (category) => (
+              <option
+                key={category.key}
+                value={category.key}
+              >
+                {category.name} — Jumla TZS{' '}
+                {money(category.availableBalance)}
+              </option>
+            )
+          )}
+        </optgroup>
+
+        <optgroup
+          label={
+            language === 'sw'
+              ? 'MAFUNGU YA KILA DUKA'
+              : 'INDIVIDUAL FUND ACCOUNTS'
+          }
+        >
+          {alignedLedgerFundAccounts
+            .filter(
+  (account) =>
+    account.type === 'expense_fund' &&
+    String(account?.key || '')
+      .trim()
+      .endsWith('-homeExpenses') === false &&
+    Number(account.availableBalance || 0) > 0
+)
+            .map((account) => (
+              <option
+                key={account.key}
+                value={account.key}
+              >
+                {account.shopName
+                  ? `${account.shopName} — `
+                  : ''}
+                {account.name} — TZS{' '}
+                {money(account.availableBalance)}
+              </option>
+            ))}
+        </optgroup>
       </select>
     </label>
 
@@ -14269,7 +14932,40 @@ alert(
           ))}
       </select>
     </label>
+    <label className="space-y-2">
+      <span className="text-sm font-bold text-slate-700">
+        {language === 'sw'
+          ? 'Duka linalonufaika — si lazima'
+          : 'Beneficiary shop — optional'}
+      </span>
 
+      <select
+        value={emergencyBorrowingBeneficiaryShopId}
+        onChange={(event) =>
+          setEmergencyBorrowingBeneficiaryShopId(
+            event.target.value
+          )
+        }
+        className="h-11 w-full rounded-2xl border border-slate-300 bg-white px-4 text-sm outline-none focus:border-rose-500"
+      >
+        <option value="">
+          {language === 'sw'
+            ? 'Mkopo wa matumizi ya jumla / maduka yote'
+            : 'General borrowing / all shops'}
+        </option>
+
+        {(Array.isArray(data?.shops) ? data.shops : []).map(
+          (shopItem) => (
+            <option
+              key={shopItem.id}
+              value={shopItem.id}
+            >
+              {shopItem.name}
+            </option>
+          )
+        )}
+      </select>
+    </label>
     <label className="space-y-2">
       <span className="text-sm font-bold text-slate-700">
         {language === 'sw'
