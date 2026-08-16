@@ -487,6 +487,14 @@ const AUTOMATIC_EXPENSE_ACTIVATION_DATE =
  */
 export const HOME_EXPENSES_PERFORMANCE_START_DATE = '2026-08-08';
 
+/*
+ * From 16 August 2026, live Home Expenses funding is capped
+ * at TZS 60,050 per day. Eligible profit above this cap
+ * remains as Owner Profit.
+ */
+export const HOME_EXPENSES_DAILY_CAP_START_DATE = '2026-08-16';
+export const HOME_EXPENSES_DAILY_CAP = 60050;
+
 const HOME_EXPENSES_MONTHLY_BUDGET = {
   target: 2012000,
   items: [
@@ -1712,11 +1720,14 @@ const confirmedHomeExpensesBeforeToday =
    * under the new arrangement. It excludes every debt before
    * 8 August 2026.
    */
-  const dailyHomeExpensesTarget = Math.max(
-    0,
-    cumulativeHomeExpensesTarget -
-      confirmedHomeExpensesBeforeToday
-  );
+  const dailyHomeExpensesTarget =
+    todayKey >= HOME_EXPENSES_DAILY_CAP_START_DATE
+      ? HOME_EXPENSES_DAILY_CAP
+      : Math.max(
+          0,
+          cumulativeHomeExpensesTarget -
+            confirmedHomeExpensesBeforeToday
+        );
 
   const totalGasCapacity = rawShopPositions.reduce(
     (sum, position) =>

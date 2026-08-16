@@ -4425,6 +4425,7 @@ const selectedShopRemittanceSummary =
             Number(position?.ownerProfit || 0)
           ),
 
+
         netProfit:
           summary.netProfit +
           Math.max(
