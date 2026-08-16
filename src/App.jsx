@@ -264,23 +264,90 @@ let syncedSomething = false;
 
     try {
       if (item.actionType === 'sale_created') {
-        const { error: saleQueueError } = await supabase.from('sales').upsert(
-  [
-    {
-      id: item.payload.id,
-      shop_id: item.payload.shop_id,
-      items: item.payload.items,
-      total: item.payload.total,
-      type: item.payload.type,
-      date: item.payload.date,
-      created_at: item.payload.created_at || new Date().toISOString(),
-    },
-  ],
-  { onConflict: 'id' }
-);
+const saleRowToSync = {
+  id: item.payload.id,
+  shop_id: item.payload.shop_id,
+  items: item.payload.items,
+  total: item.payload.total,
+  type: item.payload.type,
+  date: item.payload.date,
+  created_at:
+    item.payload.created_at ||
+    new Date().toISOString(),
+};
+
+const {
+  data: savedSupabaseSale,
+  error: saleQueueError,
+} = await supabase
+  .from('sales')
+  .upsert([saleRowToSync], { onConflict: 'id' })
+  .select(
+    'id, shop_id, items, total, type, date, created_at'
+  )
+  .single();
 
 if (saleQueueError) {
   throw saleQueueError;
+}
+
+if (!savedSupabaseSale) {
+  throw new Error(
+    'Supabase did not return the saved sale for verification.'
+  );
+}
+
+const normalizeItemsForVerification = (items = []) =>
+  (Array.isArray(items) ? items : []).map((saleItem) => ({
+    productId: String(
+      saleItem?.productId || ''
+    ),
+    name: String(saleItem?.name || ''),
+    unit: String(saleItem?.unit || ''),
+    quantity: Number(saleItem?.quantity || 0),
+    price: Number(
+      saleItem?.price ??
+        saleItem?.sellPrice ??
+        0
+    ),
+    buyPrice: Number(saleItem?.buyPrice || 0),
+    sellPrice: Number(
+      saleItem?.sellPrice ??
+        saleItem?.price ??
+        0
+    ),
+    total: Number(saleItem?.total || 0),
+  }));
+
+const localVerificationCopy = {
+  id: String(saleRowToSync.id || ''),
+  shop_id: String(saleRowToSync.shop_id || ''),
+  date: String(saleRowToSync.date || ''),
+  type: String(saleRowToSync.type || ''),
+  total: Number(saleRowToSync.total || 0),
+  items: normalizeItemsForVerification(
+    saleRowToSync.items
+  ),
+};
+
+const supabaseVerificationCopy = {
+  id: String(savedSupabaseSale.id || ''),
+  shop_id: String(savedSupabaseSale.shop_id || ''),
+  date: String(savedSupabaseSale.date || ''),
+  type: String(savedSupabaseSale.type || ''),
+  total: Number(savedSupabaseSale.total || 0),
+  items: normalizeItemsForVerification(
+    savedSupabaseSale.items
+  ),
+};
+
+if (
+  JSON.stringify(localVerificationCopy) !==
+  JSON.stringify(supabaseVerificationCopy)
+) {
+  throw new Error(
+    `Supabase sale verification failed for ${saleRowToSync.id}. Local sale has been preserved.`
+  );
 }
 if (Array.isArray(item.payload.products)) {
   const safeProductRows = item.payload.products
@@ -2301,6 +2368,22 @@ const [passwordMessage, setPasswordMessage] = useState('');
 const [ownerSalesSource, setOwnerSalesSource] = useState([]);
 const [ownerSalesLoading, setOwnerSalesLoading] = useState(true);
 
+/*
+ * Every Owner Dashboard calculation must use only sales
+ * that have reached Supabase. Pending local shop sales remain
+ * visible inside the individual shop and are identified by
+ * the red synchronization warning.
+ */
+const ownerConfirmedCalculationData = useMemo(
+  () => ({
+    ...data,
+    sales: (Array.isArray(data?.sales) ? data.sales : []).filter(
+      (sale) => sale?.confirmed !== false
+    ),
+  }),
+  [data]
+);
+
 const ownerConfirmedPeriodReady = true;
 
 const changeAdminPassword = () => {
@@ -2591,7 +2674,7 @@ const ownerTotalMatumiziYaLeo =
 
         const shopRemittancePosition =
           getLiveRemittanceShopPosition({
-            data,
+            data: ownerConfirmedCalculationData,
             shopId,
             calculationDateKey: dateKey,
           });
@@ -2622,7 +2705,7 @@ const displayedOwnerProfit =
       ).reduce((shopTotal, shop) => {
         const position =
           getLiveRemittanceShopPosition({
-            data,
+            data: ownerConfirmedCalculationData,
             shopId: shop.id,
             calculationDateKey: dateKey,
           });
@@ -2651,7 +2734,7 @@ const displayedOwnerProfit =
       ).reduce((shopTotal, shop) => {
         const position =
           getLiveRemittanceShopPosition({
-            data,
+            data: ownerConfirmedCalculationData,
             shopId: shop.id,
             calculationDateKey: dateKey,
           });
@@ -3183,7 +3266,7 @@ const totalBankCapital =
     (total, dateKey) => {
       const shopRemittancePosition =
         getLiveRemittanceShopPosition({
-          data,
+          data: ownerConfirmedCalculationData,
           shopId: shop.id,
           calculationDateKey: dateKey,
         });
@@ -3207,7 +3290,7 @@ const totalBankCapital =
     (periodTotal, dateKey) => {
       const position =
         getLiveRemittanceShopPosition({
-          data,
+         data: ownerConfirmedCalculationData,
           shopId: shop.id,
           calculationDateKey: dateKey,
         });
@@ -3240,7 +3323,7 @@ const shopGasProfit = filterByPreset(
     (periodTotal, dateKey) => {
       const position =
         getLiveRemittanceShopPosition({
-          data,
+          data: ownerConfirmedCalculationData,
           shopId: shop.id,
           calculationDateKey: dateKey,
         });
@@ -3382,7 +3465,7 @@ const bankCapital = latest
       <div className="mt-6">
   {dashboardDataReady && !ownerSalesLoading ? (
     <CEODecisionCentre
-  data={data}
+  data={ownerConfirmedCalculationData}
   language={language}
   ownerPeriod={ownerPeriod}
   selectedPeriod={ownerPeriod}
@@ -3956,8 +4039,36 @@ const sales = data.sales.filter(
   (s) => String(s.shop_id) === String(shop.id)
 );
 
-const confirmedSales = sales.filter((s) => s.confirmed !== false);
+const confirmedSales =
+  String(data.currentUser?.role || '') === 'owner'
+    ? sales.filter((sale) => sale.confirmed !== false)
+    : sales;
 
+const shopCalculationData =
+  String(data.currentUser?.role || '') === 'owner'
+    ? {
+        ...data,
+        sales: (Array.isArray(data?.sales)
+          ? data.sales
+          : []
+        ).filter(
+          (sale) => sale?.confirmed !== false
+        ),
+      }
+    : data;
+    const pendingSupabaseSales = sales.filter(
+  (sale) => sale.confirmed === false
+);
+
+const pendingSupabaseSalesCount =
+  pendingSupabaseSales.length;
+
+const pendingSupabaseSalesAmount =
+  pendingSupabaseSales.reduce(
+    (total, sale) =>
+      total + Math.max(0, Number(sale?.total || 0)),
+    0
+  );
 console.log('SHOP SALES SNAPSHOT', {
   shopId: shop.id,
   totalSalesRowsInData: Array.isArray(data.sales) ? data.sales.length : 0,
@@ -4373,7 +4484,7 @@ const todaySales = dashboardFilteredSales.reduce(
 
 const liveRemittancePosition =
   getLiveRemittanceShopPosition({
-    data,
+    data: shopCalculationData,
     shopId: shop.id,
     calculationDateKey: todayISO(),
   });
@@ -4412,7 +4523,7 @@ const selectedShopRemittanceSummary =
     (summary, dateKey) => {
       const position =
         getLiveRemittanceShopPosition({
-          data,
+          data: shopCalculationData,
           shopId: shop.id,
           calculationDateKey: dateKey,
         });
@@ -5179,26 +5290,43 @@ console.log('SALE DATE TEST', {
           throw new Error('Supabase confirmed sales response was not a valid list.');
         }
 
-        const previousSales = Array.isArray(data.sales) ? data.sales : [];
+        const mappedConfirmedShopSales =
+          confirmedShopSales.map((sale) => ({
+            ...sale,
+            shop_id: String(
+              sale.shop_id ||
+                sale.shopId ||
+                sale.shopid ||
+                shop.id
+            ).trim(),
+            date:
+              sale.date ||
+              (sale.created_at
+                ? String(sale.created_at).slice(0, 10)
+                : todayISO()),
+            confirmed: true,
+          }));
 
-        const nextData = {
-          ...data,
-          products: nextProducts,
-          sales: [
-            ...previousSales.filter(
-              (sale) =>
-                String(sale.shop_id || sale.shopId || sale.shopid || '') !== String(shop.id)
+        setData((prev) => {
+          const nextData = normalizeData({
+            ...prev,
+            sales: mergeRowsById(
+              Array.isArray(prev.sales) ? prev.sales : [],
+              mappedConfirmedShopSales
             ),
-            ...confirmedShopSales.map((sale) => ({
-              ...sale,
-              shop_id: String(sale.shop_id || sale.shopId || sale.shopid || shop.id).trim(),
-              date: sale.date || (sale.created_at ? String(sale.created_at).slice(0, 10) : todayISO()),
-              confirmed: true,
-            })),
-          ],
-        };
+          });
 
-        await saveData(nextData);
+          writeToDB(DB_DATA_KEY, nextData).catch(
+            (dbError) => {
+              console.error(
+                'Failed to preserve merged confirmed sales:',
+                dbError
+              );
+            }
+          );
+
+          return nextData;
+        });
 
         writeStorage(STORAGE_LAST_SYNC_KEY, Date.now());
         setSyncMessage('Sync complete');
@@ -7211,6 +7339,22 @@ banks: mobileMoneyForm.banks.map((b) => ({
 </div>
 
      <TabsContent value="dashboard" activeValue={activeTab}>
+     {String(data.currentUser?.role || '') !== 'owner' &&
+pendingSupabaseSalesCount > 0 ? (
+  <div className="mb-4 rounded-2xl border-2 border-red-400 bg-red-50 px-5 py-4 text-red-900 shadow-sm">
+    <div className="font-black">
+      Tahadhari: Mauzo {pendingSupabaseSalesCount} yenye jumla ya TZS{' '}
+      {currency(pendingSupabaseSalesAmount)} yamehifadhiwa kwenye duka hili
+      lakini bado hayajafika Supabase.
+    </div>
+
+    <div className="mt-1 text-sm font-semibold">
+      Kwa sasa yanaweza yasionekane kwenye Dashibodi ya Mmiliki. Mfumo
+      utaendelea kujaribu kuyatuma mtandao utakaporuhusu. Usiyarudie mauzo
+      haya.
+    </div>
+  </div>
+) : null}
   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
     <StatCard
   title={`${t(language, 'Sales', 'Mauzo')} - ${shopPeriodLabel}`}
@@ -7392,7 +7536,10 @@ banks: mobileMoneyForm.banks.map((b) => ({
 
   <div className="mt-6">
     <CEODecisionCentre
-  data={buildShopOnlyData(data, shop.id)}
+  data={buildShopOnlyData(
+    shopCalculationData,
+    shop.id
+  )}
   language={language}
   scope="shop"
   lockedShopId={shop.id}
@@ -8074,7 +8221,7 @@ banks: mobileMoneyForm.banks.map((b) => ({
 
       <TabsContent value="remittance" activeValue={activeTab}>
       <DailyRemittanceCentre
-  data={data}
+  data={shopCalculationData}
   saveData={saveData}
   currentUser={data.currentUser}
   language={language}
@@ -8088,7 +8235,7 @@ banks: mobileMoneyForm.banks.map((b) => ({
 
       <TabsContent value="homeExpenses" activeValue={activeTab}>
         <HomeExpensesCentre
-          data={data}
+  data={shopCalculationData}
           saveData={saveData}
           shop={shop}
           language={language}
@@ -10862,45 +11009,101 @@ useEffect(() => {
 useEffect(() => {
   if (!activeShopId) return;
 
+  const channelShopId = String(activeShopId).trim();
+  let cancelled = false;
+
   const salesChannel = supabase
-    .channel('sales-changes')
+    .channel(`sales-changes-${channelShopId}`)
     .on(
       'postgres_changes',
       {
         event: '*',
         schema: 'public',
         table: 'sales',
-        filter: `shop_id=eq.${activeShopId}`,
+        filter: `shop_id=eq.${channelShopId}`,
       },
       async () => {
-        const { data: sales } = await supabase
+        const { data: sales, error } = await supabase
           .from('sales')
           .select('*')
-          .eq('shop_id', activeShopId);
+          .eq('shop_id', channelShopId);
 
-        setData((prev) => {
-          const nextSales = (sales || []).map((s) => ({
-            ...s,
-            shop_id: s.shop_id || s.shopid || '',
-            date: s.created_at ? todayISO(new Date(s.created_at)) : (s.date || todayISO()),
-          }));
+        if (cancelled) return;
 
-          const keepOtherShops = (items = []) =>
-            items.filter(
-              (item) =>
-                String(item?.shop_id || item?.shopId || item?.shopid || '') !== String(activeShopId)
-            );
+        if (error) {
+          console.error(
+            'Realtime sales refresh failed; preserving local sales:',
+            error
+          );
+          return;
+        }
+
+        if (!Array.isArray(sales)) {
+          console.error(
+            'Realtime sales refresh returned an invalid list; preserving local sales.'
+          );
+          return;
+        }
+
+        const pendingSaleIds = new Set(
+          (readSyncQueue() || [])
+            .filter(
+              (queueItem) =>
+                queueItem?.actionType === 'sale_created' &&
+                queueItem?.synced === false
+            )
+            .map((queueItem) =>
+              String(queueItem?.payload?.id || '').trim()
+            )
+            .filter(Boolean)
+        );
+
+        const confirmedShopSales = sales.map((sale) => {
+          const saleId = String(sale?.id || '').trim();
 
           return {
-            ...prev,
-            sales: [...keepOtherShops(prev.sales), ...nextSales],
+            ...sale,
+            shop_id: String(
+              sale.shop_id ||
+                sale.shopId ||
+                sale.shopid ||
+                channelShopId
+            ).trim(),
+            date:
+              sale.date ||
+              (sale.created_at
+                ? String(sale.created_at).slice(0, 10)
+                : todayISO()),
+            confirmed: !pendingSaleIds.has(saleId),
           };
+        });
+
+        setData((prev) => {
+          const nextData = normalizeData({
+            ...prev,
+            sales: mergeRowsById(
+              Array.isArray(prev.sales) ? prev.sales : [],
+              confirmedShopSales
+            ),
+          });
+
+          writeToDB(DB_DATA_KEY, nextData).catch(
+            (dbError) => {
+              console.error(
+                'Failed to preserve realtime merged sales:',
+                dbError
+              );
+            }
+          );
+
+          return nextData;
         });
       }
     )
     .subscribe();
 
   return () => {
+    cancelled = true;
     supabase.removeChannel(salesChannel);
   };
 }, [activeShopId]);
