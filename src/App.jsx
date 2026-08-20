@@ -364,15 +364,38 @@ if (Array.isArray(item.payload.products)) {
   created_at: p.created_at || new Date().toISOString(),
 }));
 
-    if (safeProductRows.length) {
-    const { error: saleProductQueueError } = await supabase
-      .from('products')
-      .upsert(safeProductRows, { onConflict: 'id' });
+   if (safeProductRows.length) {
+  const { error: saleProductQueueError } = await supabase
+    .from('products')
+    .upsert(safeProductRows, { onConflict: 'id' });
 
-    if (saleProductQueueError) {
-      throw saleProductQueueError;
-    }
+  if (saleProductQueueError) {
+    console.error(
+      'Sale reached Supabase, but its product stock still requires synchronization:',
+      saleProductQueueError
+    );
+
+    safeProductRows.forEach((productRow) => {
+      const productAlreadyQueued = updatedQueue.some(
+        (queueItem) =>
+          queueItem?.actionType === 'product_saved' &&
+          queueItem?.synced === false &&
+          String(queueItem?.payload?.id || '') === String(productRow.id)
+      );
+
+      if (!productAlreadyQueued) {
+        updatedQueue.push({
+          id: `sync-product-${Date.now()}-${productRow.id}`,
+          actionType: 'product_saved',
+          payload: productRow,
+          createdAt: Date.now(),
+          synced: false,
+          status: 'pending',
+        });
+      }
+    });
   }
+}
 }
            } else if (item.actionType === 'purchase_created') {
         const purchasePayload = {
@@ -4178,11 +4201,61 @@ const shopCalculationData =
   (sale) => sale.confirmed === false
 );
 
+const pendingSaleQueueItems = readSyncQueue().filter(
+  (item) =>
+    item?.actionType === 'sale_created' &&
+    item?.synced === false &&
+    String(item?.payload?.shop_id || '') === String(shop.id)
+);
+
+const pendingQueueBySaleId = new Map(
+  pendingSaleQueueItems.map((item) => [
+    String(item?.payload?.id || '').trim(),
+    item,
+  ])
+);
+
+const failedSupabaseSales = pendingSupabaseSales.filter((sale) => {
+  const queueItem = pendingQueueBySaleId.get(
+    String(sale?.id || '').trim()
+  );
+
+  return !queueItem || queueItem?.status === 'failed';
+});
+
+const sendingSupabaseSales = pendingSupabaseSales.filter((sale) => {
+  const queueItem = pendingQueueBySaleId.get(
+    String(sale?.id || '').trim()
+  );
+
+  return queueItem && queueItem?.status !== 'failed';
+});
+
 const pendingSupabaseSalesCount =
   pendingSupabaseSales.length;
 
 const pendingSupabaseSalesAmount =
   pendingSupabaseSales.reduce(
+    (total, sale) =>
+      total + Math.max(0, Number(sale?.total || 0)),
+    0
+  );
+
+const failedSupabaseSalesCount =
+  failedSupabaseSales.length;
+
+const failedSupabaseSalesAmount =
+  failedSupabaseSales.reduce(
+    (total, sale) =>
+      total + Math.max(0, Number(sale?.total || 0)),
+    0
+  );
+
+const sendingSupabaseSalesCount =
+  sendingSupabaseSales.length;
+
+const sendingSupabaseSalesAmount =
+  sendingSupabaseSales.reduce(
     (total, sale) =>
       total + Math.max(0, Number(sale?.total || 0)),
     0
@@ -4564,7 +4637,11 @@ const dashboardDateValue =
     : reportDate;
 
 const dashboardSales = confirmedSales.map((s) => {
-  const computedDate = s.created_at ? todayISO(new Date(s.created_at)) : s.date;
+  const computedDate =
+    String(s.date || '').slice(0, 10) ||
+    (s.created_at
+      ? todayISO(new Date(s.created_at))
+      : '');
 
   return {
     ...s,
@@ -5387,13 +5464,19 @@ console.log('SALE DATE TEST', {
 
       try {
         await processSyncQueue();
+const currentSaleStillPending = readSyncQueue().some(
+  (item) =>
+    item?.actionType === 'sale_created' &&
+    item?.synced === false &&
+    String(item?.payload?.id || '') === String(saleRecord.id)
+);
 
-        const stillHasPendingSync = readSyncQueue().some((item) => item?.synced === false);
-
-        if (stillHasPendingSync) {
-          setSyncMessage('Sync pending - dashboard not refreshed yet');
-          return;
-        }
+if (currentSaleStillPending) {
+  setSyncMessage(
+    'Sync pending - this sale has not yet been confirmed by Supabase.'
+  );
+  return;
+}
 
         const { data: confirmedShopSales, error: confirmedSalesError } = await supabase
           .from('sales')
@@ -7458,18 +7541,32 @@ banks: mobileMoneyForm.banks.map((b) => ({
 
      <TabsContent value="dashboard" activeValue={activeTab}>
      {String(data.currentUser?.role || '') !== 'owner' &&
-pendingSupabaseSalesCount > 0 ? (
+failedSupabaseSalesCount > 0 ? (
   <div className="mb-4 rounded-2xl border-2 border-red-400 bg-red-50 px-5 py-4 text-red-900 shadow-sm">
     <div className="font-black">
-      Tahadhari: Mauzo {pendingSupabaseSalesCount} yenye jumla ya TZS{' '}
-      {currency(pendingSupabaseSalesAmount)} yamehifadhiwa kwenye duka hili
-      lakini bado hayajafika Supabase.
+      Imeshindikana kuthibitisha mauzo {failedSupabaseSalesCount} yenye jumla
+      ya TZS {currency(failedSupabaseSalesAmount)} kwenye Supabase.
     </div>
 
     <div className="mt-1 text-sm font-semibold">
-      Kwa sasa yanaweza yasionekane kwenye Dashibodi ya Mmiliki. Mfumo
-      utaendelea kujaribu kuyatuma mtandao utakaporuhusu. Usiyarudie mauzo
-      haya.
+      Mauzo haya yamehifadhiwa kwenye duka hili na hayajapotea. Mfumo
+      utaendelea kujaribu kuyathibitisha. Yanaweza bado yasionekane kwenye
+      Dashibodi ya Mmiliki. Usiyarudie mauzo haya.
+    </div>
+  </div>
+) : null}
+
+{String(data.currentUser?.role || '') !== 'owner' &&
+sendingSupabaseSalesCount > 0 ? (
+  <div className="mb-4 rounded-2xl border-2 border-amber-400 bg-amber-50 px-5 py-4 text-amber-900 shadow-sm">
+    <div className="font-black">
+      Mauzo {sendingSupabaseSalesCount} yenye jumla ya TZS{' '}
+      {currency(sendingSupabaseSalesAmount)} yanasubiri kutumwa Supabase.
+    </div>
+
+    <div className="mt-1 text-sm font-semibold">
+      Mauzo haya yamehifadhiwa salama kwenye duka hili. Mfumo unaendelea
+      kuyatuma na kuyathibitisha. Usiyarudie mauzo haya.
     </div>
   </div>
 ) : null}
@@ -10775,8 +10872,6 @@ if (salesMode === 'year') {
             `Sync pending: ${pendingQueueItems.length} record(s) not yet confirmed in Supabase.`
           );
         }
-
-        return;
       }
 
       const confirmedResult = await loadConfirmedDashboardDataFromSupabase();
@@ -10917,7 +11012,19 @@ if (salesMode === 'year') {
       });
 
       writeStorage(STORAGE_LAST_SYNC_KEY, Date.now());
-      setSyncMessage('Sync complete');
+      if (pendingQueueItems.length > 0) {
+  if (failedQueueItems.length > 0) {
+    setSyncMessage(
+      `Sync failed: ${failedQueueItems.length} record(s) have not been fully synchronized. The system will keep retrying.`
+    );
+  } else {
+    setSyncMessage(
+      `Sync pending: ${pendingQueueItems.length} record(s) are still being synchronized.`
+    );
+  }
+} else {
+  setSyncMessage('Sync complete');
+}
     } catch (error) {
       console.error('Confirmed sales refresh failed:', error);
       setSyncMessage('Confirmed sales refresh failed - keeping current dashboard');
@@ -12077,14 +12184,20 @@ if (isHydrating) {
     return (
   <>
     <div
-      className={`mx-4 mt-4 rounded-2xl px-4 py-2 text-sm font-medium ${
-        isOnline ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'
-      }`}
-    >
-      {isOnline ? 'Online' : 'Offline'} {syncMessage ? `- ${syncMessage}` : ''}
-    </div>
+  className={`mx-4 mt-4 rounded-2xl px-4 py-2 text-sm font-medium ${
+    !isOnline
+      ? 'bg-amber-50 text-amber-700'
+      : String(syncMessage || '').toLowerCase().includes('failed')
+        ? 'bg-red-50 text-red-700'
+        : String(syncMessage || '').toLowerCase().includes('pending')
+          ? 'bg-amber-50 text-amber-700'
+          : 'bg-green-50 text-green-700'
+  }`}
+>
+  {isOnline ? 'Online' : 'Offline'} {syncMessage ? `- ${syncMessage}` : ''}
+</div>
 
-    <OwnerDashboard
+<OwnerDashboard
   data={data}
   setAppData={setData}
   openShop={openShopDashboard}
@@ -12112,14 +12225,20 @@ if (isHydrating) {
 return (
   <>
     <div
-      className={`mx-4 mt-4 rounded-2xl px-4 py-2 text-sm font-medium ${
-        isOnline ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'
-      }`}
-    >
-      {isOnline ? 'Online' : 'Offline'} {syncMessage ? `- ${syncMessage}` : ''}
-    </div>
+  className={`mx-4 mt-4 rounded-2xl px-4 py-2 text-sm font-medium ${
+    !isOnline
+      ? 'bg-amber-50 text-amber-700'
+      : String(syncMessage || '').toLowerCase().includes('failed')
+        ? 'bg-red-50 text-red-700'
+        : String(syncMessage || '').toLowerCase().includes('pending')
+          ? 'bg-amber-50 text-amber-700'
+          : 'bg-green-50 text-green-700'
+  }`}
+>
+  {isOnline ? 'Online' : 'Offline'} {syncMessage ? `- ${syncMessage}` : ''}
+</div>
 
-    <ShopDashboard
+<ShopDashboard
   shop={shop}
   data={data}
   saveData={saveData}
