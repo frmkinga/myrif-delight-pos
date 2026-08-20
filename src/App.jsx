@@ -5358,7 +5358,13 @@ setSaleSaving(true);
       if (idx >= 0) {
         const currentStock = Number(nextProducts[idx].stockBaseQty || 0);
         if (Number(item.quantity || 0) > currentStock) {
-  setSaleError(t(language, 'One item has insufficient stock. Please check the cart.', 'Bidhaa moja haina stock ya kutosha. Tafadhali kagua kikapu.'));
+  setSaleError(
+  t(
+    language,
+    `Insufficient stock for ${item.name || nextProducts[idx].name || 'this product'}. Available: ${formatQty(currentStock)}; requested: ${formatQty(Number(item.quantity || 0))}.`,
+    `Stock haitoshi kwa ${item.name || nextProducts[idx].name || 'bidhaa hii'}. Iliyopo: ${formatQty(currentStock)}; iliyoombwa: ${formatQty(Number(item.quantity || 0))}.`
+  )
+);
   setSaleSaving(false);
 saleLock.current = false;
   return;
