@@ -994,8 +994,12 @@ const seedData = {
   gasEntries: [],
   houses: [],
   meters: [],
-  serviceCharges: [],
-  rentPayments: [],
+waterMeters: [],
+waterBills: [],
+waterPayments: [],
+waterPaymentAllocations: [],
+serviceCharges: [],
+rentPayments: [],
   centralFundTransactions: [],
 };
 
@@ -1083,11 +1087,25 @@ remittanceFundAllocations: Array.isArray(parsed.remittanceFundAllocations)
   : [],
 gasEntries: Array.isArray(parsed.gasEntries) ? parsed.gasEntries : [],
     houses: Array.isArray(parsed.houses) ? parsed.houses : [],
-    meters: Array.isArray(parsed.meters) ? parsed.meters : [],
-    serviceCharges: Array.isArray(parsed.serviceCharges) ? parsed.serviceCharges : [],
-    rentPayments: Array.isArray(parsed.rentPayments)
-      ? parsed.rentPayments
-      : [],
+   meters: Array.isArray(parsed.meters) ? parsed.meters : [],
+waterMeters: Array.isArray(parsed.waterMeters)
+  ? parsed.waterMeters
+  : [],
+waterBills: Array.isArray(parsed.waterBills)
+  ? parsed.waterBills
+  : [],
+waterPayments: Array.isArray(parsed.waterPayments)
+  ? parsed.waterPayments
+  : [],
+waterPaymentAllocations: Array.isArray(parsed.waterPaymentAllocations)
+  ? parsed.waterPaymentAllocations
+  : [],
+serviceCharges: Array.isArray(parsed.serviceCharges)
+  ? parsed.serviceCharges
+  : [],
+rentPayments: Array.isArray(parsed.rentPayments)
+  ? parsed.rentPayments
+  : [], 
 
     centralFundTransactions: Array.isArray(
       parsed.centralFundTransactions
@@ -1125,8 +1143,14 @@ function buildShopOnlyData(data, shopId) {
     gasEntries: (data.gasEntries || []).filter(sameShop),
     houses: (data.houses || []).filter(sameShop),
     meters: (data.meters || []).filter(sameShop),
-    serviceCharges: (data.serviceCharges || []).filter(sameShop),
-        rentPayments: (data.rentPayments || []).filter(sameShop),
+waterMeters: (data.waterMeters || []).filter(sameShop),
+waterBills: (data.waterBills || []).filter(sameShop),
+waterPayments: (data.waterPayments || []).filter(sameShop),
+waterPaymentAllocations: (
+  data.waterPaymentAllocations || []
+).filter(sameShop),
+serviceCharges: (data.serviceCharges || []).filter(sameShop),
+rentPayments: (data.rentPayments || []).filter(sameShop),
   });
 }
 
@@ -1188,6 +1212,12 @@ let monthlySalesTargetsQuery = supabase.from('monthly_sales_targets').select('*'
 let gasQuery = supabase.from('gasEntries').select('*');
 let housesQuery = supabase.from('houses').select('*');
 let metersQuery = supabase.from('meters').select('*');
+let waterMetersQuery = supabase.from('waterMeters').select('*');
+let waterBillsQuery = supabase.from('waterBills').select('*');
+let waterPaymentsQuery = supabase.from('waterPayments').select('*');
+let waterPaymentAllocationsQuery = supabase
+  .from('waterPaymentAllocations')
+  .select('*');
 let serviceChargesQuery = supabase.from('servicecharges').select('*');
 let rentPaymentsQuery = supabase.from('rentPayments').select('*');
 
@@ -1209,8 +1239,15 @@ let centralFundTransactionsQuery = supabase
   gasQuery = gasQuery.eq('shop_id', sessionShopId);
   housesQuery = housesQuery.eq('shop_id', sessionShopId);
   metersQuery = metersQuery.eq('shop_id', sessionShopId);
-  serviceChargesQuery = serviceChargesQuery.eq('shop_id', sessionShopId);
-    rentPaymentsQuery = rentPaymentsQuery.eq('shop_id', sessionShopId);
+waterMetersQuery = waterMetersQuery.eq('shop_id', sessionShopId);
+waterBillsQuery = waterBillsQuery.eq('shop_id', sessionShopId);
+waterPaymentsQuery = waterPaymentsQuery.eq('shop_id', sessionShopId);
+waterPaymentAllocationsQuery = waterPaymentAllocationsQuery.eq(
+  'shop_id',
+  sessionShopId
+);
+serviceChargesQuery = serviceChargesQuery.eq('shop_id', sessionShopId);
+rentPaymentsQuery = rentPaymentsQuery.eq('shop_id', sessionShopId);
 }
 
         const [
@@ -1226,8 +1263,12 @@ let centralFundTransactionsQuery = supabase
   { data: cloudGasEntries },
   { data: cloudHouses },
   { data: cloudMeters },
-  { data: cloudServiceCharges },
-  { data: cloudRentPayments },
+{ data: cloudWaterMeters },
+{ data: cloudWaterBills },
+{ data: cloudWaterPayments },
+{ data: cloudWaterPaymentAllocations },
+{ data: cloudServiceCharges },
+{ data: cloudRentPayments },
   { data: cloudCentralFundTransactions },
 ] = await Promise.all([
   productsQuery,
@@ -1242,8 +1283,12 @@ let centralFundTransactionsQuery = supabase
   gasQuery,
   housesQuery,
   metersQuery,
-  serviceChargesQuery,
-  rentPaymentsQuery,
+waterMetersQuery,
+waterBillsQuery,
+waterPaymentsQuery,
+waterPaymentAllocationsQuery,
+serviceChargesQuery,
+rentPaymentsQuery,
   centralFundTransactionsQuery,
 ]);
 
@@ -1271,8 +1316,10 @@ const normalized = normalizeData({
     id: m?.id || '',
     shop_id: String(m?.shop_id || '').trim(),
     houseNumber: m?.houseNumber || '',
-    meterType: m?.meterType || 'Water',
-    meterNumber: m?.meterNumber || '',
+tenantName: m?.tenantName || '',
+houseStatus: m?.houseStatus || '',
+meterType: m?.meterType || 'Water',
+meterNumber: m?.meterNumber || '',
     readingDate: m?.readingDate || '',
     previousUnits: Number(m?.previousUnits || 0),
     currentUnits: Number(m?.currentUnits || 0),
@@ -1282,9 +1329,80 @@ const normalized = normalizeData({
     totalAmount: Number(m?.totalAmount || 0),
     nextReadingDate: m?.nextReadingDate || '',
     notes: m?.notes || '',
-    created_at: m?.created_at || '',
-  })),
-  serviceCharges: (cloudServiceCharges || []).map((s) => ({
+created_at: m?.created_at || '',
+})),
+waterMeters: (cloudWaterMeters || []).map((meter) => ({
+  id: meter?.id || '',
+  shop_id: String(meter?.shop_id || '').trim(),
+  houseNumber: meter?.houseNumber || '',
+  meterNumber: meter?.meterNumber || '',
+  meterType: meter?.meterType || 'Water',
+  costPerUnit: Number(meter?.costPerUnit || 4000),
+  openingReading: Number(meter?.openingReading || 0),
+  lastReading: Number(meter?.lastReading || 0),
+  lastReadingDate: meter?.lastReadingDate || '',
+  nextReadingDate: meter?.nextReadingDate || '',
+  active: meter?.active !== false,
+  notes: meter?.notes || '',
+  created_at: meter?.created_at || '',
+  updated_at: meter?.updated_at || '',
+})),
+waterBills: (cloudWaterBills || []).map((bill) => ({
+  id: bill?.id || '',
+  shop_id: String(bill?.shop_id || '').trim(),
+  meterId: bill?.meterId || '',
+  houseNumber: bill?.houseNumber || '',
+  tenantName: bill?.tenantName || '',
+  houseStatus: bill?.houseStatus || '',
+  meterNumber: bill?.meterNumber || '',
+  billingPeriodStart: bill?.billingPeriodStart || '',
+  billingPeriodEnd: bill?.billingPeriodEnd || '',
+  readingDate: bill?.readingDate || '',
+  previousUnits: Number(bill?.previousUnits || 0),
+  currentUnits: Number(bill?.currentUnits || 0),
+  unitsUsed: Number(bill?.unitsUsed || 0),
+  costPerUnit: Number(bill?.costPerUnit || 4000),
+  discount: Number(bill?.discount || 0),
+  currentBillAmount: Number(bill?.currentBillAmount || 0),
+  previousBalance: Number(bill?.previousBalance || 0),
+  totalPayable: Number(bill?.totalPayable || 0),
+  amountPaid: Number(bill?.amountPaid || 0),
+  balance: Number(bill?.balance || 0),
+  status: bill?.status || 'Unpaid',
+  dueDate: bill?.dueDate || '',
+  nextReadingDate: bill?.nextReadingDate || '',
+  notes: bill?.notes || '',
+  created_at: bill?.created_at || '',
+  updated_at: bill?.updated_at || '',
+})),
+waterPayments: (cloudWaterPayments || []).map((payment) => ({
+  id: payment?.id || '',
+  shop_id: String(payment?.shop_id || '').trim(),
+meterId: payment?.meterId || '',
+houseNumber: payment?.houseNumber || '',
+  tenantName: payment?.tenantName || '',
+  meterNumber: payment?.meterNumber || '',
+  amountReceived: Number(payment?.amountReceived || 0),
+unappliedAmount: Number(payment?.unappliedAmount || 0),
+paymentDate: payment?.paymentDate || '',
+  paidAt: payment?.paidAt || '',
+  notes: payment?.notes || '',
+ created_at: payment?.created_at || '',
+})),
+waterPaymentAllocations: (
+  cloudWaterPaymentAllocations || []
+).map((allocation) => ({
+  id: allocation?.id || '',
+  shop_id: String(allocation?.shop_id || '').trim(),
+  paymentId: allocation?.paymentId || '',
+  billId: allocation?.billId || '',
+  allocatedAmount: Number(allocation?.allocatedAmount || 0),
+  billBalanceBefore: Number(allocation?.billBalanceBefore || 0),
+  billBalanceAfter: Number(allocation?.billBalanceAfter || 0),
+  allocationOrder: Number(allocation?.allocationOrder || 1),
+  created_at: allocation?.created_at || '',
+})),
+serviceCharges: (cloudServiceCharges || []).map((s) => ({
     id: s?.id || '',
     shop_id: String(s?.shop_id || '').trim(),
     houseNumber: s?.houseNumber || '',
@@ -11717,9 +11835,40 @@ setData((prev) => ({
         const mergedMobileMoneyEntries = mergeRowsById(prev.mobileMoneyEntries || [], loadedData.mobileMoneyEntries || []);
         const mergedMonthlyWakalaCommissions = mergeRowsById(prev.monthlyWakalaCommissions || [], loadedData.monthlyWakalaCommissions || []);
         const mergedGasEntries = mergeRowsById(prev.gasEntries || [], loadedData.gasEntries || []);
-        const mergedHouses = mergeRowsById(prev.houses || [], loadedData.houses || []);
-        const mergedMeters = mergeRowsById(prev.meters || [], loadedData.meters || []);
-        const mergedServiceCharges = mergeRowsById(prev.serviceCharges || [], loadedData.serviceCharges || []);
+        const mergedHouses = mergeRowsById(
+  prev.houses || [],
+  loadedData.houses || []
+);
+
+const mergedMeters = mergeRowsById(
+  prev.meters || [],
+  loadedData.meters || []
+);
+
+const mergedWaterMeters = mergeRowsById(
+  prev.waterMeters || [],
+  loadedData.waterMeters || []
+);
+
+const mergedWaterBills = mergeRowsById(
+  prev.waterBills || [],
+  loadedData.waterBills || []
+);
+
+const mergedWaterPayments = mergeRowsById(
+  prev.waterPayments || [],
+  loadedData.waterPayments || []
+);
+
+const mergedWaterPaymentAllocations = mergeRowsById(
+  prev.waterPaymentAllocations || [],
+  loadedData.waterPaymentAllocations || []
+);
+
+const mergedServiceCharges = mergeRowsById(
+  prev.serviceCharges || [],
+  loadedData.serviceCharges || []
+);
 
         return {
           ...prev,
@@ -11742,8 +11891,12 @@ setData((prev) => ({
           monthlyWakalaCommissions: mergedMonthlyWakalaCommissions,
           gasEntries: mergedGasEntries,
           houses: mergedHouses,
-          meters: mergedMeters,
-          serviceCharges: mergedServiceCharges,
+meters: mergedMeters,
+waterMeters: mergedWaterMeters,
+waterBills: mergedWaterBills,
+waterPayments: mergedWaterPayments,
+waterPaymentAllocations: mergedWaterPaymentAllocations,
+serviceCharges: mergedServiceCharges,
         };
       });
     };
