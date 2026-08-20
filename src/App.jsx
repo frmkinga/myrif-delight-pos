@@ -10849,10 +10849,185 @@ if (salesMode === 'year') {
     try {
       setIsOnline(true);
       setSyncMessage(message);
+const currentShopId = String(activeShopId || '').trim();
 
-      await processSyncQueue();
+if (
+  currentShopId &&
+  String(data.currentUser?.role || '') !== 'owner'
+) {
+  const currentQueue = readSyncQueue();
 
-      const pendingQueueItems = readSyncQueue().filter((item) => item?.synced === false);
+  const queuedSaleIds = new Set(
+    currentQueue
+      .filter(
+        (item) =>
+          item?.actionType === 'sale_created' &&
+          item?.synced === false
+      )
+      .map((item) =>
+        String(item?.payload?.id || '').trim()
+      )
+      .filter(Boolean)
+  );
+
+  const orphanedLocalSales = (
+    Array.isArray(data.sales) ? data.sales : []
+  ).filter(
+    (sale) =>
+      String(
+        sale?.shop_id ||
+        sale?.shopId ||
+        ''
+      ).trim() === currentShopId &&
+      sale?.confirmed === false &&
+      String(sale?.id || '').trim() &&
+      !queuedSaleIds.has(
+        String(sale?.id || '').trim()
+      )
+  );
+
+  if (orphanedLocalSales.length > 0) {
+    const orphanedSaleIds = orphanedLocalSales.map(
+      (sale) => String(sale.id).trim()
+    );
+
+    const {
+      data: existingSupabaseSales,
+      error: orphanCheckError,
+    } = await supabase
+      .from('sales')
+      .select(
+        'id, shop_id, items, total, type, date, created_at'
+      )
+      .in('id', orphanedSaleIds);
+
+    if (orphanCheckError) {
+      throw orphanCheckError;
+    }
+
+    const existingSupabaseSalesById = new Map(
+      (Array.isArray(existingSupabaseSales)
+        ? existingSupabaseSales
+        : []
+      ).map((sale) => [
+        String(sale?.id || '').trim(),
+        sale,
+      ])
+    );
+
+    const normalizeRecoveryItems = (items = []) =>
+      (Array.isArray(items) ? items : []).map(
+        (saleItem) => ({
+          productId: String(
+            saleItem?.productId || ''
+          ),
+          name: String(saleItem?.name || ''),
+          unit: String(saleItem?.unit || ''),
+          quantity: Number(
+            saleItem?.quantity || 0
+          ),
+          price: Number(
+            saleItem?.price ??
+            saleItem?.sellPrice ??
+            0
+          ),
+          buyPrice: Number(
+            saleItem?.buyPrice || 0
+          ),
+          sellPrice: Number(
+            saleItem?.sellPrice ??
+            saleItem?.price ??
+            0
+          ),
+          total: Number(
+            saleItem?.total || 0
+          ),
+        })
+      );
+
+    for (const localSale of orphanedLocalSales) {
+      const saleId = String(
+        localSale?.id || ''
+      ).trim();
+
+      const existingSupabaseSale =
+        existingSupabaseSalesById.get(saleId);
+
+      if (existingSupabaseSale) {
+        const localVerificationCopy = {
+          id: saleId,
+          shop_id: String(
+            localSale?.shop_id || ''
+          ),
+          date: String(
+            localSale?.date || ''
+          ),
+          type: String(
+            localSale?.type || ''
+          ),
+          total: Number(
+            localSale?.total || 0
+          ),
+          items: normalizeRecoveryItems(
+            localSale?.items
+          ),
+        };
+
+        const supabaseVerificationCopy = {
+          id: String(
+            existingSupabaseSale?.id || ''
+          ),
+          shop_id: String(
+            existingSupabaseSale?.shop_id || ''
+          ),
+          date: String(
+            existingSupabaseSale?.date || ''
+          ),
+          type: String(
+            existingSupabaseSale?.type || ''
+          ),
+          total: Number(
+            existingSupabaseSale?.total || 0
+          ),
+          items: normalizeRecoveryItems(
+            existingSupabaseSale?.items
+          ),
+        };
+
+        if (
+          JSON.stringify(localVerificationCopy) !==
+          JSON.stringify(supabaseVerificationCopy)
+        ) {
+          throw new Error(
+            `Orphan sale ${saleId} exists in Supabase but does not exactly match the local sale. Nothing was overwritten.`
+          );
+        }
+
+        continue;
+      }
+
+      addToSyncQueue('sale_created', {
+        id: saleId,
+        shop_id: currentShopId,
+        items: Array.isArray(localSale?.items)
+          ? localSale.items
+          : [],
+        total: Number(localSale?.total || 0),
+        type: localSale?.type || 'cash',
+        date: localSale?.date || todayISO(),
+        created_at:
+          localSale?.created_at ||
+          new Date().toISOString(),
+      });
+    }
+  }
+}
+
+await processSyncQueue();
+
+const pendingQueueItems = readSyncQueue().filter(
+  (item) => item?.synced === false
+);
       const failedQueueItems = pendingQueueItems.filter((item) => item?.status === 'failed');
 
       if (pendingQueueItems.length) {
