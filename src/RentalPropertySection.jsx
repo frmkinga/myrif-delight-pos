@@ -538,27 +538,26 @@ const saveHouse = async () => {
     !meterForm.houseNumber ||
     !meterForm.meterNumber ||
     meterForm.previousUnits === '' ||
-    (hasExistingMeter && meterForm.currentUnits === '')
+meterForm.currentUnits === ''
   ) {
     alert(
       t(
         language,
         hasExistingMeter
           ? 'Please select a house and enter the current meter reading.'
-          : 'Please select a house and enter the meter number and opening reading.',
+          : 'Please select a house and enter the meter number, previous reading and current reading.',
         hasExistingMeter
           ? 'Tafadhali chagua nyumba na uweke usomaji wa sasa wa mita.'
-          : 'Tafadhali chagua nyumba na uweke namba ya mita pamoja na usomaji wa kuanzia.'
+          : 'Tafadhali chagua nyumba, weka namba ya mita, usomaji uliopita na usomaji wa sasa.'
       )
     );
     return;
   }
 
   if (
-    hasExistingMeter &&
-    Number(meterForm.currentUnits) <
-      Number(meterForm.previousUnits)
-  ) {
+  Number(meterForm.currentUnits) <
+    Number(meterForm.previousUnits)
+) {
     alert(
       t(
         language,
@@ -612,14 +611,47 @@ const shopId =
   data?.currentUser?.shopId ||
   'shop-1';
 
-const registeredMeter = waterMeters.find(
+const localRegisteredMeter = waterMeters.find(
   (meter) =>
-    String(meter.houseNumber || '') ===
-      String(meterForm.houseNumber || '') &&
-    String(meter.meterNumber || '') ===
-      String(meterForm.meterNumber || '') &&
-    meter.active !== false
+    String(meter.meterNumber || '').trim().toLowerCase() ===
+    String(meterForm.meterNumber || '').trim().toLowerCase()
 );
+
+const {
+  data: cloudRegisteredMeter,
+  error: registeredMeterLookupError,
+} = await supabase
+  .from('waterMeters')
+  .select('*')
+  .eq('shop_id', shopId)
+  .eq('meterNumber', String(meterForm.meterNumber || '').trim())
+  .maybeSingle();
+
+if (registeredMeterLookupError) {
+  alert(
+    `Existing water meter lookup failed: ${registeredMeterLookupError.message}`
+  );
+  return;
+}
+
+const registeredMeter =
+  cloudRegisteredMeter || localRegisteredMeter;
+
+
+if (
+  registeredMeter &&
+  String(registeredMeter.houseNumber || '').trim().toLowerCase() !==
+    String(meterForm.houseNumber || '').trim().toLowerCase()
+) {
+  alert(
+    t(
+      language,
+      `Meter ${meterForm.meterNumber} is already registered to house ${registeredMeter.houseNumber}. It cannot be used for house ${meterForm.houseNumber}.`,
+      `Mita ${meterForm.meterNumber} tayari imesajiliwa katika nyumba ${registeredMeter.houseNumber}. Haiwezi kutumika katika nyumba ${meterForm.houseNumber}.`
+    )
+  );
+  return;
+}
 
 const meterRegistryId =
   registeredMeter?.id || `water-meter-${Date.now()}`;
@@ -634,9 +666,7 @@ const permanentMeterRecord = {
   openingReading: registeredMeter
     ? Number(registeredMeter.openingReading || 0)
     : Number(meterForm.previousUnits || 0),
-  lastReading: registeredMeter
-    ? Number(meterForm.currentUnits || 0)
-    : Number(meterForm.previousUnits || 0),
+  lastReading: Number(meterForm.currentUnits || 0),
   lastReadingDate: meterForm.readingDate || null,
   nextReadingDate: meterPreviewNextReading || null,
   active: true,
@@ -719,9 +749,7 @@ const record = {
   meterNumber: meterForm.meterNumber,
     readingDate: meterForm.readingDate,
     previousUnits: Number(meterForm.previousUnits || 0),
-    currentUnits: registeredMeter
-      ? Number(meterForm.currentUnits || 0)
-      : Number(meterForm.previousUnits || 0),
+   currentUnits: Number(meterForm.currentUnits || 0),
     unitsUsed: meterPreviewUnitsUsed,
     costPerUnit: Number(meterForm.costPerUnit || 0),
     discount: Number(meterForm.discount || 0),
@@ -748,9 +776,7 @@ const record = {
     )
   : [permanentMeterRecord, ...waterMeters];
 
-const updatedWaterBills = registeredMeter
-  ? [waterBillRecord, ...waterBills]
-  : waterBills;
+const updatedWaterBills = [waterBillRecord, ...waterBills];
 
 saveData({
   ...data,
@@ -803,18 +829,7 @@ if (waterMeterError) {
   );
   return;
 }
-if (!registeredMeter) {
-  alert(
-    t(
-      language,
-      'The water meter and its opening reading were saved successfully. The first bill will be created after the next reading.',
-      'Mita ya maji na usomaji wake wa kuanzia vimehifadhiwa. Ankara ya kwanza itatengenezwa baada ya usomaji unaofuata.'
-    )
-  );
 
-  setMeterForm({ ...emptyMeterForm });
-  return;
-}
 const { error: waterBillError } = await supabase
   .from('waterBills')
   .insert([waterBillRecord]);
@@ -2882,6 +2897,30 @@ return (
                               )}
                       </span>
                     </td>
+
+                    <td className="px-4 py-3">
+                      {balance > 0 ? (
+                        <Button
+                          type="button"
+                          className="whitespace-nowrap bg-emerald-700 hover:bg-emerald-800"
+                          onClick={() => startWaterPayment(bill)}
+                        >
+                          {t(
+                            language,
+                            'Record Payment',
+                            'Rekodi Malipo'
+                          )}
+                        </Button>
+                      ) : (
+                        <span className="font-semibold text-emerald-700">
+                          {t(
+                            language,
+                            'Fully Paid',
+                            'Imelipwa Yote'
+                          )}
+                        </span>
+                      )}
+                    </td>
                   </tr>
                 );
               })
@@ -3457,19 +3496,14 @@ const previousMeterReading = selectedPermanentMeter
             'Usomaji Uliopita (Automatic)'
           )
         : t(
-            language,
-            'Opening Meter Reading',
-            'Usomaji wa Kuanzia wa Mita'
-          )
+    language,
+    'Previous Reading (Manual)',
+    'Usomaji Uliopita (Weka Mwenyewe)'
+  )
     }
     type="number"
     value={meterForm.previousUnits}
-    readOnly={hasExistingMeter}
-    className={
-      hasExistingMeter
-        ? 'cursor-not-allowed bg-slate-200 font-semibold text-slate-800'
-        : 'bg-white'
-    }
+    className="bg-white font-semibold text-slate-800"
     placeholder={t(
       language,
       'Enter the first meter reading',
@@ -3499,15 +3533,13 @@ const previousMeterReading = selectedPermanentMeter
 </div>
 
   <div
-    className={`${
-      hasExistingMeter ? '' : 'hidden'
-    } self-start rounded-2xl border p-4 ${
-      meterForm.currentUnits !== '' &&
-      Number(meterForm.currentUnits) < Number(meterForm.previousUnits || 0)
-        ? 'border-red-300 bg-red-50'
-        : 'border-cyan-300 bg-cyan-50'
-    }`}
-  >
+  className={`self-start rounded-2xl border p-4 ${
+    meterForm.currentUnits !== '' &&
+    Number(meterForm.currentUnits) < Number(meterForm.previousUnits || 0)
+      ? 'border-red-300 bg-red-50'
+      : 'border-cyan-300 bg-cyan-50'
+  }`}
+>
     <Input
       label={t(
         language,
@@ -4871,7 +4903,9 @@ return (
                   <th className="px-4 py-3">
   {t(language, 'Status', 'Hali')}
 </th>
-
+<th className="px-4 py-3">
+  {t(language, 'Action', 'Hatua')}
+</th>
 <th className="px-4 py-3">
   {t(language, 'Actions', 'Vitendo')}
 </th>

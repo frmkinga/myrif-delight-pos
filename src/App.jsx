@@ -12182,9 +12182,15 @@ const mergedServiceCharges = mergeRowsById(
           monthlyWakalaCommissions: mergedMonthlyWakalaCommissions,
           gasEntries: mergedGasEntries,
           houses: mergedHouses,
-meters: mergedMeters,
-waterMeters: mergedWaterMeters,
-waterBills: mergedWaterBills,
+meters: Array.isArray(loadedData.meters)
+  ? loadedData.meters
+  : prev.meters,
+waterMeters: Array.isArray(loadedData.waterMeters)
+  ? loadedData.waterMeters
+  : prev.waterMeters,
+waterBills: Array.isArray(loadedData.waterBills)
+  ? loadedData.waterBills
+  : prev.waterBills,
 waterPayments: mergedWaterPayments,
 waterPaymentAllocations: mergedWaterPaymentAllocations,
 serviceCharges: mergedServiceCharges,
