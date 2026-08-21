@@ -60,6 +60,9 @@ const emptyMeterForm = {
   meterType: 'Water',
   meterNumber: '',
   readingDate: todayISO(),
+  paymentReceived: 'No',
+  paymentDate: '',
+  amountReceived: '',
   previousUnits: '',
   currentUnits: '',
   costPerUnit: String(WATER_UNIT_PRICE),
@@ -114,8 +117,15 @@ function Textarea({ label, className = '', ...props }) {
   );
 }
 
-function Card({ children, className = '' }) {
-  return <div className={`rounded-2xl border bg-white shadow-md hover:shadow-lg transition ${className}`}>{children}</div>;
+function Card({ children, className = '', ...props }) {
+  return (
+    <div
+      className={`rounded-2xl border bg-white shadow-md transition hover:shadow-lg ${className}`}
+      {...props}
+    >
+      {children}
+    </div>
+  );
 }
 
 function CardHeader({ children }) {
@@ -145,6 +155,8 @@ function PreviewValue({ label, value }) {
 
 export default function RentalPropertySectionPreview({ language = 'sw', setLanguage, data, saveData }) {
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeWaterSection, setActiveWaterSection] = useState('summary');
+const [showWaterOptionalFields, setShowWaterOptionalFields] = useState(false);
 
   const allHouses = Array.isArray(data?.houses)
   ? data.houses
@@ -526,21 +538,26 @@ const saveHouse = async () => {
     !meterForm.houseNumber ||
     !meterForm.meterNumber ||
     meterForm.previousUnits === '' ||
-    meterForm.currentUnits === ''
+    (hasExistingMeter && meterForm.currentUnits === '')
   ) {
     alert(
       t(
         language,
-        'Please select a house and complete all required meter readings.',
-        'Tafadhali chagua nyumba na ujaze taarifa zote muhimu za usomaji wa mita.'
+        hasExistingMeter
+          ? 'Please select a house and enter the current meter reading.'
+          : 'Please select a house and enter the meter number and opening reading.',
+        hasExistingMeter
+          ? 'Tafadhali chagua nyumba na uweke usomaji wa sasa wa mita.'
+          : 'Tafadhali chagua nyumba na uweke namba ya mita pamoja na usomaji wa kuanzia.'
       )
     );
     return;
   }
 
   if (
+    hasExistingMeter &&
     Number(meterForm.currentUnits) <
-    Number(meterForm.previousUnits)
+      Number(meterForm.previousUnits)
   ) {
     alert(
       t(
@@ -551,7 +568,39 @@ const saveHouse = async () => {
     );
     return;
   }
+  if (
+    hasExistingMeter &&
+    meterForm.paymentReceived === 'Yes' &&
+    (
+      !meterForm.paymentDate ||
+      Number(meterForm.amountReceived || 0) <= 0
+    )
+  ) {
+    alert(
+      t(
+        language,
+        'Please enter a valid payment date and amount received.',
+        'Tafadhali weka tarehe sahihi ya malipo na kiasi kilichopokelewa.'
+      )
+    );
+    return;
+  }
 
+  if (
+    hasExistingMeter &&
+    meterForm.paymentReceived === 'Yes' &&
+    meterForm.readingDate &&
+    meterForm.paymentDate < meterForm.readingDate
+  ) {
+    alert(
+      t(
+        language,
+        'Payment date cannot be earlier than the meter reading date.',
+        'Tarehe ya malipo haiwezi kuwa kabla ya tarehe ya usomaji wa mita.'
+      )
+    );
+    return;
+  }
 const selectedHouse = houses.find(
   (house) =>
     String(house.houseNumber || '') ===
@@ -585,7 +634,9 @@ const permanentMeterRecord = {
   openingReading: registeredMeter
     ? Number(registeredMeter.openingReading || 0)
     : Number(meterForm.previousUnits || 0),
-  lastReading: Number(meterForm.currentUnits || 0),
+  lastReading: registeredMeter
+    ? Number(meterForm.currentUnits || 0)
+    : Number(meterForm.previousUnits || 0),
   lastReadingDate: meterForm.readingDate || null,
   nextReadingDate: meterPreviewNextReading || null,
   active: true,
@@ -668,7 +719,9 @@ const record = {
   meterNumber: meterForm.meterNumber,
     readingDate: meterForm.readingDate,
     previousUnits: Number(meterForm.previousUnits || 0),
-    currentUnits: Number(meterForm.currentUnits || 0),
+    currentUnits: registeredMeter
+      ? Number(meterForm.currentUnits || 0)
+      : Number(meterForm.previousUnits || 0),
     unitsUsed: meterPreviewUnitsUsed,
     costPerUnit: Number(meterForm.costPerUnit || 0),
     discount: Number(meterForm.discount || 0),
@@ -695,10 +748,9 @@ const record = {
     )
   : [permanentMeterRecord, ...waterMeters];
 
-const updatedWaterBills = [
-  waterBillRecord,
-  ...waterBills,
-];
+const updatedWaterBills = registeredMeter
+  ? [waterBillRecord, ...waterBills]
+  : waterBills;
 
 saveData({
   ...data,
@@ -751,7 +803,18 @@ if (waterMeterError) {
   );
   return;
 }
+if (!registeredMeter) {
+  alert(
+    t(
+      language,
+      'The water meter and its opening reading were saved successfully. The first bill will be created after the next reading.',
+      'Mita ya maji na usomaji wake wa kuanzia vimehifadhiwa. Ankara ya kwanza itatengenezwa baada ya usomaji unaofuata.'
+    )
+  );
 
+  setMeterForm({ ...emptyMeterForm });
+  return;
+}
 const { error: waterBillError } = await supabase
   .from('waterBills')
   .insert([waterBillRecord]);
@@ -776,7 +839,35 @@ if (creditError) {
   );
   return;
 }
+if (
+  meterForm.paymentReceived === 'Yes' &&
+  Number(meterForm.amountReceived || 0) > 0
+) {
+  const paymentId = `water-payment-${Date.now()}`;
 
+  const { error: readingPaymentError } =
+    await supabase.rpc('record_water_cash_payment', {
+      p_payment_id: paymentId,
+      p_shop_id: shopId,
+      p_meter_id: meterRegistryId,
+      p_house_number: meterForm.houseNumber,
+      p_tenant_name: selectedHouse?.tenantName || '',
+      p_meter_number: meterForm.meterNumber,
+      p_amount: Number(meterForm.amountReceived || 0),
+      p_payment_date:
+        meterForm.paymentDate || meterForm.readingDate || todayISO(),
+      p_notes:
+        meterForm.notes ||
+        'Payment recorded together with meter reading',
+    });
+
+  if (readingPaymentError) {
+    alert(
+      `The water bill was saved, but the payment could not be recorded: ${readingPaymentError.message}`
+    );
+    return;
+  }
+}
 const [
   { data: refreshedBills, error: refreshedBillsError },
   { data: refreshedPayments, error: refreshedPaymentsError },
@@ -873,21 +964,31 @@ const appliedCredit = Number(
 );
 
 alert(
-  appliedCredit > 0
+  meterForm.paymentReceived === 'Yes'
     ? t(
         language,
-        `Water bill saved. TZS ${currency(
-          appliedCredit
-        )} tenant credit was applied automatically.`,
-        `Ankara ya maji imehifadhiwa. Salio la mpangaji la TZS ${currency(
-          appliedCredit
-        )} limetumika moja kwa moja.`
+        `Water reading, monthly bill and payment of TZS ${currency(
+          meterForm.amountReceived
+        )} were saved successfully.`,
+        `Usomaji wa maji, ankara ya mwezi na malipo ya TZS ${currency(
+          meterForm.amountReceived
+        )} vimehifadhiwa kikamilifu.`
       )
-    : t(
-        language,
-        'Water reading and monthly bill saved successfully.',
-        'Usomaji wa maji na ankara ya mwezi vimehifadhiwa kikamilifu.'
-      )
+    : appliedCredit > 0
+      ? t(
+          language,
+          `Water bill saved. TZS ${currency(
+            appliedCredit
+          )} tenant credit was applied automatically.`,
+          `Ankara ya maji imehifadhiwa. Salio la mpangaji la TZS ${currency(
+            appliedCredit
+          )} limetumika moja kwa moja.`
+        )
+      : t(
+          language,
+          'Water reading and monthly bill were saved as unpaid.',
+          'Usomaji wa maji na ankara ya mwezi vimehifadhiwa kama havijalipwa.'
+        )
 );
 
 setMeterForm({ ...emptyMeterForm });
@@ -1358,6 +1459,9 @@ const startNewMeterReading = (row) => {
     meterType: row.meterType || 'Water',
     meterNumber: row.meterNumber || '',
     readingDate: todayISO(),
+    paymentReceived: 'No',
+    paymentDate: '',
+    amountReceived: '',
     previousUnits: String(row.lastReading ?? row.currentUnits ?? ''),
     currentUnits: '',
     costPerUnit: String(row.costPerUnit ?? WATER_UNIT_PRICE),
@@ -1543,10 +1647,25 @@ const totalServiceCharge = serviceCharges.reduce(
   const tabs = [
     ['dashboard', t(language, 'Dashboard', 'Dashibodi')],
     ['houses', t(language, 'House Details', 'Taarifa za Nyumba')],
-    ['meters', t(language, 'Meter Details', 'Taarifa za Mita')],
+    ['meters', t(language, 'Water Information', 'Taarifa za Maji')],
     ['servicecharge', t(language, 'Service Charge', 'Service Charge')],
     ['reports', t(language, 'Reports', 'Ripoti')],
   ];
+
+  const waterSections = [
+  ['summary', t(language, 'Summary', 'Muhtasari')],
+  [
+    'attention',
+    t(
+      language,
+      'Meters Requiring Action',
+      'Mita Zinazohitaji Hatua'
+    ),
+  ],
+  ['readings', t(language, 'Meter Readings', 'Usomaji wa Mita')],
+  ['billing', t(language, 'Bills and Payments', 'Ankara na Malipo')],
+  ['alerts', t(language, 'Account Alerts', 'Tahadhari za Akaunti')],
+];
 
   return (
     <div className="relative min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.9),transparent_35%),radial-gradient(circle_at_bottom_right,rgba(99,102,241,0.12),transparent_30%),linear-gradient(to_bottom_right,#f8fafc,#eff6ff,#e0e7ff)] p-4">
@@ -1590,7 +1709,7 @@ const totalServiceCharge = serviceCharges.reduce(
 
 {activeTab === 'dashboard' && (
           <div className="space-y-4">
-           <div className="grid gap-4 md:grid-cols-6">
+           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
   <Card className="bg-gradient-to-br from-blue-500 to-blue-600 text-white border-0">
     <CardContent>
       <div className="text-sm opacity-90">{t(language, 'Occupied Houses', 'Nyumba Zenye Wapangaji')}</div>
@@ -1619,8 +1738,11 @@ const totalServiceCharge = serviceCharges.reduce(
     </CardContent>
   </Card>
 
-  <Card
-  onClick={() => setActiveTab('meters')}
+<Card
+  onClick={() => {
+  setActiveTab('meters');
+  setActiveWaterSection('attention');
+}}
   className="cursor-pointer border-0 bg-gradient-to-br from-cyan-600 to-blue-700 text-white transition hover:-translate-y-0.5 hover:shadow-lg"
 >
   <CardContent>
@@ -1632,49 +1754,9 @@ const totalServiceCharge = serviceCharges.reduce(
       )}
     </div>
 
-<div className="mt-2 flex items-end justify-between gap-3">
-  <div className="text-3xl font-bold">
-    {metersNeedingAttention.length}
-  </div>
-
-  <div className="rounded-full bg-white/15 px-2.5 py-1 text-xs font-semibold text-cyan-50">
-    {t(language, 'View details', 'Angalia taarifa')}
-  </div>
-</div>
-
-<div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-  <div className="rounded-lg bg-red-500/90 px-2 py-1.5 font-semibold text-white">
-    {t(
-      language,
-      `${readingOverdue.length} overdue`,
-      `${readingOverdue.length} zimechelewa`
-    )}
-  </div>
-
-  <div className="rounded-lg bg-amber-400/90 px-2 py-1.5 font-semibold text-amber-950">
-    {t(
-      language,
-      `${metersWithoutReadings.length} without readings`,
-      `${metersWithoutReadings.length} hazina usomaji`
-    )}
-  </div>
-
-  <div className="rounded-lg bg-rose-500/90 px-2 py-1.5 font-semibold text-white">
-    {t(
-      language,
-      `${housesWithoutMeters.length} unidentified`,
-      `${housesWithoutMeters.length} hazijatambuliwa`
-    )}
-  </div>
-
-  <div className="rounded-lg bg-blue-400/90 px-2 py-1.5 font-semibold text-white">
-    {t(
-      language,
-      `${readingSoon.length} due soon`,
-      `${readingSoon.length} zinakaribia`
-    )}
-  </div>
-</div>
+    <div className="mt-2 text-3xl font-bold">
+      {metersNeedingAttention.length}
+    </div>
   </CardContent>
 </Card>
 
@@ -1719,430 +1801,114 @@ const totalServiceCharge = serviceCharges.reduce(
                 </CardContent>
               </Card>
 
-<Card className="overflow-hidden border-cyan-200 bg-white">
-  <CardHeader className="bg-gradient-to-r from-cyan-700 to-blue-700 text-white">
-    <CardTitle>
-      {t(
-        language,
-        'Water Financial Summary',
-        'Muhtasari wa Fedha za Maji'
-      )}
+
+<Card className="border-amber-200 bg-amber-50">
+  <CardHeader>
+    <CardTitle className="text-amber-700">
+      {t(language, 'Bill Reminder', 'Kumbusho la Ankara')}
     </CardTitle>
-
-    <p className="text-sm text-cyan-100">
-      {t(
-        language,
-        'Actual bills, cash received, outstanding debt and tenant credit.',
-        'Ankara halisi, fedha zilizopokelewa, madeni na salio la wapangaji.'
-      )}
-    </p>
   </CardHeader>
 
-  <CardContent className="space-y-4 p-4">
-    <div className="grid grid-cols-2 gap-3">
-      <div className="rounded-xl bg-blue-50 p-3">
-        <p className="text-xs text-blue-700">
-          {t(language, 'Amount Billed', 'Ankara Zilizotolewa')}
-        </p>
-        <p className="mt-1 font-bold text-blue-900">
-          TZS {currency(totalWaterAmount)}
-        </p>
-      </div>
+  <CardContent>
+    <div className="overflow-x-auto">
 
-      <div className="rounded-xl bg-emerald-50 p-3">
-        <p className="text-xs text-emerald-700">
-          {t(language, 'Cash Collected', 'Fedha Zilizopokelewa')}
-        </p>
-        <p className="mt-1 font-bold text-emerald-900">
-          TZS {currency(totalWaterCollected)}
-        </p>
-      </div>
+<table className="min-w-full overflow-hidden rounded-xl text-sm">
+  <thead>
+    <tr className="bg-slate-100 text-left">
+      <th className="py-2 pr-3">
+        {t(language, 'House / Meter', 'Nyumba / Mita')}
+      </th>
 
-      <div className="rounded-xl bg-amber-50 p-3">
-        <p className="text-xs text-amber-700">
-          {t(language, 'Outstanding Debt', 'Deni Linalodaiwa')}
-        </p>
-        <p className="mt-1 font-bold text-amber-900">
-          TZS {currency(totalWaterOutstanding)}
-        </p>
-      </div>
+      <th className="py-2 pr-3">
+        {t(language, 'Tenant', 'Mpangaji')}
+      </th>
 
-      <div className="rounded-xl bg-cyan-50 p-3">
-        <p className="text-xs text-cyan-700">
-          {t(language, 'Tenant Credit', 'Salio la Wapangaji')}
-        </p>
-        <p className="mt-1 font-bold text-cyan-900">
-          TZS {currency(totalWaterCredit)}
-        </p>
-      </div>
-    </div>
+      <th className="py-2 pr-3">
+        {t(language, 'Reading Date', 'Tarehe ya Kusoma')}
+      </th>
 
-<div className="rounded-xl border border-cyan-100">
-  <div className="flex items-center justify-between border-b border-cyan-100 bg-cyan-50 px-3 py-2">
-    <div>
-      <p className="text-sm font-semibold text-cyan-800">
-        {t(
-          language,
-          'Meter Readings Requiring Action',
-          'Usomaji wa Mita Unaohitaji Hatua'
-        )}
-      </p>
+      <th className="py-2 pr-3">
+        {t(language, 'Status', 'Hali')}
+      </th>
+    </tr>
+  </thead>
 
-      <p className="text-xs text-cyan-700">
-        {t(
-          language,
-          'Overdue meters appear first.',
-          'Mita zilizochelewa zinaonekana kwanza.'
-        )}
-      </p>
-    </div>
-
-    <span className="rounded-full bg-cyan-700 px-2.5 py-1 text-xs font-bold text-white">
-      {metersNeedingAttention.length}
-    </span>
-  </div>
-
-  <div className="max-h-[220px] overflow-y-auto">
-    {metersNeedingAttention.length === 0 ? (
-   <div className="space-y-3 px-4 py-5 text-center">
-  <p className="text-sm font-semibold text-slate-700">
-    {waterMeters.length === 0
-      ? t(
-          language,
-          'No permanent water meter has been registered yet.',
-          'Bado hakuna mita ya maji iliyosajiliwa kwenye sajili ya kudumu.'
-        )
-      : t(
-          language,
-          'No meter reading currently requires attention.',
-          'Hakuna usomaji wa mita unaohitaji hatua kwa sasa.'
-        )}
-  </p>
-
-  <p className="text-xs text-slate-500">
-    {waterMeters.length === 0
-      ? t(
-          language,
-          'Register each meter once to connect its house, tenant and future readings.',
-          'Sajili kila mita mara moja ili iunganishwe na nyumba, mpangaji na usomaji wake wa baadaye.'
-        )
-      : t(
-          language,
-          'All registered meters are currently up to date.',
-          'Mita zote zilizosajiliwa ziko sawa kwa sasa.'
-        )}
-  </p>
-
-  {waterMeters.length === 0 && (
-    <button
-      type="button"
-      onClick={() => setActiveTab('meters')}
-      className="rounded-lg bg-cyan-700 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-cyan-800"
-    >
-      {t(language, 'Register Water Meter', 'Sajili Mita ya Maji')}
-    </button>
-  )}
-</div>
-    ) : (
-      <div className="divide-y divide-slate-100">
-        {metersNeedingAttention.map((meter) => {
-          const days = daysBetween(
-            today,
-            meter.nextReadingDate
-          );
-
-          const isReadingOverdue =
-            days !== null && days < 0;
-
-          return (
-            <div
-              key={meter.id}
-              className={`grid grid-cols-[1fr_auto] gap-3 px-3 py-3 text-sm ${
-                isReadingOverdue
-                  ? 'bg-red-50'
-                  : 'bg-white'
-              }`}
-            >
-              <div className="space-y-1">
-  <p
-    className={`font-semibold ${
-      isReadingOverdue
-        ? 'text-red-800'
-        : 'text-slate-900'
-    }`}
-  >
-    {t(language, 'House', 'Nyumba')}: {meter.houseNumber || '-'}
-  </p>
-
-  <p className="text-xs font-medium text-slate-700">
-    {t(language, 'Tenant', 'Mpangaji')}:{' '}
-    {houses.find(
-      (house) =>
-        String(house.houseNumber || '').trim().toLowerCase() ===
-        String(meter.houseNumber || '').trim().toLowerCase()
-    )?.tenantName || t(language, 'Not connected', 'Hajaunganishwa')}
-  </p>
-
-  <p className="text-xs text-slate-500">
-    {t(language, 'Meter number', 'Namba ya mita')}:{' '}
-    {meter.meterNumber || '-'}
-  </p>
-
- <p className="text-xs text-slate-500">
-  {t(language, 'Latest reading', 'Usomaji wa mwisho')}:{' '}
-  {meter.attentionType === 'missingMeter'
-    ? t(language, 'Meter not connected', 'Mita haijaunganishwa')
-    : meter.attentionType === 'noReading'
-      ? t(language, 'No reading recorded', 'Hakuna usomaji uliorekodiwa')
-      : meter.lastReading ?? meter.currentUnits ?? '-'}
-</p>
-</div>
-
-<div className="flex flex-col items-end gap-2 text-right">
-  {meter.nextReadingDate ? (
-    <p
-      className={`font-semibold ${
-        isReadingOverdue
-          ? 'text-red-700'
-          : 'text-cyan-800'
-      }`}
-    >
-      {meter.nextReadingDate}
-    </p>
-  ) : null}
-
-  {meter.attentionType === 'missingMeter' ? (
-    <span className="inline-flex rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-700">
-      {t(
-        language,
-        'Meter number not identified',
-        'Namba ya mita haijatambuliwa'
-      )}
-    </span>
-  ) : meter.attentionType === 'noReading' ? (
-    <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">
-      {t(
-        language,
-        'No reading recorded',
-        'Hakuna usomaji uliorekodiwa'
-      )}
-    </span>
-  ) : isReadingOverdue ? (
-    <span className="inline-flex rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700">
-      {t(
-        language,
-        `Overdue by ${Math.abs(days)} day(s)`,
-        `Imechelewa siku ${Math.abs(days)}`
-      )}
-    </span>
-  ) : (
-    <span className="inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">
-      {days === 0
-        ? t(language, 'Due today', 'Inahitajika leo')
-        : t(
-            language,
-            `Due in ${days} day(s)`,
-            `Zimebaki siku ${days}`
-          )}
-    </span>
-  )}
-
-  <button
-    type="button"
-    onClick={() => startNewMeterReading(meter)}
-    className="rounded-lg bg-cyan-700 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-cyan-800"
-  >
-    {meter.attentionType === 'missingMeter'
-      ? t(language, 'Connect Meter', 'Unganisha Mita')
-      : t(language, 'Record New Reading', 'Weka Usomaji Mpya')}
-  </button>
-</div>
-            </div>
-          );
-        })}
-      </div>
-    )}
-  </div>
-</div>
-  </CardContent>
-</Card>
-
-<Card className="overflow-hidden border-amber-200 bg-white">
-  <CardHeader className="border-b border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50">
-    <div className="flex items-center justify-between gap-3">
-      <div>
-        <CardTitle className="text-amber-800">
+  <tbody>
+    {[...readingOverdue, ...readingSoon].length === 0 ? (
+      <tr>
+        <td className="py-3 text-slate-500" colSpan={4}>
           {t(
             language,
-            'Water Account Alerts',
-            'Tahadhari za Akaunti za Maji'
+            'No upcoming bill reminder.',
+            'Hakuna kumbusho la ankara.'
           )}
-        </CardTitle>
-
-        <p className="mt-1 text-sm text-amber-700">
-          {t(
-            language,
-            'Tenants without formal bills or payment records.',
-            'Wapangaji wasio na ankara au kumbukumbu rasmi za malipo.'
-          )}
-        </p>
-      </div>
-
-      <span className="rounded-full bg-amber-600 px-3 py-1 text-sm font-bold text-white">
-        {housesWithoutWaterBills.length +
-          housesWithBillsButNoPayments.length}
-      </span>
-    </div>
-  </CardHeader>
-
-  <CardContent className="p-0">
-    {housesWithoutWaterBills.length === 0 &&
-    housesWithBillsButNoPayments.length === 0 ? (
-      <p className="px-4 py-8 text-center text-sm text-slate-500">
-        {t(
-          language,
-          'No water account currently requires attention.',
-          'Hakuna akaunti ya maji inayohitaji hatua kwa sasa.'
-        )}
-      </p>
+        </td>
+      </tr>
     ) : (
-      <div className="max-h-[320px] divide-y divide-slate-100 overflow-y-auto">
-        {housesWithoutWaterBills.map((house) => (
-          <div
-            key={`no-water-bill-${house.id}`}
-            className="flex items-center justify-between gap-3 bg-amber-50/50 px-4 py-3"
+      [...readingOverdue, ...readingSoon].map((meter) => {
+        const isOverdue = readingOverdue.some(
+          (row) => String(row.id) === String(meter.id)
+        );
+
+        const connectedHouse = houses.find(
+          (house) =>
+            String(house.houseNumber || '')
+              .trim()
+              .toLowerCase() ===
+            String(meter.houseNumber || '')
+              .trim()
+              .toLowerCase()
+        );
+
+        const tenantName =
+          connectedHouse?.tenantName ||
+          meter.tenantName ||
+          '-';
+
+        return (
+          <tr
+            key={`bill-reminder-${meter.id}`}
+            className="border-b transition hover:bg-white"
           >
-            <div>
+            <td className="py-2 pr-3">
               <p className="font-semibold text-slate-900">
-                {house.houseNumber}
+                {meter.houseNumber || '-'}
               </p>
 
-              <p className="text-sm text-slate-700">
-                {t(language, 'Tenant', 'Mpangaji')}:{' '}
-                <span className="font-semibold">
-                  {house.tenantName ||
-                    t(language, 'No tenant', 'Hakuna mpangaji')}
-                </span>
+              <p className="text-xs text-slate-500">
+                {t(language, 'Meter', 'Mita')}:{' '}
+                {meter.meterNumber || '-'}
               </p>
-            </div>
+            </td>
 
-            <div className="flex flex-col items-end gap-2">
-  <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-700">
-    {t(
-      language,
-      'No formal water bill',
-      'Hana ankara rasmi ya maji'
+            <td className="py-2 pr-3 font-semibold text-slate-800">
+              {tenantName}
+            </td>
+
+            <td className="py-2 pr-3">
+              {meter.nextReadingDate || '-'}
+            </td>
+
+            <td className="py-2 pr-3">
+              <span
+                className={`rounded-full px-2 py-1 text-xs font-bold ${
+                  isOverdue
+                    ? 'bg-red-100 text-red-700'
+                    : 'bg-amber-100 text-amber-700'
+                }`}
+              >
+                {isOverdue
+                  ? t(language, 'Overdue', 'Imechelewa')
+                  : t(language, 'Due soon', 'Inakaribia')}
+              </span>
+            </td>
+          </tr>
+        );
+      })
     )}
-  </span>
-
-  <button
-    type="button"
-    onClick={() => {
-      const connectedMeter = waterMeters.find(
-        (meter) =>
-          meter.active !== false &&
-          String(meter.houseNumber || '').trim().toLowerCase() ===
-            String(house.houseNumber || '').trim().toLowerCase()
-      );
-
-      startNewMeterReading(
-        connectedMeter || {
-          houseNumber: house.houseNumber,
-          meterNumber: '',
-          lastReading: null,
-        }
-      );
-    }}
-    className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-amber-700"
-  >
-    {waterMeters.some(
-      (meter) =>
-        meter.active !== false &&
-        String(meter.houseNumber || '').trim().toLowerCase() ===
-          String(house.houseNumber || '').trim().toLowerCase()
-    )
-      ? t(
-          language,
-          'Record Reading & Create Bill',
-          'Weka Usomaji na Tengeneza Ankara'
-        )
-      : t(
-          language,
-          'Connect Meter First',
-          'Unganisha Mita Kwanza'
-        )}
-  </button>
-</div>
-          </div>
-        ))}
-
-        {housesWithBillsButNoPayments.map((house) => (
-          <div
-            key={`no-water-payment-${house.id}`}
-            className="flex items-center justify-between gap-3 bg-rose-50/50 px-4 py-3"
-          >
-            <div>
-              <p className="font-semibold text-slate-900">
-                {house.houseNumber}
-              </p>
-
-              <p className="text-sm text-slate-700">
-                {t(language, 'Tenant', 'Mpangaji')}:{' '}
-                <span className="font-semibold">
-                  {house.tenantName ||
-                    t(language, 'No tenant', 'Hakuna mpangaji')}
-                </span>
-              </p>
-            </div>
-
-            <div className="flex flex-col items-end gap-2">
-  <span className="rounded-full bg-rose-100 px-2.5 py-1 text-xs font-semibold text-rose-700">
-    {t(
-      language,
-      'Bill has no payment record',
-      'Ankara haina kumbukumbu ya malipo'
-    )}
-  </span>
-
-  <button
-    type="button"
-    onClick={() => {
-      const oldestUnpaidBill = waterBills
-        .filter(
-          (bill) =>
-            String(bill.houseNumber || '').trim().toLowerCase() ===
-              String(house.houseNumber || '').trim().toLowerCase() &&
-            Number(bill.balance || 0) > 0
-        )
-        .sort(
-          (first, second) =>
-            new Date(
-              first.readingDate || first.created_at || 0
-            ).getTime() -
-            new Date(
-              second.readingDate || second.created_at || 0
-            ).getTime()
-        )[0];
-
-      if (oldestUnpaidBill) {
-        startWaterPayment({
-          ...oldestUnpaidBill,
-          tenantName:
-            house.tenantName ||
-            oldestUnpaidBill.tenantName ||
-            '',
-        });
-      }
-    }}
-    className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-rose-700"
-  >
-    {t(language, 'Record Cash Payment', 'Rekodi Malipo ya Fedha')}
-  </button>
-</div>
-          </div>
-        ))}
-      </div>
-    )}
+  </tbody>
+</table>
+    </div>
   </CardContent>
 </Card>
               <Card className="border-fuchsia-200 bg-fuchsia-50">
@@ -2516,10 +2282,785 @@ const totalServiceCharge = serviceCharges.reduce(
             </Card>
           </div>
         )}
-
         {activeTab === 'meters' && (
-          <div className="grid gap-4 lg:grid-cols-2">
-            <Card>
+          <div className="rounded-3xl border border-cyan-200 bg-gradient-to-r from-cyan-50 via-sky-50 to-blue-50 p-6 shadow-sm">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-bold uppercase tracking-wide text-cyan-700">
+                  {t(
+                    language,
+                    'Water Management System',
+                    'Mfumo wa Usimamizi wa Maji'
+                  )}
+                </p>
+
+                <h2 className="mt-2 text-3xl font-bold text-slate-950">
+                  {t(language, 'Water Information', 'Taarifa za Maji')}
+                </h2>
+
+                <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">
+                  {t(
+                    language,
+                    'Manage meter readings, water bills, tenant payments and accounts requiring attention.',
+                    'Sehemu hii inasimamia usomaji wa mita, ankara za maji, malipo ya wapangaji na akaunti zinazohitaji hatua.'
+                  )}
+                </p>
+              </div>
+
+              <span className="rounded-full bg-cyan-100 px-3 py-1 text-xs font-bold text-cyan-800">
+                {t(language, 'Owner only', 'Mmiliki pekee')}
+              </span>
+            </div>
+          </div>
+        )}
+        {activeTab === 'meters' && (
+          <div className="grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
+            <aside className="h-fit rounded-3xl border border-slate-200 bg-white p-3 shadow-sm">
+              <div className="space-y-2">
+                {waterSections.map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setActiveWaterSection(value)}
+                    className={`w-full rounded-2xl px-4 py-3 text-left text-sm font-bold transition ${
+                      activeWaterSection === value
+                        ? 'bg-cyan-700 text-white shadow-md'
+                        : 'bg-slate-50 text-slate-600 hover:bg-cyan-50 hover:text-cyan-800'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </aside>
+
+            <div className="grid min-w-0 gap-4 lg:grid-cols-2">
+              {activeWaterSection === 'attention' && (
+  <div className="lg:col-span-2">
+    <div className="overflow-hidden rounded-3xl border border-red-200 bg-white shadow-sm">
+      <div className="border-b border-red-100 bg-red-50 px-6 py-5">
+        <h3 className="text-2xl font-bold text-red-900">
+          {t(
+            language,
+            'Meters Requiring Action',
+            'Mita Zinazohitaji Hatua'
+          )}
+        </h3>
+
+        <p className="mt-1 text-sm text-red-700">
+          {t(
+            language,
+            'Each meter is shown together with its problem and the action required.',
+            'Kila mita imeonyeshwa pamoja na tatizo lake na hatua inayohitajika.'
+          )}
+        </p>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-sm">
+          <thead>
+            <tr className="bg-slate-100 text-left text-slate-600">
+              <th className="px-4 py-3">
+                {t(language, 'House / Meter', 'Nyumba / Mita')}
+              </th>
+
+              <th className="px-4 py-3">
+                {t(language, 'Tenant', 'Mpangaji')}
+              </th>
+
+              <th className="px-4 py-3">
+                {t(language, 'Problem', 'Tatizo')}
+              </th>
+
+              <th className="px-4 py-3">
+                {t(language, 'Required Action', 'Hatua Inayohitajika')}
+              </th>
+
+              <th className="px-4 py-3">
+                {t(language, 'Action', 'Kitendo')}
+              </th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {metersNeedingAttention.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={5}
+                  className="px-4 py-8 text-center text-slate-500"
+                >
+                  {t(
+                    language,
+                    'No meter currently requires action.',
+                    'Hakuna mita inayohitaji hatua kwa sasa.'
+                  )}
+                </td>
+              </tr>
+            ) : (
+              metersNeedingAttention.map((meter) => {
+                const connectedHouse = houses.find(
+                  (house) =>
+                    String(house.houseNumber || '')
+                      .trim()
+                      .toLowerCase() ===
+                    String(meter.houseNumber || '')
+                      .trim()
+                      .toLowerCase()
+                );
+
+                const tenantName =
+                  connectedHouse?.tenantName ||
+                  meter.tenantName ||
+                  '-';
+
+                const problem =
+                  meter.attentionType === 'overdue'
+                    ? t(
+                        language,
+                        'Reading is overdue',
+                        'Usomaji umechelewa'
+                      )
+                    : meter.attentionType === 'dueSoon'
+                      ? t(
+                          language,
+                          'Reading date is approaching',
+                          'Tarehe ya kusoma inakaribia'
+                        )
+                      : meter.attentionType === 'noReading'
+                        ? t(
+                            language,
+                            'No saved reading',
+                            'Hakuna usomaji uliohifadhiwa'
+                          )
+                        : t(
+                            language,
+                            'No registered meter',
+                            'Hakuna mita iliyosajiliwa'
+                          );
+
+                const requiredAction =
+                  meter.attentionType === 'missingMeter'
+                    ? t(
+                        language,
+                        'Register the water meter and opening reading',
+                        'Sajili mita ya maji na usomaji wa kuanzia'
+                      )
+                    : t(
+                        language,
+                        'Record the current meter reading',
+                        'Weka usomaji wa sasa wa mita'
+                      );
+
+                return (
+                  <tr
+  key={`meter-attention-${meter.id}`}
+  className="border-t-2 border-slate-300 transition hover:bg-slate-50"
+>
+                    <td className="px-4 py-3">
+                      <p className="font-bold text-slate-900">
+                        {meter.houseNumber || '-'}
+                      </p>
+
+                      <p className="text-xs text-slate-500">
+                        {t(language, 'Meter', 'Mita')}:{' '}
+                        {meter.meterNumber || '-'}
+                      </p>
+                    </td>
+
+                    <td className="px-4 py-3 font-semibold text-slate-800">
+                      {tenantName}
+                    </td>
+
+                    <td className="px-4 py-3">
+                      <span
+                        className={`rounded-full px-3 py-1 text-xs font-bold ${
+                          meter.attentionType === 'overdue'
+                            ? 'bg-red-100 text-red-700'
+                            : meter.attentionType === 'dueSoon'
+                              ? 'bg-amber-100 text-amber-700'
+                              : 'bg-blue-100 text-blue-700'
+                        }`}
+                      >
+                        {problem}
+                      </span>
+                    </td>
+
+                    <td className="px-4 py-3 text-slate-700">
+                      {requiredAction}
+                    </td>
+
+                    <td className="px-4 py-3">
+                      <Button
+                        type="button"
+                        onClick={() => {
+                          if (
+                            meter.attentionType === 'missingMeter'
+                          ) {
+                            setMeterForm({
+                              ...emptyMeterForm,
+                              houseNumber: meter.houseNumber || '',
+                              meterType: 'Water',
+                              readingDate: todayISO(),
+                              costPerUnit: String(WATER_UNIT_PRICE),
+                            });
+                          } else {
+                            startNewMeterReading(meter);
+                          }
+
+                          setActiveWaterSection('readings');
+                        }}
+                      >
+                        {meter.attentionType === 'missingMeter'
+                          ? t(
+                              language,
+                              'Register Meter',
+                              'Sajili Mita'
+                            )
+                          : t(
+                              language,
+                              'Record Reading',
+                              'Weka Usomaji'
+                            )}
+                      </Button>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+)}
+                            {activeWaterSection === 'summary' && (
+                <div className="space-y-6 lg:col-span-2">
+                  <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                    <h3 className="text-2xl font-bold text-slate-950">
+                      {t(
+                        language,
+                        'Water Financial Summary',
+                        'Muhtasari wa Fedha za Maji'
+                      )}
+                    </h3>
+
+                    <p className="mt-1 text-sm text-slate-600">
+                      {t(
+                        language,
+                        'Actual bills, cash received, outstanding debt and tenant credit.',
+                        'Ankara halisi, fedha zilizopokelewa, madeni na salio la wapangaji.'
+                      )}
+                    </p>
+
+                    <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                      <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
+                        <p className="text-xs font-bold uppercase text-blue-700">
+                          {t(language, 'Amount Billed', 'Ankara Zilizotolewa')}
+                        </p>
+                        <p className="mt-2 text-2xl font-bold text-blue-950">
+                          TZS {currency(totalWaterAmount)}
+                        </p>
+                        <p className="mt-1 text-xs text-blue-700">
+                          {t(language, 'Total recorded', 'Jumla iliyorekodiwa')}
+                        </p>
+                      </div>
+
+                      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
+                        <p className="text-xs font-bold uppercase text-emerald-700">
+                          {t(language, 'Cash Collected', 'Fedha Zilizopokelewa')}
+                        </p>
+                        <p className="mt-2 text-2xl font-bold text-emerald-950">
+                          TZS {currency(totalWaterCollected)}
+                        </p>
+                        <p className="mt-1 text-xs text-emerald-700">
+                          {t(language, 'Total received', 'Jumla iliyopokelewa')}
+                        </p>
+                      </div>
+
+                      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+                        <p className="text-xs font-bold uppercase text-amber-700">
+                          {t(language, 'Outstanding Debt', 'Deni Linalodaiwa')}
+                        </p>
+                        <p className="mt-2 text-2xl font-bold text-amber-950">
+                          TZS {currency(totalWaterOutstanding)}
+                        </p>
+                        <p className="mt-1 text-xs text-amber-700">
+                          {t(language, 'Amount still unpaid', 'Kiasi ambacho hakijalipwa')}
+                        </p>
+                      </div>
+
+                      <div className="rounded-2xl border border-cyan-200 bg-cyan-50 p-5">
+                        <p className="text-xs font-bold uppercase text-cyan-700">
+                          {t(language, 'Tenant Credit', 'Salio la Wapangaji')}
+                        </p>
+                        <p className="mt-2 text-2xl font-bold text-cyan-950">
+                          TZS {currency(totalWaterCredit)}
+                        </p>
+                        <p className="mt-1 text-xs text-cyan-700">
+                          {t(language, 'Available tenant balance', 'Salio linalopatikana')}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <button
+                      type="button"
+                      onClick={() => setActiveWaterSection('readings')}
+                      className="rounded-2xl border border-red-200 bg-red-50 p-5 text-left transition hover:-translate-y-0.5 hover:shadow-md"
+                    >
+                      <p className="text-sm font-bold text-red-800">
+                        {t(
+                          language,
+                          'Meter Readings Requiring Action',
+                          'Usomaji wa Mita Unaohitaji Hatua'
+                        )}
+                      </p>
+                      <p className="mt-3 text-3xl font-bold text-red-700">
+                        {metersNeedingAttention.length}
+                      </p>
+                      <p className="mt-1 text-xs text-red-600">
+                        {t(language, 'View meter readings', 'Angalia usomaji wa mita')}
+                      </p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setActiveWaterSection('billing')}
+                      className="rounded-2xl border border-blue-200 bg-blue-50 p-5 text-left transition hover:-translate-y-0.5 hover:shadow-md"
+                    >
+                      <p className="text-sm font-bold text-blue-800">
+                        {t(
+                          language,
+                          'Bills Awaiting Payment',
+                          'Ankara Zinazosubiri Malipo'
+                        )}
+                      </p>
+                      <p className="mt-3 text-3xl font-bold text-blue-700">
+                        {waterBills.filter((bill) => Number(bill.balance || 0) > 0).length}
+                      </p>
+                      <p className="mt-1 text-xs text-blue-600">
+                        {t(language, 'View bills and payments', 'Angalia ankara na malipo')}
+                      </p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setActiveWaterSection('alerts')}
+                      className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-left transition hover:-translate-y-0.5 hover:shadow-md"
+                    >
+                      <p className="text-sm font-bold text-amber-800">
+                        {t(
+                          language,
+                          'Water Account Alerts',
+                          'Tahadhari za Akaunti za Maji'
+                        )}
+                      </p>
+                      <p className="mt-3 text-3xl font-bold text-amber-700">
+                        {housesWithoutWaterBills.length +
+                          housesWithBillsButNoPayments.length}
+                      </p>
+                      <p className="mt-1 text-xs text-amber-600">
+                        {t(language, 'View accounts requiring action', 'Angalia akaunti zinazohitaji hatua')}
+                      </p>
+                    </button>
+                  </div>
+                </div>
+              )}
+{activeWaterSection === 'billing' && (
+  <div className="space-y-4 lg:col-span-2">
+    <div className="rounded-3xl border border-blue-200 bg-white shadow-sm">
+      <div className="border-b border-blue-100 bg-blue-50 px-6 py-5">
+        <h3 className="text-2xl font-bold text-blue-900">
+          {t(
+            language,
+            'Water Bills and Payments',
+            'Ankara na Malipo ya Maji'
+          )}
+        </h3>
+
+        <p className="mt-1 text-sm text-blue-700">
+          {t(
+            language,
+            'Review issued water bills, amounts paid and outstanding balances.',
+            'Angalia ankara za maji zilizotolewa, kiasi kilicholipwa na salio linalodaiwa.'
+          )}
+        </p>
+      </div>
+
+      <div className="grid gap-4 p-6 sm:grid-cols-3">
+        <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
+          <p className="text-xs font-bold uppercase text-blue-700">
+            {t(language, 'Total Billed', 'Jumla ya Ankara')}
+          </p>
+          <p className="mt-2 text-2xl font-bold text-blue-950">
+            TZS {currency(totalWaterAmount)}
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
+          <p className="text-xs font-bold uppercase text-emerald-700">
+            {t(language, 'Total Paid', 'Jumla Iliyolipwa')}
+          </p>
+          <p className="mt-2 text-2xl font-bold text-emerald-950">
+            TZS {currency(totalWaterCollected)}
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+          <p className="text-xs font-bold uppercase text-amber-700">
+            {t(language, 'Outstanding Balance', 'Salio Linalodaiwa')}
+          </p>
+          <p className="mt-2 text-2xl font-bold text-amber-950">
+            TZS {currency(totalWaterOutstanding)}
+          </p>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto border-t border-slate-100">
+        <table className="min-w-full text-sm">
+          <thead>
+            <tr className="bg-slate-100 text-left text-slate-600">
+              <th className="px-4 py-3">
+                {t(language, 'House', 'Nyumba')}
+              </th>
+              <th className="px-4 py-3">
+                {t(language, 'Tenant', 'Mpangaji')}
+              </th>
+              <th className="px-4 py-3">
+  {t(language, 'Reading Date', 'Tarehe ya Usomaji')}
+</th>
+
+<th className="px-4 py-3">
+  {t(language, 'Payment Date', 'Tarehe ya Malipo')}
+</th>
+
+<th className="px-4 py-3">
+  {t(language, 'Bill Amount', 'Kiasi cha Ankara')}
+</th>
+              <th className="px-4 py-3">
+                {t(language, 'Amount Paid', 'Kiasi Kilicholipwa')}
+              </th>
+              <th className="px-4 py-3">
+                {t(language, 'Balance', 'Salio')}
+              </th>
+              <th className="px-4 py-3">
+                {t(language, 'Status', 'Hali')}
+              </th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {waterBills.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={8}
+                  className="px-4 py-8 text-center text-slate-500"
+                >
+                  {t(
+                    language,
+                    'No water bills have been recorded.',
+                    'Hakuna ankara za maji zilizorekodiwa.'
+                  )}
+                </td>
+              </tr>
+            ) : (
+              waterBills.map((bill) => {
+                const billAmount = Number(
+  bill.currentBillAmount ||
+    bill.totalAmount ||
+    bill.amount ||
+    0
+);
+
+                const balance = Number(bill.balance || 0);
+
+                const amountPaid = Math.max(
+  0,
+  Number(
+    bill.amountPaid ??
+      (billAmount - balance)
+  )
+);
+
+const paymentIdsForBill = waterPaymentAllocations
+  .filter(
+    (allocation) =>
+      String(allocation.billId || '') ===
+      String(bill.id || '')
+  )
+  .map((allocation) =>
+    String(allocation.paymentId || '')
+  );
+
+const paymentDatesForBill = waterPayments
+  .filter((payment) =>
+    paymentIdsForBill.includes(String(payment.id || ''))
+  )
+  .map(
+    (payment) =>
+      payment.paymentDate ||
+      payment.paidAt?.slice(0, 10) ||
+      payment.created_at?.slice(0, 10) ||
+      ''
+  )
+  .filter(Boolean)
+  .sort();
+
+const latestPaymentDate =
+  paymentDatesForBill.length > 0
+    ? paymentDatesForBill[
+        paymentDatesForBill.length - 1
+      ]
+    : '-';
+
+return (
+                  <tr
+                    key={`water-billing-${bill.id}`}
+                    className="border-t border-slate-100 transition hover:bg-slate-50"
+                  >
+                    <td className="px-4 py-3 font-semibold text-slate-900">
+                      {bill.houseNumber || '-'}
+                    </td>
+
+                    <td className="px-4 py-3 text-slate-700">
+                      {bill.tenantName || '-'}
+                    </td>
+
+                    <td className="px-4 py-3 text-slate-700">
+  {bill.readingDate ||
+    bill.billDate ||
+    bill.created_at?.slice(0, 10) ||
+    '-'}
+</td>
+
+<td className="px-4 py-3">
+  {latestPaymentDate === '-' ? (
+    <span className="font-semibold text-amber-700">
+      {t(language, 'Not paid', 'Haijalipwa')}
+    </span>
+  ) : (
+    <span className="font-semibold text-emerald-700">
+      {latestPaymentDate}
+    </span>
+  )}
+</td>
+
+<td className="px-4 py-3 text-slate-700">
+  TZS {currency(billAmount)}
+</td>
+                    <td className="px-4 py-3 font-semibold text-emerald-700">
+                      TZS {currency(amountPaid)}
+                    </td>
+
+                    <td className="px-4 py-3 font-semibold text-amber-700">
+                      TZS {currency(balance)}
+                    </td>
+
+                    <td className="px-4 py-3">
+                      <span
+                        className={`rounded-full px-3 py-1 text-xs font-bold ${
+                          balance <= 0
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : amountPaid > 0
+                              ? 'bg-blue-100 text-blue-700'
+                              : 'bg-amber-100 text-amber-700'
+                        }`}
+                      >
+                        {balance <= 0
+                          ? t(language, 'Paid', 'Imelipwa')
+                          : amountPaid > 0
+                            ? t(
+                                language,
+                                'Partly Paid',
+                                'Imelipwa Sehemu'
+                              )
+                            : t(
+                                language,
+                                'Unpaid',
+                                'Haijalipwa'
+                              )}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+)}
+              {activeWaterSection === 'alerts' && (
+  <div className="space-y-4 lg:col-span-2">
+    <div className="rounded-3xl border border-amber-200 bg-white shadow-sm">
+      <div className="border-b border-amber-100 bg-amber-50 px-6 py-5">
+        <h3 className="text-2xl font-bold text-amber-900">
+          {t(
+            language,
+            'Water Account Alerts',
+            'Tahadhari za Akaunti za Maji'
+          )}
+        </h3>
+
+        <p className="mt-1 text-sm text-amber-700">
+          {t(
+            language,
+            'Occupied houses requiring attention on water billing or payments.',
+            'Nyumba zenye wapangaji zinazohitaji hatua kuhusu ankara au malipo ya maji.'
+          )}
+        </p>
+      </div>
+
+      <div className="grid gap-4 p-6 xl:grid-cols-2">
+        <div className="overflow-hidden rounded-2xl border border-red-200">
+          <div className="bg-red-50 px-4 py-3">
+            <p className="font-bold text-red-800">
+              {t(
+                language,
+                'Occupied Houses Without Water Bills',
+                'Nyumba Zenye Wapangaji Bila Ankara za Maji'
+              )}
+            </p>
+
+            <p className="mt-1 text-sm text-red-600">
+              {housesWithoutWaterBills.length}{' '}
+              {t(language, 'accounts', 'akaunti')}
+            </p>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="bg-slate-100 text-left text-slate-600">
+                  <th className="px-4 py-3">
+                    {t(language, 'House', 'Nyumba')}
+                  </th>
+                  <th className="px-4 py-3">
+                    {t(language, 'Tenant', 'Mpangaji')}
+                  </th>
+                  <th className="px-4 py-3">
+                    {t(language, 'Required Action', 'Hatua Inayohitajika')}
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {housesWithoutWaterBills.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={3}
+                      className="px-4 py-6 text-center text-slate-500"
+                    >
+                      {t(
+                        language,
+                        'All occupied houses have water bills.',
+                        'Nyumba zote zenye wapangaji zina ankara za maji.'
+                      )}
+                    </td>
+                  </tr>
+                ) : (
+                  housesWithoutWaterBills.map((house) => (
+                    <tr
+                      key={`without-water-bill-${house.id}`}
+                      className="border-t border-slate-100"
+                    >
+                      <td className="px-4 py-3 font-semibold text-slate-900">
+                        {house.houseNumber}
+                      </td>
+                      <td className="px-4 py-3 text-slate-700">
+                        {house.tenantName || '-'}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-700">
+                          {t(language, 'Create bill', 'Tengeneza ankara')}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="overflow-hidden rounded-2xl border border-amber-200">
+          <div className="bg-amber-50 px-4 py-3">
+            <p className="font-bold text-amber-800">
+              {t(
+                language,
+                'Outstanding Bills Without Payments',
+                'Ankara Zenye Deni Bila Malipo'
+              )}
+            </p>
+
+            <p className="mt-1 text-sm text-amber-600">
+              {housesWithBillsButNoPayments.length}{' '}
+              {t(language, 'accounts', 'akaunti')}
+            </p>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="bg-slate-100 text-left text-slate-600">
+                  <th className="px-4 py-3">
+                    {t(language, 'House', 'Nyumba')}
+                  </th>
+                  <th className="px-4 py-3">
+                    {t(language, 'Tenant', 'Mpangaji')}
+                  </th>
+                  <th className="px-4 py-3">
+                    {t(language, 'Required Action', 'Hatua Inayohitajika')}
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {housesWithBillsButNoPayments.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={3}
+                      className="px-4 py-6 text-center text-slate-500"
+                    >
+                      {t(
+                        language,
+                        'No unpaid water account is without a payment record.',
+                        'Hakuna akaunti yenye deni la maji isiyo na rekodi ya malipo.'
+                      )}
+                    </td>
+                  </tr>
+                ) : (
+                  housesWithBillsButNoPayments.map((house) => (
+                    <tr
+                      key={`without-water-payment-${house.id}`}
+                      className="border-t border-slate-100"
+                    >
+                      <td className="px-4 py-3 font-semibold text-slate-900">
+                        {house.houseNumber}
+                      </td>
+                      <td className="px-4 py-3 text-slate-700">
+                        {house.tenantName || '-'}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-700">
+                          {t(language, 'Follow up payment', 'Fuatilia malipo')}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
+                            {activeWaterSection === 'readings' && (
+            <Card className="lg:col-span-2 overflow-hidden">
               <CardHeader className="border-b border-cyan-100 bg-gradient-to-r from-cyan-50 to-blue-50">
   <CardTitle>
     {hasExistingMeter
@@ -2549,7 +3090,8 @@ const totalServiceCharge = serviceCharges.reduce(
         )}
   </p>
 </CardHeader>
-              <CardContent className="space-y-3">
+              <CardContent className="grid gap-4 lg:grid-cols-2">
+                <div className="space-y-3">
                 <Select
   label={t(language, 'House / Tenant', 'Nyumba / Mpangaji')}
   value={meterForm.houseNumber}
@@ -2590,6 +3132,9 @@ const latestMeter = permanentMeter
   meterType: latestMeter?.meterType || 'Water',
   meterNumber: latestMeter?.meterNumber || '',
   readingDate: todayISO(),
+  paymentReceived: 'No',
+  paymentDate: '',
+  amountReceived: '',
   previousUnits:
     latestMeter?.currentUnits !== undefined &&
     latestMeter?.currentUnits !== null
@@ -2634,62 +3179,36 @@ const latestMeter = permanentMeter
       String(meterForm.houseNumber || '')
   );
 
-  return (
-    <div className="overflow-hidden rounded-2xl border border-cyan-200 bg-gradient-to-r from-cyan-50 via-sky-50 to-blue-50 shadow-sm">
-      <div className="border-b border-cyan-100 px-4 py-3">
-        <p className="text-xs font-semibold uppercase tracking-wide text-cyan-700">
-          {t(
-            language,
-            'Connected Rental Information',
-            'Taarifa Zilizounganishwa na Nyumba'
-          )}
-        </p>
-      </div>
+return (
+  <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm">
+    <span className="font-bold text-cyan-900">
+      {selectedHouse?.houseNumber || meterForm.houseNumber}
+    </span>
 
-      <div className="grid gap-3 p-4 sm:grid-cols-3">
-        <div>
-          <p className="text-xs text-slate-500">
-            {t(language, 'House', 'Nyumba')}
-          </p>
-          <p className="font-semibold text-slate-900">
-            {selectedHouse?.houseNumber || meterForm.houseNumber}
-          </p>
-        </div>
+    <span className="text-slate-600">
+      {selectedHouse?.tenantName ||
+        t(
+          language,
+          'No tenant registered',
+          'Hakuna mpangaji aliyesajiliwa'
+        )}
+    </span>
 
-        <div>
-          <p className="text-xs text-slate-500">
-            {t(language, 'Current Tenant', 'Mpangaji wa Sasa')}
-          </p>
-          <p className="font-semibold text-slate-900">
-            {selectedHouse?.tenantName ||
-              t(language, 'No tenant registered', 'Hakuna mpangaji aliyesajiliwa')}
-          </p>
-        </div>
-
-        <div>
-          <p className="text-xs text-slate-500">
-            {t(language, 'Occupancy Status', 'Hali ya Nyumba')}
-          </p>
-          <span
-            className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
-              String(selectedHouse?.houseStatus || '') === 'Occupied'
-                ? 'bg-emerald-100 text-emerald-700'
-                : 'bg-slate-200 text-slate-700'
-            }`}
-          >
-            {String(selectedHouse?.houseStatus || '') === 'Occupied'
-              ? t(language, 'Occupied', 'Ina mpangaji')
-              : t(language, 'Vacant', 'Nyumba tupu')}
-          </span>
-        </div>
-      </div>
-    </div>
-  );
+    <span
+      className={`rounded-full px-3 py-1 text-xs font-semibold ${
+        String(selectedHouse?.houseStatus || '') === 'Occupied'
+          ? 'bg-emerald-100 text-emerald-700'
+          : 'bg-slate-200 text-slate-700'
+      }`}
+    >
+      {String(selectedHouse?.houseStatus || '') === 'Occupied'
+        ? t(language, 'Occupied', 'Ina mpangaji')
+        : t(language, 'Vacant', 'Nyumba tupu')}
+    </span>
+  </div>
+);
 })() : null}
-                <Select label={t(language, 'Meter Type', 'Aina ya Mita')} value={meterForm.meterType} onChange={(e) => setMeterForm((p) => ({ ...p, meterType: e.target.value }))}>
-                  <option value="Water">{t(language, 'Water Meter', 'Mita ya Maji')}</option>
-                  <option value="Electricity">{t(language, 'Electricity Meter', 'Mita ya Umeme')}</option>
-                </Select>
+</div>
 
 <div className="space-y-2">
   <Input
@@ -2774,68 +3293,175 @@ const previousMeterReading = selectedPermanentMeter
   return (
     <div className="space-y-3">
       <Input
-        label={t(language, 'Current Reading Date', 'Tarehe ya Usomaji wa Sasa')}
-        type="date"
-        value={meterForm.readingDate}
-        onChange={(e) =>
-          setMeterForm((p) => ({
-            ...p,
-            readingDate: e.target.value,
-            nextReadingDate: e.target.value
-              ? addMonthsISO(e.target.value, 1)
+  label={t(language, 'Current Reading Date', 'Tarehe ya Usomaji wa Sasa')}
+  type="date"
+  value={meterForm.readingDate}
+  onChange={(e) =>
+    setMeterForm((p) => ({
+      ...p,
+      readingDate: e.target.value,
+      nextReadingDate: e.target.value
+        ? addMonthsISO(e.target.value, 1)
+        : '',
+      paymentDate:
+        p.paymentReceived === 'Yes'
+          ? e.target.value
+          : '',
+    }))
+  }
+/>
+
+{hasExistingMeter && (
+  <div
+  className={`rounded-2xl border p-4 transition ${
+    meterForm.paymentReceived === 'Yes'
+      ? 'border-emerald-200 bg-emerald-50'
+      : 'border-amber-200 bg-amber-50'
+  }`}
+>
+    <Select
+      label={t(
+        language,
+        'Payment Received Now?',
+        'Malipo Yamepokelewa Sasa?'
+      )}
+      value={meterForm.paymentReceived || 'No'}
+      onChange={(e) => {
+        const paymentReceived = e.target.value;
+
+        setMeterForm((p) => ({
+          ...p,
+          paymentReceived,
+          paymentDate:
+            paymentReceived === 'Yes'
+              ? p.paymentDate ||
+                p.readingDate ||
+                todayISO()
               : '',
-          }))
-        }
-      />
+          amountReceived:
+            paymentReceived === 'Yes'
+              ? p.amountReceived
+              : '',
+        }));
+      }}
+    >
+      <option value="No">
+        {t(
+          language,
+          'No — Save the bill as unpaid',
+          'Hapana — Hifadhi ankara kama haijalipwa'
+        )}
+      </option>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-          <p className="text-xs text-slate-500">
-            {t(language, 'Previous Reading Date', 'Tarehe ya Usomaji Uliopita')}
-          </p>
-          <p className="mt-1 font-semibold text-slate-900">
-            {billingPeriodStart ||
-              t(language, 'First reading', 'Usomaji wa kwanza')}
-          </p>
-        </div>
+      <option value="Yes">
+        {t(
+          language,
+          'Yes — Record payment with this reading',
+          'Ndiyo — Rekodi malipo pamoja na usomaji huu'
+        )}
+      </option>
+    </Select>
 
-        <div className="rounded-xl border border-blue-200 bg-blue-50 p-3">
-          <p className="text-xs text-blue-600">
-            {t(language, 'Billing Period', 'Kipindi cha Ankara')}
-          </p>
-          <p className="mt-1 font-semibold text-blue-900">
-            {billingPeriodStart && billingPeriodEnd
-              ? `${billingPeriodStart} — ${billingPeriodEnd}`
-              : t(
-                  language,
-                  'Starts after first reading',
-                  'Kitaanza baada ya usomaji wa kwanza'
-                )}
-          </p>
-        </div>
+    {meterForm.paymentReceived === 'Yes' && (
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        <Input
+          label={t(
+            language,
+            'Payment Date',
+            'Tarehe ya Malipo'
+          )}
+          type="date"
+          min={meterForm.readingDate || undefined}
+          value={meterForm.paymentDate || ''}
+          onChange={(e) =>
+            setMeterForm((p) => ({
+              ...p,
+              paymentDate: e.target.value,
+            }))
+          }
+        />
 
-        <div className="rounded-xl border border-cyan-200 bg-cyan-50 p-3">
-          <p className="text-xs text-cyan-600">
-            {t(language, 'Next Reading Date', 'Usomaji Unaofuata')}
-          </p>
-          <p className="mt-1 font-semibold text-cyan-900">
-            {meterPreviewNextReading || '-'}
-          </p>
-        </div>
+        <Input
+          label={t(
+            language,
+            'Amount Received',
+            'Kiasi Kilichopokelewa'
+          )}
+          type="number"
+          min="0"
+          placeholder={t(
+            language,
+            'Enter the amount received',
+            'Weka kiasi kilichopokelewa'
+          )}
+          value={meterForm.amountReceived || ''}
+          onChange={(e) =>
+            setMeterForm((p) => ({
+              ...p,
+              amountReceived: e.target.value,
+            }))
+          }
+        />
       </div>
+    )}
+  </div>
+)}
+
+{hasExistingMeter && (
+  <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+    <span className="text-slate-600">
+      {t(
+        language,
+        'Previous reading date',
+        'Tarehe ya usomaji uliopita'
+      )}:{' '}
+      <strong className="text-slate-900">
+        {billingPeriodStart || '-'}
+      </strong>
+    </span>
+
+    <span className="text-slate-600">
+      {t(language, 'Billing period', 'Kipindi cha ankara')}:{' '}
+      <strong className="text-slate-900">
+        {billingPeriodStart && billingPeriodEnd
+          ? `${billingPeriodStart} — ${billingPeriodEnd}`
+          : '-'}
+      </strong>
+    </span>
+
+    <span className="text-slate-600">
+      {t(language, 'Next reading', 'Usomaji unaofuata')}:{' '}
+      <strong className="text-cyan-800">
+        {meterPreviewNextReading || '-'}
+      </strong>
+    </span>
+  </div>
+)}
     </div>
   );
 })()}
                 
-                <div className="grid gap-4 md:grid-cols-2">
+                <div
+  className={`grid gap-4 ${
+    hasExistingMeter ? 'md:grid-cols-2' : 'grid-cols-1'
+  }`}
+>
 
-<div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+<div className="self-start rounded-2xl border border-slate-200 bg-slate-50 p-4">
   <Input
-    label={t(
-      language,
-      'Previous Reading (Automatic)',
-      'Usomaji Uliopita (Automatic)'
-    )}
+    label={
+      hasExistingMeter
+        ? t(
+            language,
+            'Previous Reading (Automatic)',
+            'Usomaji Uliopita (Automatic)'
+          )
+        : t(
+            language,
+            'Opening Meter Reading',
+            'Usomaji wa Kuanzia wa Mita'
+          )
+    }
     type="number"
     value={meterForm.previousUnits}
     readOnly={hasExistingMeter}
@@ -2873,7 +3499,9 @@ const previousMeterReading = selectedPermanentMeter
 </div>
 
   <div
-    className={`rounded-2xl border p-4 ${
+    className={`${
+      hasExistingMeter ? '' : 'hidden'
+    } self-start rounded-2xl border p-4 ${
       meterForm.currentUnits !== '' &&
       Number(meterForm.currentUnits) < Number(meterForm.previousUnits || 0)
         ? 'border-red-300 bg-red-50'
@@ -2924,121 +3552,82 @@ const previousMeterReading = selectedPermanentMeter
   </div>
 </div>
                 <Input label={t(language, 'Cost Per Unit', 'Bei kwa Unit')} type="number" placeholder="Cost per unit" value={meterForm.costPerUnit} onChange={(e) => setMeterForm((p) => ({ ...p, costPerUnit: e.target.value }))} />
-                <Input label={t(language, 'Discount', 'Punguzo')} type="number" placeholder="Discount" value={meterForm.discount} onChange={(e) => setMeterForm((p) => ({ ...p, discount: e.target.value }))} />
                 
-                <Textarea label={t(language, 'Notes', 'Maelezo')} rows={3} placeholder="Notes" value={meterForm.notes} onChange={(e) => setMeterForm((p) => ({ ...p, notes: e.target.value }))} />
-                <div className="overflow-hidden rounded-2xl border border-blue-200 bg-white shadow-sm">
-  <div className="bg-gradient-to-r from-blue-700 via-cyan-700 to-cyan-600 px-5 py-4 text-white">
-    <p className="text-xs font-semibold uppercase tracking-wider text-cyan-100">
-      {t(language, 'Automatic Bill Preview', 'Muhtasari wa Ankara Automatic')}
-    </p>
-
-    <div className="mt-2 flex flex-wrap items-end justify-between gap-3">
-      <div>
-        <p className="text-sm text-cyan-100">
-          {t(language, 'Current Water Bill', 'Ankara ya Maji ya Sasa')}
-        </p>
-        <p className="text-3xl font-bold">
-          TZS {currency(meterPreviewTotal)}
-        </p>
-      </div>
-
-      <div className="rounded-xl bg-white/15 px-4 py-2 text-right backdrop-blur-sm">
-        <p className="text-xs text-cyan-100">
-          {t(language, 'House / Meter', 'Nyumba / Mita')}
-        </p>
-        <p className="font-semibold">
-          {meterForm.houseNumber || '-'} / {meterForm.meterNumber || '-'}
-        </p>
-      </div>
-    </div>
-  </div>
-
-  <div className="grid gap-px bg-slate-200 sm:grid-cols-2 lg:grid-cols-5">
-    <div className="bg-white p-4">
-      <p className="text-xs text-slate-500">
-        {t(language, 'Previous Reading', 'Usomaji Uliopita')}
-      </p>
-      <p className="mt-1 text-xl font-bold text-slate-900">
-        {meterForm.previousUnits === '' ? '-' : meterForm.previousUnits}
-      </p>
-    </div>
-
-    <div className="bg-white p-4">
-      <p className="text-xs text-slate-500">
-        {t(language, 'Current Reading', 'Usomaji wa Sasa')}
-      </p>
-      <p className="mt-1 text-xl font-bold text-slate-900">
-        {meterForm.currentUnits === '' ? '-' : meterForm.currentUnits}
-      </p>
-    </div>
-
-    <div className="bg-cyan-50 p-4">
-      <p className="text-xs text-cyan-700">
-        {t(language, 'Units Consumed', 'Units Zilizotumika')}
-      </p>
-      <p className="mt-1 text-xl font-bold text-cyan-800">
-        {meterForm.currentUnits === '' ? '-' : meterPreviewUnitsUsed}
-      </p>
-    </div>
-
-    <div className="bg-white p-4">
-      <p className="text-xs text-slate-500">
-        {t(language, 'Rate Per Unit', 'Bei kwa Unit')}
-      </p>
-      <p className="mt-1 text-xl font-bold text-slate-900">
-        TZS {currency(meterForm.costPerUnit)}
-      </p>
-    </div>
-
-    <div className="bg-blue-50 p-4">
-      <p className="text-xs text-blue-700">
-        {t(language, 'Discount', 'Punguzo')}
-      </p>
-      <p className="mt-1 text-xl font-bold text-blue-800">
-        TZS {currency(meterForm.discount)}
-      </p>
-    </div>
-  </div>
-
-  <div className="border-t border-blue-100 bg-blue-50/50 px-5 py-3 text-sm text-slate-600">
-    {meterForm.currentUnits === '' ? (
-      t(
-        language,
-        'Enter the current reading to calculate the bill automatically.',
-        'Weka usomaji wa sasa ili mfumo ukokotoe ankara moja kwa moja.'
-      )
-    ) : Number(meterForm.currentUnits) <
-      Number(meterForm.previousUnits || 0) ? (
-      <span className="font-semibold text-red-600">
-        {t(
-          language,
-          'The bill cannot be calculated from an invalid reading.',
-          'Ankara haiwezi kukokotolewa kutokana na usomaji usio sahihi.'
-        )}
-      </span>
-    ) : (
-      <>
-        {meterPreviewUnitsUsed} × TZS {currency(meterForm.costPerUnit)}
-        {Number(meterForm.discount || 0) > 0
-          ? ` − TZS ${currency(meterForm.discount)}`
-          : ''}
-        {' = '}
-        <span className="font-bold text-blue-800">
-          TZS {currency(meterPreviewTotal)}
-        </span>
-      </>
-    )}
-  </div>
-</div>
-                <div className="overflow-hidden rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-cyan-50 shadow-sm">
-  <div className="border-b border-emerald-100 px-5 py-4">
-    <p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">
+                
+                <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+  <button
+    type="button"
+    onClick={() =>
+      setShowWaterOptionalFields((current) => !current)
+    }
+    className="flex w-full items-center justify-between px-4 py-3 text-left text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+  >
+    <span>
       {t(
         language,
-        'Confirm Monthly Water Bill',
-        'Thibitisha Ankara ya Maji ya Mwezi'
+        'Optional Information',
+        'Taarifa za Ziada'
       )}
+    </span>
+
+    <span className="text-lg text-slate-500">
+      {showWaterOptionalFields ? '−' : '+'}
+    </span>
+  </button>
+
+  {showWaterOptionalFields && (
+    <div className="grid gap-4 border-t border-slate-200 bg-white p-4 md:grid-cols-2">
+      <Input
+        label={t(language, 'Discount', 'Punguzo')}
+        type="number"
+        placeholder={t(
+          language,
+          'Enter discount, if any',
+          'Weka punguzo kama lipo'
+        )}
+        value={meterForm.discount}
+        onChange={(e) =>
+          setMeterForm((p) => ({
+            ...p,
+            discount: e.target.value,
+          }))
+        }
+      />
+
+      <Textarea
+        label={t(language, 'Notes', 'Maelezo')}
+        rows={2}
+        placeholder={t(
+          language,
+          'Add notes, if any',
+          'Weka maelezo kama yapo'
+        )}
+        value={meterForm.notes}
+        onChange={(e) =>
+          setMeterForm((p) => ({
+            ...p,
+            notes: e.target.value,
+          }))
+        }
+      />
+    </div>
+  )}
+</div>
+
+                <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm lg:col-span-2">
+  <div className="border-b border-slate-200 bg-slate-50 px-5 py-4">
+    <p className="text-sm font-bold uppercase tracking-wide text-slate-900">
+      {hasExistingMeter
+  ? t(
+      language,
+      'Confirm Monthly Water Bill',
+      'Thibitisha Ankara ya Maji ya Mwezi'
+    )
+  : t(
+      language,
+      'Confirm Water Meter Registration',
+      'Thibitisha Usajili wa Mita ya Maji'
+    )}
     </p>
 
     <p className="mt-1 text-sm text-slate-600">
@@ -3050,70 +3639,201 @@ const previousMeterReading = selectedPermanentMeter
     </p>
   </div>
 
-  <div className="grid gap-3 p-5 sm:grid-cols-2 lg:grid-cols-4">
+{hasExistingMeter ? (
+  <div className="grid gap-3 p-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+  <div className="rounded-xl border border-slate-200 bg-white p-4">
+    <p className="text-sm text-slate-500">
+      {t(language, 'Tenant', 'Mpangaji')}
+    </p>
+
+    <p className="mt-1 text-lg font-bold text-slate-900">
+      {houses.find(
+        (house) =>
+          String(house.houseNumber || '') ===
+          String(meterForm.houseNumber || '')
+      )?.tenantName ||
+        t(language, 'No tenant', 'Hakuna mpangaji')}
+    </p>
+  </div>
+
+  <div className="rounded-xl border border-cyan-200 bg-cyan-50 p-4">
+    <p className="text-sm text-cyan-700">
+      {t(language, 'Units Used', 'Units Zilizotumika')}
+    </p>
+
+    <p className="mt-1 text-lg font-bold text-cyan-900">
+      {meterForm.currentUnits === ''
+        ? '-'
+        : meterPreviewUnitsUsed}
+    </p>
+  </div>
+
+  <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+    <p className="text-sm text-blue-700">
+      {t(language, 'Current Bill', 'Ankara ya Sasa')}
+    </p>
+
+    <p className="mt-1 text-lg font-bold text-blue-900">
+      TZS {currency(meterPreviewTotal)}
+    </p>
+  </div>
+
+  <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+    <p className="text-sm text-amber-700">
+      {t(
+        language,
+        'Previous Balance',
+        'Madeni ya Nyuma'
+      )}
+    </p>
+
+    <p className="mt-1 text-lg font-bold text-amber-900">
+      TZS {currency(selectedMeterOutstandingBalance)}
+    </p>
+  </div>
+
+  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+    <p className="text-sm text-slate-500">
+      {t(
+        language,
+        'Payment Received',
+        'Malipo Yaliyopokelewa'
+      )}
+    </p>
+
+    <p className="mt-1 text-lg font-bold text-slate-900">
+      TZS{' '}
+      {currency(
+        meterForm.paymentReceived === 'Yes'
+          ? meterForm.amountReceived
+          : 0
+      )}
+    </p>
+  </div>
+
+  <div
+    className={`rounded-xl border p-4 ${
+      meterForm.paymentReceived === 'Yes' &&
+      Number(meterForm.amountReceived || 0) >=
+        Number(selectedMeterTotalPayable || 0)
+        ? 'border-emerald-300 bg-emerald-700 text-white'
+        : 'border-amber-300 bg-amber-100'
+    }`}
+  >
+    <p
+      className={`text-sm ${
+        meterForm.paymentReceived === 'Yes' &&
+        Number(meterForm.amountReceived || 0) >=
+          Number(selectedMeterTotalPayable || 0)
+          ? 'text-emerald-100'
+          : 'text-amber-700'
+      }`}
+    >
+      {t(
+        language,
+        'Total Outstanding',
+        'Jumla Inayodaiwa'
+      )}
+    </p>
+
+    <p
+      className={`mt-1 text-2xl font-bold ${
+        meterForm.paymentReceived === 'Yes' &&
+        Number(meterForm.amountReceived || 0) >=
+          Number(selectedMeterTotalPayable || 0)
+          ? 'text-white'
+          : 'text-amber-950'
+      }`}
+    >
+      TZS{' '}
+      {currency(
+        Math.max(
+          0,
+          Number(selectedMeterTotalPayable || 0) -
+            (meterForm.paymentReceived === 'Yes'
+              ? Number(meterForm.amountReceived || 0)
+              : 0)
+        )
+      )}
+    </p>
+
+    <p
+      className={`mt-2 text-xs font-bold ${
+        meterForm.paymentReceived === 'Yes' &&
+        Number(meterForm.amountReceived || 0) >=
+          Number(selectedMeterTotalPayable || 0)
+          ? 'text-emerald-100'
+          : meterForm.paymentReceived === 'Yes' &&
+              Number(meterForm.amountReceived || 0) > 0
+            ? 'text-amber-800'
+            : 'text-amber-800'
+      }`}
+    >
+      {meterForm.paymentReceived === 'Yes' &&
+      Number(meterForm.amountReceived || 0) >=
+        Number(selectedMeterTotalPayable || 0)
+        ? t(language, 'Paid', 'Imelipwa')
+        : meterForm.paymentReceived === 'Yes' &&
+            Number(meterForm.amountReceived || 0) > 0
+          ? t(language, 'Partly Paid', 'Imelipwa Sehemu')
+          : t(language, 'Unpaid', 'Haijalipwa')}
+    </p>
+  </div>
+</div>
+) : (
+  <div className="grid gap-3 p-5 sm:grid-cols-3">
     <div className="rounded-xl bg-white p-3 shadow-sm">
       <p className="text-xs text-slate-500">
-        {t(language, 'Tenant', 'Mpangaji')}
+        {t(language, 'House', 'Nyumba')}
       </p>
       <p className="mt-1 font-semibold text-slate-900">
-        {houses.find(
-          (house) =>
-            String(house.houseNumber || '') ===
-            String(meterForm.houseNumber || '')
-        )?.tenantName ||
-          t(language, 'No tenant', 'Hakuna mpangaji')}
+        {meterForm.houseNumber || '-'}
       </p>
     </div>
 
     <div className="rounded-xl bg-white p-3 shadow-sm">
       <p className="text-xs text-slate-500">
-        {t(language, 'Current Bill', 'Ankara ya Sasa')}
+        {t(language, 'Meter Number', 'Namba ya Mita')}
       </p>
-      <p className="mt-1 font-bold text-blue-700">
-        TZS {currency(meterPreviewTotal)}
-      </p>
-    </div>
-
-    <div className="rounded-xl bg-amber-50 p-3 shadow-sm">
-      <p className="text-xs text-amber-700">
-        {t(
-          language,
-          'Previous Unpaid Balance',
-          'Madeni ya Nyuma'
-        )}
-      </p>
-      <p className="mt-1 font-bold text-amber-800">
-        TZS {currency(selectedMeterOutstandingBalance)}
+      <p className="mt-1 font-semibold text-slate-900">
+        {meterForm.meterNumber || '-'}
       </p>
     </div>
 
-    <div className="rounded-xl bg-emerald-700 p-3 text-white shadow-sm">
-      <p className="text-xs text-emerald-100">
+    <div className="rounded-xl bg-cyan-50 p-3 shadow-sm">
+      <p className="text-xs text-cyan-700">
         {t(
           language,
-          'Total Amount Payable',
-          'Jumla ya Kulipa'
+          'Opening Reading',
+          'Usomaji wa Kuanzia'
         )}
       </p>
-      <p className="mt-1 text-xl font-bold">
-        TZS {currency(selectedMeterTotalPayable)}
+      <p className="mt-1 text-xl font-bold text-cyan-900">
+        {meterForm.previousUnits || '-'}
       </p>
     </div>
   </div>
+)}
 
-  <div className="flex flex-col gap-3 border-t border-emerald-100 bg-white/70 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+  <div className="flex flex-col gap-3 border-t border-slate-200 bg-slate-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
     <p className="text-sm text-slate-600">
-      {meterForm.currentUnits === ''
-        ? t(
-            language,
-            'Enter the current reading before saving.',
-            'Weka usomaji wa sasa kabla ya kuhifadhi.'
-          )
-        : t(
-            language,
-            'Saving will update the meter and create a permanent monthly bill.',
-            'Kuhifadhi kutasasisha mita na kutengeneza ankara ya kudumu ya mwezi.'
-          )}
+      {hasExistingMeter
+  ? meterForm.currentUnits === ''
+    ? t(
+        language,
+        'Enter the current reading before saving.',
+        'Weka usomaji wa sasa kabla ya kuhifadhi.'
+      )
+    : t(
+        language,
+        'Saving will update the meter and create a permanent monthly bill.',
+        'Kuhifadhi kutasasisha mita na kutengeneza ankara ya kudumu ya mwezi.'
+      )
+  : t(
+      language,
+      'The first bill will be created after the next meter reading.',
+      'Ankara ya kwanza itatengenezwa baada ya usomaji unaofuata wa mita.'
+    )}
     </p>
 
     <Button
@@ -3123,11 +3843,12 @@ const previousMeterReading = selectedPermanentMeter
     !meterForm.houseNumber ||
     !meterForm.meterNumber ||
     meterForm.previousUnits === '' ||
-    meterForm.currentUnits === '' ||
-    Number(meterForm.currentUnits) <
-      Number(meterForm.previousUnits || 0)
+    (hasExistingMeter &&
+      (meterForm.currentUnits === '' ||
+        Number(meterForm.currentUnits) <
+          Number(meterForm.previousUnits || 0)))
   }
-  className="min-w-[240px] bg-emerald-700 hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
+  className="min-w-[260px] bg-cyan-700 px-5 py-3 text-base font-bold hover:bg-cyan-800 disabled:cursor-not-allowed disabled:opacity-50"
   onClick={async () => {
     if (isSavingMeter) return;
 
@@ -3154,14 +3875,16 @@ const previousMeterReading = selectedPermanentMeter
       )
     : t(
         language,
-        'Register Meter & Create First Bill',
-        'Sajili Mita na Tengeneza Ankara ya Kwanza'
+        'Register Water Meter',
+        'Sajili Mita ya Maji'
       )}
 </Button>
   </div>
 </div>
               </CardContent>
             </Card>
+              )}
+          </div>
           </div>
         )}
 
