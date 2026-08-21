@@ -146,7 +146,13 @@ function PreviewValue({ label, value }) {
 export default function RentalPropertySectionPreview({ language = 'sw', setLanguage, data, saveData }) {
   const [activeTab, setActiveTab] = useState('dashboard');
 
-  const houses = Array.isArray(data?.houses) ? data.houses : [];
+  const allHouses = Array.isArray(data?.houses)
+  ? data.houses
+  : [];
+
+const houses = allHouses.filter(
+  (house) => house.archived !== true
+);
   const meters = Array.isArray(data?.meters) ? data.meters : [];
 
 const waterMeters = Array.isArray(data?.waterMeters)
@@ -1140,6 +1146,190 @@ const editHouse = (row) => {
   setActiveTab('houses');
 };
 
+const vacateTenant = async (row) => {
+  if (!row?.id) {
+    alert(
+      t(
+        language,
+        'The house record could not be identified.',
+        'Taarifa ya nyumba haikuweza kutambuliwa.'
+      )
+    );
+    return;
+  }
+
+  const confirmed = window.confirm(
+    t(
+      language,
+      `Confirm that ${row.tenantName || 'this tenant'} has relocated from house ${row.houseNumber || ''}? The house and payment history will remain preserved.`,
+      `Thibitisha kwamba ${row.tenantName || 'mpangaji huyu'} amehama nyumba ${row.houseNumber || ''}? Nyumba na historia ya malipo vitaendelea kuhifadhiwa.`
+    )
+  );
+
+  if (!confirmed) return;
+
+  const shopId =
+    row.shop_id ||
+    data?.currentUser?.shop_id ||
+    data?.currentUser?.shopId ||
+    'shop-1';
+
+  const { data: updatedHouse, error } = await supabase
+    .from('houses')
+    .update({
+      tenantName: '',
+      rentPaidDate: null,
+      rentStartDate: null,
+      rentEndDate: null,
+      amountPaid: 0,
+      rentDurationMonths: 1,
+      paymentType: 'Unpaid',
+      houseStatus: 'Vacant',
+      nextPaymentDate: null,
+      balance: 0,
+      itemsIssued: '',
+    })
+    .eq('id', row.id)
+    .eq('shop_id', shopId)
+    .select('id')
+    .single();
+
+  if (error || !updatedHouse) {
+    alert(
+      t(
+        language,
+        `Tenant relocation could not be saved: ${error?.message || 'House was not updated.'}`,
+        `Kuhama kwa mpangaji hakukuweza kuhifadhiwa: ${error?.message || 'Nyumba haikusasishwa.'}`
+      )
+    );
+    return;
+  }
+
+  const vacatedHouse = {
+    ...row,
+    tenantName: '',
+    rentPaidDate: '',
+    rentStartDate: '',
+    rentEndDate: '',
+    amountPaid: 0,
+    rentDurationMonths: 1,
+    paymentType: 'Unpaid',
+    houseStatus: 'Vacant',
+    nextPaymentDate: '',
+    balance: 0,
+    itemsIssued: '',
+  };
+
+  saveData({
+    ...data,
+    houses: allHouses.map((house) =>
+  String(house.id) === String(row.id)
+    ? vacatedHouse
+    : house
+),
+  });
+
+  alert(
+    t(
+      language,
+      'Tenant relocation saved successfully. The house is now vacant and all previous history has been preserved.',
+      'Kuhama kwa mpangaji kumehifadhiwa. Nyumba sasa iko tupu na historia yote ya zamani imeendelea kuhifadhiwa.'
+    )
+  );
+};
+const archiveHouse = async (row) => {
+  if (!row?.id) {
+    alert(
+      t(
+        language,
+        'The house record could not be identified.',
+        'Taarifa ya nyumba haikuweza kutambuliwa.'
+      )
+    );
+    return;
+  }
+
+  const confirmed = window.confirm(
+    t(
+      language,
+      `Archive house ${row.houseNumber || ''}? Use this only for a duplicate or mistakenly registered house. The record and all historical information will remain preserved.`,
+      `Weka nyumba ${row.houseNumber || ''} kwenye kumbukumbu? Tumia hii kwa nyumba iliyorudiwa au iliyosajiliwa kimakosa tu. Rekodi na historia yote vitaendelea kuhifadhiwa.`
+    )
+  );
+
+  if (!confirmed) return;
+
+  const finalConfirmation = window.confirm(
+    t(
+      language,
+      'This house will disappear from all active rental screens on every device. Continue?',
+      'Nyumba hii itaondoka kwenye maeneo yote ya nyumba zinazotumika katika vifaa vyote. Endelea?'
+    )
+  );
+
+  if (!finalConfirmation) return;
+
+  const shopId =
+    row.shop_id ||
+    data?.currentUser?.shop_id ||
+    data?.currentUser?.shopId ||
+    'shop-1';
+
+  const archivedAt = new Date().toISOString();
+
+  const archivedBy =
+    data?.currentUser?.name ||
+    data?.currentUser?.username ||
+    data?.currentUser?.id ||
+    '';
+
+  const { data: archivedHouse, error } = await supabase
+    .from('houses')
+    .update({
+      archived: true,
+      archived_at: archivedAt,
+      archived_by: String(archivedBy || ''),
+    })
+    .eq('id', row.id)
+    .eq('shop_id', shopId)
+    .select('id')
+    .single();
+
+  if (error || !archivedHouse) {
+    alert(
+      t(
+        language,
+        `The house could not be archived: ${error?.message || 'Supabase did not confirm the update.'}`,
+        `Nyumba haikuweza kuwekwa kwenye kumbukumbu: ${error?.message || 'Supabase haikuthibitisha mabadiliko.'}`
+      )
+    );
+    return;
+  }
+
+  const archivedLocalHouse = {
+    ...row,
+    archived: true,
+    archived_at: archivedAt,
+    archived_by: String(archivedBy || ''),
+  };
+
+  saveData({
+    ...data,
+    houses: allHouses.map((house) =>
+      String(house.id) === String(row.id)
+        ? archivedLocalHouse
+        : house
+    ),
+  });
+
+  alert(
+    t(
+      language,
+      'House archived successfully. It will no longer appear in active rental records, but its history remains preserved.',
+      'Nyumba imewekwa kwenye kumbukumbu. Haitaonekana tena kwenye nyumba zinazotumika, lakini historia yake imeendelea kuhifadhiwa.'
+    )
+  );
+};
 const startNewRentPayment = (row) => {
   setIsRentPaymentEntry(true);
 
@@ -1168,7 +1358,7 @@ const startNewMeterReading = (row) => {
     meterType: row.meterType || 'Water',
     meterNumber: row.meterNumber || '',
     readingDate: todayISO(),
-    previousUnits: String(row.currentUnits ?? ''),
+    previousUnits: String(row.lastReading ?? row.currentUnits ?? ''),
     currentUnits: '',
     costPerUnit: String(row.costPerUnit ?? WATER_UNIT_PRICE),
     discount: '',
@@ -1182,44 +1372,105 @@ const startNewMeterReading = (row) => {
 
   const dueSoon = houses.filter((h) => h.nextPaymentDate && daysBetween(today, h.nextPaymentDate) !== null && daysBetween(today, h.nextPaymentDate) >= 0 && daysBetween(today, h.nextPaymentDate) <= 7);
   const overdue = houses.filter((h) => h.nextPaymentDate && daysBetween(today, h.nextPaymentDate) < 0 && h.houseStatus === 'Occupied');
- const meterReminderSource =
-  waterMeters.length > 0 ? waterMeters : meters;
-
-const readingSoon = meterReminderSource.filter(
-  (meter) => {
-    const days = daysBetween(
-      today,
-      meter.nextReadingDate
-    );
-
-    return (
-      meter.nextReadingDate &&
-      days !== null &&
-      days >= 0 &&
-      days <= 7
-    );
-  }
+ const meterReminderSource = waterMeters.filter(
+  (meter) => meter.active !== false
 );
 
-const readingOverdue = meterReminderSource.filter(
-  (meter) => {
-    const days = daysBetween(
-      today,
-      meter.nextReadingDate
-    );
-
-    return (
-      meter.nextReadingDate &&
-      days !== null &&
-      days < 0
-    );
-  }
+const housesWithoutMeters = houses.filter(
+  (house) =>
+    house.houseStatus === 'Occupied' &&
+    !meterReminderSource.some(
+      (meter) =>
+        String(meter.houseNumber || '').trim().toLowerCase() ===
+        String(house.houseNumber || '').trim().toLowerCase()
+    )
 );
+
+const metersWithoutReadings = meterReminderSource.filter(
+  (meter) => !meter.lastReadingDate
+);
+
+const readingSoon = meterReminderSource.filter((meter) => {
+  const days = daysBetween(today, meter.nextReadingDate);
+
+  return (
+    meter.nextReadingDate &&
+    days !== null &&
+    days >= 0 &&
+    days <= 7
+  );
+});
+
+const readingOverdue = meterReminderSource.filter((meter) => {
+  const days = daysBetween(today, meter.nextReadingDate);
+
+  return (
+    meter.nextReadingDate &&
+    days !== null &&
+    days < 0
+  );
+});
 
 const metersNeedingAttention = [
-  ...readingOverdue,
-  ...readingSoon,
+  ...readingOverdue.map((meter) => ({
+    ...meter,
+    attentionType: 'overdue',
+  })),
+  ...housesWithoutMeters.map((house) => ({
+    id: `missing-meter-${house.id}`,
+    houseNumber: house.houseNumber,
+    meterNumber: '',
+    lastReading: null,
+    lastReadingDate: null,
+    nextReadingDate: null,
+    attentionType: 'missingMeter',
+  })),
+  ...metersWithoutReadings.map((meter) => ({
+    ...meter,
+    attentionType: 'noReading',
+  })),
+  ...readingSoon.map((meter) => ({
+    ...meter,
+    attentionType: 'dueSoon',
+  })),
 ];
+
+const housesWithoutWaterBills = houses.filter(
+  (house) =>
+    house.houseStatus === 'Occupied' &&
+    !waterBills.some(
+      (bill) =>
+        String(bill.houseNumber || '').trim().toLowerCase() ===
+          String(house.houseNumber || '').trim().toLowerCase() &&
+        String(bill.tenantName || '').trim().toLowerCase() ===
+          String(house.tenantName || '').trim().toLowerCase()
+    )
+);
+
+const housesWithBillsButNoPayments = houses.filter(
+  (house) => {
+    if (house.houseStatus !== 'Occupied') return false;
+
+    const houseHasOutstandingBill = waterBills.some(
+      (bill) =>
+        String(bill.houseNumber || '').trim().toLowerCase() ===
+          String(house.houseNumber || '').trim().toLowerCase() &&
+        String(bill.tenantName || '').trim().toLowerCase() ===
+          String(house.tenantName || '').trim().toLowerCase() &&
+        Number(bill.balance || 0) > 0
+    );
+
+    const tenantHasPayment = waterPayments.some(
+      (payment) =>
+        String(payment.houseNumber || '').trim().toLowerCase() ===
+          String(house.houseNumber || '').trim().toLowerCase() &&
+        String(payment.tenantName || '').trim().toLowerCase() ===
+          String(house.tenantName || '').trim().toLowerCase()
+    );
+
+    return houseHasOutstandingBill && !tenantHasPayment;
+  }
+);
 
 const serviceChargeSoon = serviceCharges.filter(
   (service) =>
@@ -1368,7 +1619,10 @@ const totalServiceCharge = serviceCharges.reduce(
     </CardContent>
   </Card>
 
-  <Card className="border-0 bg-gradient-to-br from-cyan-600 to-blue-700 text-white">
+  <Card
+  onClick={() => setActiveTab('meters')}
+  className="cursor-pointer border-0 bg-gradient-to-br from-cyan-600 to-blue-700 text-white transition hover:-translate-y-0.5 hover:shadow-lg"
+>
   <CardContent>
     <div className="text-sm opacity-90">
       {t(
@@ -1378,37 +1632,49 @@ const totalServiceCharge = serviceCharges.reduce(
       )}
     </div>
 
-    <div className="mt-2 flex items-end justify-between gap-3">
-      <div className="text-3xl font-bold">
-        {metersNeedingAttention.length}
-      </div>
+<div className="mt-2 flex items-end justify-between gap-3">
+  <div className="text-3xl font-bold">
+    {metersNeedingAttention.length}
+  </div>
 
-      {readingOverdue.length > 0 ? (
-        <div className="rounded-full bg-red-500/90 px-2.5 py-1 text-xs font-semibold text-white">
-          {t(
-            language,
-            `${readingOverdue.length} overdue`,
-            `${readingOverdue.length} zimechelewa`
-          )}
-        </div>
-      ) : (
-        <div className="rounded-full bg-white/15 px-2.5 py-1 text-xs font-semibold text-cyan-50">
-          {t(
-            language,
-            'None overdue',
-            'Hakuna iliyochelewa'
-          )}
-        </div>
-      )}
-    </div>
+  <div className="rounded-full bg-white/15 px-2.5 py-1 text-xs font-semibold text-cyan-50">
+    {t(language, 'View details', 'Angalia taarifa')}
+  </div>
+</div>
 
-    <p className="mt-2 text-xs text-cyan-100">
-      {t(
-        language,
-        `${readingSoon.length} due within 7 days`,
-        `${readingSoon.length} zinahitajika ndani ya siku 7`
-      )}
-    </p>
+<div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+  <div className="rounded-lg bg-red-500/90 px-2 py-1.5 font-semibold text-white">
+    {t(
+      language,
+      `${readingOverdue.length} overdue`,
+      `${readingOverdue.length} zimechelewa`
+    )}
+  </div>
+
+  <div className="rounded-lg bg-amber-400/90 px-2 py-1.5 font-semibold text-amber-950">
+    {t(
+      language,
+      `${metersWithoutReadings.length} without readings`,
+      `${metersWithoutReadings.length} hazina usomaji`
+    )}
+  </div>
+
+  <div className="rounded-lg bg-rose-500/90 px-2 py-1.5 font-semibold text-white">
+    {t(
+      language,
+      `${housesWithoutMeters.length} unidentified`,
+      `${housesWithoutMeters.length} hazijatambuliwa`
+    )}
+  </div>
+
+  <div className="rounded-lg bg-blue-400/90 px-2 py-1.5 font-semibold text-white">
+    {t(
+      language,
+      `${readingSoon.length} due soon`,
+      `${readingSoon.length} zinakaribia`
+    )}
+  </div>
+</div>
   </CardContent>
 </Card>
 
@@ -1538,13 +1804,45 @@ const totalServiceCharge = serviceCharges.reduce(
 
   <div className="max-h-[220px] overflow-y-auto">
     {metersNeedingAttention.length === 0 ? (
-      <p className="px-3 py-5 text-center text-sm text-slate-500">
-        {t(
+   <div className="space-y-3 px-4 py-5 text-center">
+  <p className="text-sm font-semibold text-slate-700">
+    {waterMeters.length === 0
+      ? t(
+          language,
+          'No permanent water meter has been registered yet.',
+          'Bado hakuna mita ya maji iliyosajiliwa kwenye sajili ya kudumu.'
+        )
+      : t(
           language,
           'No meter reading currently requires attention.',
           'Hakuna usomaji wa mita unaohitaji hatua kwa sasa.'
         )}
-      </p>
+  </p>
+
+  <p className="text-xs text-slate-500">
+    {waterMeters.length === 0
+      ? t(
+          language,
+          'Register each meter once to connect its house, tenant and future readings.',
+          'Sajili kila mita mara moja ili iunganishwe na nyumba, mpangaji na usomaji wake wa baadaye.'
+        )
+      : t(
+          language,
+          'All registered meters are currently up to date.',
+          'Mita zote zilizosajiliwa ziko sawa kwa sasa.'
+        )}
+  </p>
+
+  {waterMeters.length === 0 && (
+    <button
+      type="button"
+      onClick={() => setActiveTab('meters')}
+      className="rounded-lg bg-cyan-700 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-cyan-800"
+    >
+      {t(language, 'Register Water Meter', 'Sajili Mita ya Maji')}
+    </button>
+  )}
+</div>
     ) : (
       <div className="divide-y divide-slate-100">
         {metersNeedingAttention.map((meter) => {
@@ -1565,58 +1863,100 @@ const totalServiceCharge = serviceCharges.reduce(
                   : 'bg-white'
               }`}
             >
-              <div>
-                <p
-                  className={`font-semibold ${
-                    isReadingOverdue
-                      ? 'text-red-800'
-                      : 'text-slate-900'
-                  }`}
-                >
-                  {meter.houseNumber}
-                </p>
+              <div className="space-y-1">
+  <p
+    className={`font-semibold ${
+      isReadingOverdue
+        ? 'text-red-800'
+        : 'text-slate-900'
+    }`}
+  >
+    {t(language, 'House', 'Nyumba')}: {meter.houseNumber || '-'}
+  </p>
 
-                <p className="text-xs text-slate-500">
-                  {t(language, 'Meter', 'Mita')}:{' '}
-                  {meter.meterNumber}
-                </p>
-              </div>
+  <p className="text-xs font-medium text-slate-700">
+    {t(language, 'Tenant', 'Mpangaji')}:{' '}
+    {houses.find(
+      (house) =>
+        String(house.houseNumber || '').trim().toLowerCase() ===
+        String(meter.houseNumber || '').trim().toLowerCase()
+    )?.tenantName || t(language, 'Not connected', 'Hajaunganishwa')}
+  </p>
 
-              <div className="text-right">
-                <p
-                  className={`font-semibold ${
-                    isReadingOverdue
-                      ? 'text-red-700'
-                      : 'text-cyan-800'
-                  }`}
-                >
-                  {meter.nextReadingDate}
-                </p>
+  <p className="text-xs text-slate-500">
+    {t(language, 'Meter number', 'Namba ya mita')}:{' '}
+    {meter.meterNumber || '-'}
+  </p>
 
-                {isReadingOverdue ? (
-                  <span className="mt-1 inline-flex rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700">
-                    {t(
-                      language,
-                      `Overdue by ${Math.abs(days)} day(s)`,
-                      `Imechelewa siku ${Math.abs(days)}`
-                    )}
-                  </span>
-                ) : (
-                  <span className="mt-1 inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">
-                    {days === 0
-                      ? t(
-                          language,
-                          'Due today',
-                          'Inahitajika leo'
-                        )
-                      : t(
-                          language,
-                          `Due in ${days} day(s)`,
-                          `Zimebaki siku ${days}`
-                        )}
-                  </span>
-                )}
-              </div>
+ <p className="text-xs text-slate-500">
+  {t(language, 'Latest reading', 'Usomaji wa mwisho')}:{' '}
+  {meter.attentionType === 'missingMeter'
+    ? t(language, 'Meter not connected', 'Mita haijaunganishwa')
+    : meter.attentionType === 'noReading'
+      ? t(language, 'No reading recorded', 'Hakuna usomaji uliorekodiwa')
+      : meter.lastReading ?? meter.currentUnits ?? '-'}
+</p>
+</div>
+
+<div className="flex flex-col items-end gap-2 text-right">
+  {meter.nextReadingDate ? (
+    <p
+      className={`font-semibold ${
+        isReadingOverdue
+          ? 'text-red-700'
+          : 'text-cyan-800'
+      }`}
+    >
+      {meter.nextReadingDate}
+    </p>
+  ) : null}
+
+  {meter.attentionType === 'missingMeter' ? (
+    <span className="inline-flex rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-700">
+      {t(
+        language,
+        'Meter number not identified',
+        'Namba ya mita haijatambuliwa'
+      )}
+    </span>
+  ) : meter.attentionType === 'noReading' ? (
+    <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">
+      {t(
+        language,
+        'No reading recorded',
+        'Hakuna usomaji uliorekodiwa'
+      )}
+    </span>
+  ) : isReadingOverdue ? (
+    <span className="inline-flex rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700">
+      {t(
+        language,
+        `Overdue by ${Math.abs(days)} day(s)`,
+        `Imechelewa siku ${Math.abs(days)}`
+      )}
+    </span>
+  ) : (
+    <span className="inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">
+      {days === 0
+        ? t(language, 'Due today', 'Inahitajika leo')
+        : t(
+            language,
+            `Due in ${days} day(s)`,
+            `Zimebaki siku ${days}`
+          )}
+    </span>
+  )}
+
+  <button
+    type="button"
+    onClick={() => startNewMeterReading(meter)}
+    className="rounded-lg bg-cyan-700 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-cyan-800"
+  >
+    {meter.attentionType === 'missingMeter'
+      ? t(language, 'Connect Meter', 'Unganisha Mita')
+      : t(language, 'Record New Reading', 'Weka Usomaji Mpya')}
+  </button>
+</div>
             </div>
           );
         })}
@@ -1627,6 +1967,184 @@ const totalServiceCharge = serviceCharges.reduce(
   </CardContent>
 </Card>
 
+<Card className="overflow-hidden border-amber-200 bg-white">
+  <CardHeader className="border-b border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50">
+    <div className="flex items-center justify-between gap-3">
+      <div>
+        <CardTitle className="text-amber-800">
+          {t(
+            language,
+            'Water Account Alerts',
+            'Tahadhari za Akaunti za Maji'
+          )}
+        </CardTitle>
+
+        <p className="mt-1 text-sm text-amber-700">
+          {t(
+            language,
+            'Tenants without formal bills or payment records.',
+            'Wapangaji wasio na ankara au kumbukumbu rasmi za malipo.'
+          )}
+        </p>
+      </div>
+
+      <span className="rounded-full bg-amber-600 px-3 py-1 text-sm font-bold text-white">
+        {housesWithoutWaterBills.length +
+          housesWithBillsButNoPayments.length}
+      </span>
+    </div>
+  </CardHeader>
+
+  <CardContent className="p-0">
+    {housesWithoutWaterBills.length === 0 &&
+    housesWithBillsButNoPayments.length === 0 ? (
+      <p className="px-4 py-8 text-center text-sm text-slate-500">
+        {t(
+          language,
+          'No water account currently requires attention.',
+          'Hakuna akaunti ya maji inayohitaji hatua kwa sasa.'
+        )}
+      </p>
+    ) : (
+      <div className="max-h-[320px] divide-y divide-slate-100 overflow-y-auto">
+        {housesWithoutWaterBills.map((house) => (
+          <div
+            key={`no-water-bill-${house.id}`}
+            className="flex items-center justify-between gap-3 bg-amber-50/50 px-4 py-3"
+          >
+            <div>
+              <p className="font-semibold text-slate-900">
+                {house.houseNumber}
+              </p>
+
+              <p className="text-sm text-slate-700">
+                {t(language, 'Tenant', 'Mpangaji')}:{' '}
+                <span className="font-semibold">
+                  {house.tenantName ||
+                    t(language, 'No tenant', 'Hakuna mpangaji')}
+                </span>
+              </p>
+            </div>
+
+            <div className="flex flex-col items-end gap-2">
+  <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-700">
+    {t(
+      language,
+      'No formal water bill',
+      'Hana ankara rasmi ya maji'
+    )}
+  </span>
+
+  <button
+    type="button"
+    onClick={() => {
+      const connectedMeter = waterMeters.find(
+        (meter) =>
+          meter.active !== false &&
+          String(meter.houseNumber || '').trim().toLowerCase() ===
+            String(house.houseNumber || '').trim().toLowerCase()
+      );
+
+      startNewMeterReading(
+        connectedMeter || {
+          houseNumber: house.houseNumber,
+          meterNumber: '',
+          lastReading: null,
+        }
+      );
+    }}
+    className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-amber-700"
+  >
+    {waterMeters.some(
+      (meter) =>
+        meter.active !== false &&
+        String(meter.houseNumber || '').trim().toLowerCase() ===
+          String(house.houseNumber || '').trim().toLowerCase()
+    )
+      ? t(
+          language,
+          'Record Reading & Create Bill',
+          'Weka Usomaji na Tengeneza Ankara'
+        )
+      : t(
+          language,
+          'Connect Meter First',
+          'Unganisha Mita Kwanza'
+        )}
+  </button>
+</div>
+          </div>
+        ))}
+
+        {housesWithBillsButNoPayments.map((house) => (
+          <div
+            key={`no-water-payment-${house.id}`}
+            className="flex items-center justify-between gap-3 bg-rose-50/50 px-4 py-3"
+          >
+            <div>
+              <p className="font-semibold text-slate-900">
+                {house.houseNumber}
+              </p>
+
+              <p className="text-sm text-slate-700">
+                {t(language, 'Tenant', 'Mpangaji')}:{' '}
+                <span className="font-semibold">
+                  {house.tenantName ||
+                    t(language, 'No tenant', 'Hakuna mpangaji')}
+                </span>
+              </p>
+            </div>
+
+            <div className="flex flex-col items-end gap-2">
+  <span className="rounded-full bg-rose-100 px-2.5 py-1 text-xs font-semibold text-rose-700">
+    {t(
+      language,
+      'Bill has no payment record',
+      'Ankara haina kumbukumbu ya malipo'
+    )}
+  </span>
+
+  <button
+    type="button"
+    onClick={() => {
+      const oldestUnpaidBill = waterBills
+        .filter(
+          (bill) =>
+            String(bill.houseNumber || '').trim().toLowerCase() ===
+              String(house.houseNumber || '').trim().toLowerCase() &&
+            Number(bill.balance || 0) > 0
+        )
+        .sort(
+          (first, second) =>
+            new Date(
+              first.readingDate || first.created_at || 0
+            ).getTime() -
+            new Date(
+              second.readingDate || second.created_at || 0
+            ).getTime()
+        )[0];
+
+      if (oldestUnpaidBill) {
+        startWaterPayment({
+          ...oldestUnpaidBill,
+          tenantName:
+            house.tenantName ||
+            oldestUnpaidBill.tenantName ||
+            '',
+        });
+      }
+    }}
+    className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-rose-700"
+  >
+    {t(language, 'Record Cash Payment', 'Rekodi Malipo ya Fedha')}
+  </button>
+</div>
+          </div>
+        ))}
+      </div>
+    )}
+  </CardContent>
+</Card>
               <Card className="border-fuchsia-200 bg-fuchsia-50">
   <CardHeader>
     <CardTitle className="text-fuchsia-700">Upcoming Service Charge Reminder</CardTitle>
@@ -2002,7 +2520,35 @@ const totalServiceCharge = serviceCharges.reduce(
         {activeTab === 'meters' && (
           <div className="grid gap-4 lg:grid-cols-2">
             <Card>
-              <CardHeader><CardTitle>{t(language, 'Meter Details', 'Taarifa za Mita')}</CardTitle></CardHeader>
+              <CardHeader className="border-b border-cyan-100 bg-gradient-to-r from-cyan-50 to-blue-50">
+  <CardTitle>
+    {hasExistingMeter
+      ? t(
+          language,
+          'Record Monthly Meter Reading',
+          'Weka Usomaji wa Mita wa Mwezi'
+        )
+      : t(
+          language,
+          'Register Meter and First Reading',
+          'Sajili Mita na Usomaji wa Kwanza'
+        )}
+  </CardTitle>
+
+  <p className="mt-1 text-sm text-slate-600">
+    {hasExistingMeter
+      ? t(
+          language,
+          'The registered meter and previous reading are retrieved automatically.',
+          'Mita iliyosajiliwa na usomaji uliopita vinapatikana moja kwa moja.'
+        )
+      : t(
+          language,
+          'Select a house, enter its meter number and opening reading once.',
+          'Chagua nyumba, weka namba ya mita na usomaji wa kuanzia mara moja tu.'
+        )}
+  </p>
+</CardHeader>
               <CardContent className="space-y-3">
                 <Select
   label={t(language, 'House / Tenant', 'Nyumba / Mpangaji')}
@@ -2043,9 +2589,7 @@ const latestMeter = permanentMeter
   houseNumber: selectedHouseNumber,
   meterType: latestMeter?.meterType || 'Water',
   meterNumber: latestMeter?.meterNumber || '',
-  readingDate: latestMeter?.readingDate
-    ? addMonthsISO(latestMeter.readingDate, 1)
-    : todayISO(),
+  readingDate: todayISO(),
   previousUnits:
     latestMeter?.currentUnits !== undefined &&
     latestMeter?.currentUnits !== null
@@ -2597,15 +3141,21 @@ const previousMeterReading = selectedPermanentMeter
   }}
 >
   {isSavingMeter
+  ? t(
+      language,
+      'Saving Meter Information...',
+      'Inahifadhi Taarifa za Mita...'
+    )
+  : hasExistingMeter
     ? t(
         language,
-        'Saving Bill...',
-        'Inahifadhi Ankara...'
+        'Save Monthly Reading & Create Bill',
+        'Hifadhi Usomaji wa Mwezi na Tengeneza Ankara'
       )
     : t(
         language,
-        'Save Reading & Create Bill',
-        'Hifadhi Usomaji na Tengeneza Ankara'
+        'Register Meter & Create First Bill',
+        'Sajili Mita na Tengeneza Ankara ya Kwanza'
       )}
 </Button>
   </div>
@@ -2673,15 +3223,8 @@ const previousMeterReading = selectedPermanentMeter
     setActiveTab('houses');
   }}
     onNewRentPayment={startNewRentPayment}
-  onDeleteHouse={(row) => {
-    const confirmed = window.confirm('Delete this house record?');
-    if (!confirmed) return;
-
-    saveData({
-      ...data,
-      houses: houses.filter((item) => item.id !== row.id),
-    });
-  }}
+  onDeleteHouse={vacateTenant}
+  onArchiveHouse={archiveHouse}
     onEditMeter={(row) => {
     setMeterForm({
       id: row.id || '',
@@ -2767,8 +3310,9 @@ serviceCharges,
   totalServiceCharge,
   onEditHouse,
   onNewRentPayment,
-  onDeleteHouse,
-  onEditMeter,
+onDeleteHouse,
+onArchiveHouse,
+onEditMeter,
   onNewMeterReading,
   onDeleteMeter,
   onEditServiceCharge,
@@ -2917,6 +3461,14 @@ return (
     'Historia ya Malipo ya Maji'
   )}
 </option>
+
+<option value="legacyWater">
+  {t(
+    language,
+    'Previous Water Records',
+    'Historia ya Zamani ya Maji'
+  )}
+</option>
           <option value="service">{t(language, 'Service Charge Report', 'Ripoti ya Service Charge')}</option>
                     <option value="rentHistory">{t(language, 'Rent Payment History', 'Historia ya Malipo ya Kodi')}</option>
         </select>
@@ -2961,44 +3513,69 @@ return (
                       <td className="py-2 pr-3">{row.itemsIssued || '-'}</td>
 
 <td className="py-2 pr-3">
-  <div className="grid grid-cols-[120px_72px_84px_150px] items-center gap-2">
-    <button
-      type="button"
-      className="h-10 w-[120px] rounded-lg bg-blue-600 px-3 text-sm font-medium text-white"
-      onClick={() => onNewRentPayment(row)}
-    >
-      {t(language, 'New Payment', 'Malipo Mapya')}
-    </button>
 
-    <button
-      type="button"
-      className="h-10 w-[72px] rounded-lg bg-amber-500 px-3 text-sm font-medium text-white"
-      onClick={() => onEditHouse(row)}
-    >
-      {t(language, 'Edit', 'Hariri')}
-    </button>
+<div className="grid grid-cols-[120px_72px_160px_150px_150px] items-center gap-2">
+  <button
+    type="button"
+    className="h-10 w-[120px] rounded-lg bg-blue-600 px-3 text-sm font-medium text-white"
+    onClick={() => onNewRentPayment(row)}
+    disabled={
+      String(row.houseStatus || '') === 'Vacant' ||
+      !String(row.tenantName || '').trim()
+    }
+  >
+    {t(language, 'New Payment', 'Malipo Mapya')}
+  </button>
 
-    <button
-      type="button"
-      className="h-10 w-[84px] rounded-lg bg-red-600 px-3 text-sm font-medium text-white"
-      onClick={() => {
-        const confirmed = window.confirm('Delete this house record?');
-        if (!confirmed) return;
+  <button
+    type="button"
+    className="h-10 w-[72px] rounded-lg bg-amber-500 px-3 text-sm font-medium text-white"
+    onClick={() => onEditHouse(row)}
+  >
+    {t(language, 'Edit', 'Hariri')}
+  </button>
 
-        onDeleteHouse(row);
-      }}
-    >
-      {t(language, 'Delete', 'Futa')}
-    </button>
+  <button
+    type="button"
+    className="h-10 w-[160px] rounded-lg bg-slate-700 px-3 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+    onClick={() => onDeleteHouse(row)}
+    disabled={
+      String(row.houseStatus || '') === 'Vacant' ||
+      !String(row.tenantName || '').trim()
+    }
+  >
+    {String(row.houseStatus || '') === 'Vacant' ||
+    !String(row.tenantName || '').trim()
+      ? t(language, 'House Vacant', 'Nyumba Tupu')
+      : t(
+          language,
+          'Tenant Relocated',
+          'Mpangaji Amehama'
+        )}
+  </button>
 
-    {!getRentStatusInfo(row).className.includes('slate') ? (
-      <div className={`flex min-h-10 w-[150px] items-center justify-center rounded-xl px-3 py-2 text-center text-xs font-semibold shadow-sm ${getRentStatusInfo(row).className}`}>
-        {getRentStatusInfo(row).label}
-      </div>
-    ) : (
-      <div className="w-[150px]" />
+  <button
+    type="button"
+    className="h-10 w-[150px] rounded-lg bg-purple-700 px-3 text-sm font-medium text-white hover:bg-purple-800"
+    onClick={() => onArchiveHouse(row)}
+  >
+    {t(
+      language,
+      'Archive Record',
+      'Weka Kumbukumbu'
     )}
-  </div>
+  </button>
+
+  {!getRentStatusInfo(row).className.includes('slate') ? (
+    <div
+      className={`flex min-h-10 w-[150px] items-center justify-center rounded-xl px-3 py-2 text-center text-xs font-semibold shadow-sm ${getRentStatusInfo(row).className}`}
+    >
+      {getRentStatusInfo(row).label}
+    </div>
+  ) : (
+    <div className="w-[150px]" />
+  )}
+</div>
 </td>
                    
                     </tr>
@@ -4237,6 +4814,304 @@ return (
     </Card>
   </div>
 )}
+{reportType === 'legacyWater' && (() => {
+  const sortedLegacyMeters = meters
+    .slice()
+    .sort(
+      (a, b) =>
+        new Date(
+          b.readingDate || b.created_at || 0
+        ).getTime() -
+        new Date(
+          a.readingDate || a.created_at || 0
+        ).getTime()
+    );
+
+  const makeLegacyDuplicateKey = (meter) =>
+    [
+      String(meter.houseNumber || '').trim().toLowerCase(),
+      String(meter.meterNumber || '').trim().toLowerCase(),
+      String(meter.readingDate || ''),
+      Number(meter.previousUnits || 0),
+      Number(meter.currentUnits || 0),
+      Number(meter.totalAmount || 0),
+    ].join('|');
+
+  const legacyKeyCounts = sortedLegacyMeters.reduce(
+    (counts, meter) => {
+      const key = makeLegacyDuplicateKey(meter);
+
+      counts[key] = Number(counts[key] || 0) + 1;
+      return counts;
+    },
+    {}
+  );
+
+  const legacyDuplicateCount = sortedLegacyMeters.filter(
+    (meter) =>
+      Number(
+        legacyKeyCounts[
+          makeLegacyDuplicateKey(meter)
+        ] || 0
+      ) > 1
+  ).length;
+
+  const legacyTotalUnits = sortedLegacyMeters.reduce(
+    (total, meter) =>
+      total + Number(meter.unitsUsed || 0),
+    0
+  );
+
+  const legacyTotalBilled = sortedLegacyMeters.reduce(
+    (total, meter) =>
+      total + Number(meter.totalAmount || 0),
+    0
+  );
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-2xl bg-gradient-to-br from-slate-800 to-slate-600 p-5 text-white shadow-lg">
+          <p className="text-sm text-slate-200">
+            {t(
+              language,
+              'Previous Records',
+              'Kumbukumbu za Zamani'
+            )}
+          </p>
+
+          <p className="mt-2 text-3xl font-bold">
+            {sortedLegacyMeters.length}
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-cyan-200 bg-cyan-50 p-5 shadow-sm">
+          <p className="text-sm text-cyan-700">
+            {t(
+              language,
+              'Recorded Units',
+              'Units Zilizorekodiwa'
+            )}
+          </p>
+
+          <p className="mt-2 text-3xl font-bold text-cyan-900">
+            {legacyTotalUnits}
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5 shadow-sm">
+          <p className="text-sm text-blue-700">
+            {t(
+              language,
+              'Calculated Bills',
+              'Ankara Zilizokokotolewa'
+            )}
+          </p>
+
+          <p className="mt-2 text-2xl font-bold text-blue-900">
+            TZS {currency(legacyTotalBilled)}
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-5 shadow-sm">
+          <p className="text-sm text-red-700">
+            {t(
+              language,
+              'Possible Duplicate Rows',
+              'Rekodi Zinazoweza Kujirudia'
+            )}
+          </p>
+
+          <p className="mt-2 text-3xl font-bold text-red-800">
+            {legacyDuplicateCount}
+          </p>
+        </div>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            {t(
+              language,
+              'Previous Water Records',
+              'Historia ya Zamani ya Maji'
+            )}
+          </CardTitle>
+
+          <p className="text-sm text-slate-500">
+            {t(
+              language,
+              'These records came from the former meter-reading system and are displayed exactly as originally recorded.',
+              'Rekodi hizi zimetoka kwenye mfumo wa zamani wa usomaji wa mita na zinaonyeshwa kama zilivyorekodiwa.'
+            )}
+          </p>
+        </CardHeader>
+
+        <CardContent className="space-y-4">
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+            <p className="font-semibold">
+              {t(
+                language,
+                'Important historical limitation',
+                'Tahadhari kuhusu historia hii'
+              )}
+            </p>
+
+            <p className="mt-1">
+              {t(
+                language,
+                'The former system calculated water bills but did not record cash payments. Therefore, these amounts do not prove that the tenant still owes money or that payment was received.',
+                'Mfumo wa zamani ulikokotoa ankara za maji lakini haukuhifadhi malipo ya fedha. Hivyo, kiasi kinachoonekana hapa hakithibitishi kuwa bado kinadaiwa au kwamba kililipwa.'
+              )}
+            </p>
+          </div>
+
+          {sortedLegacyMeters.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center">
+              <p className="font-semibold text-slate-700">
+                {t(
+                  language,
+                  'No previous water record was found.',
+                  'Hakuna kumbukumbu ya zamani ya maji iliyopatikana.'
+                )}
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-2xl border border-slate-200">
+              <table className="min-w-[1200px] w-full text-sm">
+                <thead className="bg-slate-800 text-left text-white">
+                  <tr>
+                    <th className="px-4 py-3">
+                      {t(language, 'Reading Date', 'Tarehe ya Usomaji')}
+                    </th>
+
+                    <th className="px-4 py-3">
+                      {t(
+                        language,
+                        'Original House Label',
+                        'Jina la Nyumba Lililorekodiwa'
+                      )}
+                    </th>
+
+                    <th className="px-4 py-3">
+                      {t(language, 'Meter Number', 'Namba ya Mita')}
+                    </th>
+
+                    <th className="px-4 py-3">
+                      {t(language, 'Previous Reading', 'Usomaji wa Nyuma')}
+                    </th>
+
+                    <th className="px-4 py-3">
+                      {t(language, 'Current Reading', 'Usomaji wa Sasa')}
+                    </th>
+
+                    <th className="px-4 py-3">
+                      {t(language, 'Units Used', 'Units Zilizotumika')}
+                    </th>
+
+                    <th className="px-4 py-3">
+                      {t(language, 'Rate', 'Bei kwa Unit')}
+                    </th>
+
+                    <th className="px-4 py-3">
+                      {t(language, 'Calculated Bill', 'Ankara Iliyokokotolewa')}
+                    </th>
+
+                    <th className="px-4 py-3">
+                      {t(language, 'Next Reading', 'Usomaji Uliofuata')}
+                    </th>
+
+                    <th className="px-4 py-3">
+                      {t(language, 'Review', 'Uhakiki')}
+                    </th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {sortedLegacyMeters.map((meter) => {
+                    const isPossibleDuplicate =
+                      Number(
+                        legacyKeyCounts[
+                          makeLegacyDuplicateKey(meter)
+                        ] || 0
+                      ) > 1;
+
+                    return (
+                      <tr
+                        key={meter.id}
+                        className={`border-b ${
+                          isPossibleDuplicate
+                            ? 'bg-red-50'
+                            : 'bg-white'
+                        }`}
+                      >
+                        <td className="px-4 py-3">
+                          {meter.readingDate || '-'}
+                        </td>
+
+                        <td className="px-4 py-3 font-semibold text-slate-900">
+                          {meter.houseNumber || '-'}
+                        </td>
+
+                        <td className="px-4 py-3">
+                          {meter.meterNumber || '-'}
+                        </td>
+
+                        <td className="px-4 py-3">
+                          {meter.previousUnits}
+                        </td>
+
+                        <td className="px-4 py-3">
+                          {meter.currentUnits}
+                        </td>
+
+                        <td className="px-4 py-3 font-semibold text-cyan-700">
+                          {meter.unitsUsed}
+                        </td>
+
+                        <td className="px-4 py-3">
+                          TZS {currency(meter.costPerUnit)}
+                        </td>
+
+                        <td className="px-4 py-3 font-bold text-blue-700">
+                          TZS {currency(meter.totalAmount)}
+                        </td>
+
+                        <td className="px-4 py-3">
+                          {meter.nextReadingDate || '-'}
+                        </td>
+
+                        <td className="px-4 py-3">
+                          {isPossibleDuplicate ? (
+                            <span className="inline-flex rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-700">
+                              {t(
+                                language,
+                                'Possible duplicate',
+                                'Inaweza kuwa imerudiwa'
+                              )}
+                            </span>
+                          ) : (
+                            <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                              {t(
+                                language,
+                                'Original record',
+                                'Rekodi ya awali'
+                              )}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+})()}
             {reportType === 'service' && (
         <Card>
           <CardHeader><CardTitle>{t(language, 'Service Charge Report', 'Ripoti ya Service Charge')}</CardTitle></CardHeader>
