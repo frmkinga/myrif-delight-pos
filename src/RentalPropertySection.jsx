@@ -12,6 +12,35 @@ const todayISO = () => {
   return `${year}-${month}-${day}`;
 };
 
+const getDawascoBillDefaults = () => {
+  const today = new Date();
+  const currentYear = today.getFullYear();
+  const currentMonth = today.getMonth();
+
+  const formatLocalDate = (date) =>
+    `${date.getFullYear()}-${String(
+      date.getMonth() + 1
+    ).padStart(2, '0')}-${String(
+      date.getDate()
+    ).padStart(2, '0')}`;
+
+  return {
+    controlNumber: '991040283845',
+    billDate: formatLocalDate(
+      new Date(currentYear, currentMonth, 15)
+    ),
+    dueDate: formatLocalDate(
+      new Date(currentYear, currentMonth, 23)
+    ),
+    billingPeriodStart: formatLocalDate(
+      new Date(currentYear, currentMonth - 1, 15)
+    ),
+    billingPeriodEnd: formatLocalDate(
+      new Date(currentYear, currentMonth, 25)
+    ),
+  };
+};
+
 const addDaysISO = (dateStr, days) => {
   if (!dateStr) return '';
   const d = new Date(dateStr);
@@ -93,16 +122,15 @@ const emptyWaterPaymentForm = {
 };
 
 const emptyWaterSupplierBillForm = {
+  id: '',
   billNumber: '',
-  billDate: todayISO(),
-  dueDate: '',
-  billingPeriodStart: '',
-  billingPeriodEnd: '',
+  ...getDawascoBillDefaults(),
   billAmount: '',
   notes: '',
 };
 
 const emptyWaterFundExpenseForm = {
+  id: '',
   supplierBillId: '',
   expenseType: 'DAWASCO Payment',
   expenseDate: todayISO(),
@@ -240,6 +268,9 @@ const [waterFundExpenseForm, setWaterFundExpenseForm] = useState({
 });
 
 const [isWaterSupplierBillFormOpen, setIsWaterSupplierBillFormOpen] =
+  useState(false);
+
+  const [showDawascoBillDetails, setShowDawascoBillDetails] =
   useState(false);
 
 const [isWaterFundExpenseFormOpen, setIsWaterFundExpenseFormOpen] =
@@ -587,7 +618,28 @@ const saveHouse = async () => {
   setHouseForm({ ...emptyHouseForm });
   setIsRentPaymentEntry(false);
 };
+const startEditingWaterSupplierBill = (bill) => {
+  setWaterSupplierBillForm({
+    id: bill.id || '',
+    billNumber: bill.billNumber || '',
+    controlNumber:
+      bill.controlNumber || '991040283845',
+    billDate: bill.billDate || '',
+    dueDate: bill.dueDate || '',
+    billingPeriodStart:
+      bill.billingPeriodStart || '',
+    billingPeriodEnd:
+      bill.billingPeriodEnd || '',
+    billAmount: String(bill.billAmount || ''),
+    notes: bill.notes || '',
+  });
 
+  setShowDawascoBillDetails(false);
+  setIsWaterFundExpenseFormOpen(false);
+  setIsWaterSupplierBillFormOpen(true);
+  setActiveTab('meters');
+  setActiveWaterSection('waterFund');
+};
 const saveWaterSupplierBill = async () => {
   const billAmount = Number(
     waterSupplierBillForm.billAmount || 0
@@ -603,7 +655,42 @@ const saveWaterSupplierBill = async () => {
     );
     return;
   }
+const existingBillBeingEdited = waterSupplierBills.find(
+  (bill) =>
+    String(bill.id || '') ===
+    String(waterSupplierBillForm.id || '')
+);
 
+const amountAlreadyPaidOnBill = existingBillBeingEdited
+  ? activeWaterFundExpenses
+      .filter(
+        (expense) =>
+          String(expense.supplierBillId || '') ===
+            String(existingBillBeingEdited.id || '') &&
+          String(expense.expenseType || '') ===
+            'DAWASCO Payment'
+      )
+      .reduce(
+        (total, expense) =>
+          total + Number(expense.amount || 0),
+        0
+      )
+  : 0;
+
+if (billAmount < amountAlreadyPaidOnBill) {
+  alert(
+    t(
+      language,
+      `The bill cannot be lower than the TZS ${currency(
+        amountAlreadyPaidOnBill
+      )} already paid.`,
+      `Ankara haiwezi kuwa chini ya TZS ${currency(
+        amountAlreadyPaidOnBill
+      )} ambayo tayari imelipwa.`
+    )
+  );
+  return;
+}
   if (
     waterSupplierBillForm.billingPeriodStart &&
     waterSupplierBillForm.billingPeriodEnd &&
@@ -627,13 +714,19 @@ const saveWaterSupplierBill = async () => {
   ).trim();
 
   const record = {
-    id: `water-supplier-bill-${Date.now()}`,
+    id:
+  waterSupplierBillForm.id ||
+  `water-supplier-bill-${Date.now()}`,
     shop_id: shopId,
     supplierName: 'DAWASCO',
-    billNumber: String(
-      waterSupplierBillForm.billNumber || ''
-    ).trim(),
-    billDate: waterSupplierBillForm.billDate,
+billNumber: String(
+  waterSupplierBillForm.billNumber || ''
+).trim(),
+controlNumber: String(
+  waterSupplierBillForm.controlNumber ||
+    '991040283845'
+).trim(),
+billDate: waterSupplierBillForm.billDate,
     dueDate: waterSupplierBillForm.dueDate || null,
     billingPeriodStart:
       waterSupplierBillForm.billingPeriodStart || null,
@@ -649,8 +742,11 @@ const saveWaterSupplierBill = async () => {
   setIsSavingWaterSupplierBill(true);
 
   const { error } = await supabase
-    .from('waterSupplierBills')
-    .insert([record]);
+  .from('waterSupplierBills')
+  .upsert(
+    [record],
+    { onConflict: 'id' }
+  );
 
   setIsSavingWaterSupplierBill(false);
 
@@ -666,9 +762,16 @@ const saveWaterSupplierBill = async () => {
   }
 
   saveData({
-    ...data,
-    waterSupplierBills: [record, ...waterSupplierBills],
-  });
+  ...data,
+  waterSupplierBills: waterSupplierBillForm.id
+    ? waterSupplierBills.map((bill) =>
+        String(bill.id || '') ===
+        String(waterSupplierBillForm.id || '')
+          ? record
+          : bill
+      )
+    : [record, ...waterSupplierBills],
+});
 
   setWaterSupplierBillForm({
     ...emptyWaterSupplierBillForm,
@@ -683,6 +786,24 @@ const saveWaterSupplierBill = async () => {
       'Ankara ya DAWASCO imehifadhiwa kwa kudumu.'
     )
   );
+};
+
+const startEditingWaterFundExpense = (expense) => {
+  setWaterFundExpenseForm({
+    id: expense.id || '',
+    supplierBillId: expense.supplierBillId || '',
+    expenseType: expense.expenseType || 'Other',
+    expenseDate: expense.expenseDate || todayISO(),
+    amount: String(expense.amount || ''),
+    payee: expense.payee || '',
+    referenceNumber: expense.referenceNumber || '',
+    notes: expense.notes || '',
+  });
+
+  setIsWaterSupplierBillFormOpen(false);
+  setIsWaterFundExpenseFormOpen(true);
+  setActiveTab('meters');
+  setActiveWaterSection('waterFund');
 };
 const saveWaterFundExpense = async () => {
   const expenseAmount = Number(
@@ -800,20 +921,49 @@ const saveWaterFundExpense = async () => {
       waterFundExpenseForm.referenceNumber || ''
     ).trim(),
     status: 'Active',
-    notes: String(
-      waterFundExpenseForm.notes || ''
-    ).trim(),
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
+correctedFromId:
+  waterFundExpenseForm.id || null,
+notes: String(
+  waterFundExpenseForm.notes || ''
+).trim(),
+    created_at:
+  existingBillBeingEdited?.created_at ||
+  new Date().toISOString(),
+updated_at: new Date().toISOString(),
   };
 
-  setIsSavingWaterFundExpense(true);
+setIsSavingWaterFundExpense(true);
 
-  const { error } = await supabase
+let error = null;
+
+if (waterFundExpenseForm.id) {
+  const { error: amendmentError } = await supabase.rpc(
+    'amend_water_fund_expense',
+    {
+      p_original_id: waterFundExpenseForm.id,
+      p_new_id: record.id,
+      p_shop_id: record.shop_id,
+      p_supplier_bill_id:
+        record.supplierBillId || null,
+      p_expense_type: record.expenseType,
+      p_expense_date: record.expenseDate,
+      p_amount: record.amount,
+      p_payee: record.payee,
+      p_reference_number: record.referenceNumber,
+      p_notes: record.notes,
+    }
+  );
+
+  error = amendmentError;
+} else {
+  const { error: insertError } = await supabase
     .from('waterFundExpenses')
     .insert([record]);
 
-  setIsSavingWaterFundExpense(false);
+  error = insertError;
+}
+
+setIsSavingWaterFundExpense(false);
 
   if (error) {
     alert(
@@ -827,9 +977,23 @@ const saveWaterFundExpense = async () => {
   }
 
   saveData({
-    ...data,
-    waterFundExpenses: [record, ...waterFundExpenses],
-  });
+  ...data,
+  waterFundExpenses: waterFundExpenseForm.id
+    ? [
+        record,
+        ...waterFundExpenses.map((expense) =>
+          String(expense.id || '') ===
+          String(waterFundExpenseForm.id || '')
+            ? {
+                ...expense,
+                status: 'Reversed',
+                updated_at: new Date().toISOString(),
+              }
+            : expense
+        ),
+      ]
+    : [record, ...waterFundExpenses],
+});
 
   setWaterFundExpenseForm({
     ...emptyWaterFundExpenseForm,
@@ -2273,6 +2437,10 @@ const totalServiceCharge = serviceCharges.reduce(
   t(language, 'Expense Fund', 'Mfuko wa Matumizi'),
 ],
 ['alerts', t(language, 'Account Alerts', 'Tahadhari za Akaunti')],
+[
+  'utilityReports',
+  t(language, 'Utility Reports', 'Ripoti za Huduma'),
+],
 ];
 
   return (
@@ -3607,129 +3775,200 @@ return (
         </p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <Input
-          label={t(
-            language,
-            'Bill Number',
-            'Namba ya Ankara'
-          )}
-          value={waterSupplierBillForm.billNumber}
-          onChange={(e) =>
-            setWaterSupplierBillForm((previous) => ({
-              ...previous,
-              billNumber: e.target.value,
-            }))
-          }
-          placeholder={t(
-            language,
-            'Enter DAWASCO bill number',
-            'Weka namba ya ankara ya DAWASCO'
-          )}
-        />
+<div className="max-w-xl">
+  <Input
+    label={t(
+      language,
+      'DAWASCO Bill Amount',
+      'Kiasi cha Ankara ya DAWASCO'
+    )}
+    type="number"
+    min="0"
+    step="0.01"
+    value={waterSupplierBillForm.billAmount}
+    onChange={(e) =>
+      setWaterSupplierBillForm((previous) => ({
+        ...previous,
+        billAmount: e.target.value,
+      }))
+    }
+    placeholder={t(
+      language,
+      'Enter the amount shown on the bill',
+      'Weka kiasi kilichoandikwa kwenye ankara'
+    )}
+  />
+</div>
 
-        <Input
-          label={t(
-            language,
-            'Bill Date',
-            'Tarehe ya Ankara'
-          )}
-          type="date"
-          value={waterSupplierBillForm.billDate}
-          onChange={(e) =>
-            setWaterSupplierBillForm((previous) => ({
-              ...previous,
-              billDate: e.target.value,
-            }))
-          }
-        />
+<div className="mt-5 rounded-2xl border border-blue-100 bg-blue-50 p-4">
+  <div className="grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-5">
+    <div>
+      <p className="text-xs text-slate-500">
+        {t(language, 'Control Number', 'Namba ya Malipo')}
+      </p>
+      <p className="mt-1 font-bold text-slate-900">
+        {waterSupplierBillForm.controlNumber}
+      </p>
+    </div>
 
-        <Input
-          label={t(
-            language,
-            'Due Date',
-            'Tarehe ya Mwisho ya Malipo'
-          )}
-          type="date"
-          value={waterSupplierBillForm.dueDate}
-          onChange={(e) =>
-            setWaterSupplierBillForm((previous) => ({
-              ...previous,
-              dueDate: e.target.value,
-            }))
-          }
-        />
+    <div>
+      <p className="text-xs text-slate-500">
+        {t(language, 'Bill Date', 'Tarehe ya Ankara')}
+      </p>
+      <p className="mt-1 font-bold text-slate-900">
+        {waterSupplierBillForm.billDate}
+      </p>
+    </div>
 
-        <Input
-          label={t(
-            language,
-            'Billing Period Start',
-            'Mwanzo wa Kipindi cha Ankara'
-          )}
-          type="date"
-          value={waterSupplierBillForm.billingPeriodStart}
-          onChange={(e) =>
-            setWaterSupplierBillForm((previous) => ({
-              ...previous,
-              billingPeriodStart: e.target.value,
-            }))
-          }
-        />
+    <div>
+      <p className="text-xs text-slate-500">
+        {t(
+          language,
+          'Payment Deadline',
+          'Mwisho wa Malipo'
+        )}
+      </p>
+      <p className="mt-1 font-bold text-slate-900">
+        {waterSupplierBillForm.dueDate}
+      </p>
+    </div>
 
-        <Input
-          label={t(
-            language,
-            'Billing Period End',
-            'Mwisho wa Kipindi cha Ankara'
-          )}
-          type="date"
-          value={waterSupplierBillForm.billingPeriodEnd}
-          onChange={(e) =>
-            setWaterSupplierBillForm((previous) => ({
-              ...previous,
-              billingPeriodEnd: e.target.value,
-            }))
-          }
-        />
+    <div>
+      <p className="text-xs text-slate-500">
+        {t(
+          language,
+          'Period Start',
+          'Mwanzo wa Kipindi'
+        )}
+      </p>
+      <p className="mt-1 font-bold text-slate-900">
+        {waterSupplierBillForm.billingPeriodStart}
+      </p>
+    </div>
 
-        <Input
-          label={t(
-            language,
-            'Bill Amount',
-            'Kiasi cha Ankara'
-          )}
-          type="number"
-          min="0"
-          step="0.01"
-          value={waterSupplierBillForm.billAmount}
-          onChange={(e) =>
-            setWaterSupplierBillForm((previous) => ({
-              ...previous,
-              billAmount: e.target.value,
-            }))
-          }
-          placeholder="0"
-        />
-      </div>
+    <div>
+      <p className="text-xs text-slate-500">
+        {t(
+          language,
+          'Period End',
+          'Mwisho wa Kipindi'
+        )}
+      </p>
+      <p className="mt-1 font-bold text-slate-900">
+        {waterSupplierBillForm.billingPeriodEnd}
+      </p>
+    </div>
+  </div>
 
-      <div className="mt-4">
-        <Textarea
-          label={t(language, 'Notes', 'Maelezo')}
-          rows={3}
-          value={waterSupplierBillForm.notes}
-          onChange={(e) =>
-            setWaterSupplierBillForm((previous) => ({
-              ...previous,
-              notes: e.target.value,
-            }))
-          }
-          placeholder={t(
-            language,
-            'Optional bill details',
-            'Maelezo ya ziada kama yapo'
-          )}
-        />
-      </div>
+  <button
+    type="button"
+    onClick={() =>
+      setShowDawascoBillDetails((current) => !current)
+    }
+    className="mt-4 rounded-lg border border-blue-300 bg-white px-4 py-2 text-sm font-bold text-blue-800"
+  >
+    {showDawascoBillDetails
+      ? t(
+          language,
+          'Hide Date Details',
+          'Funga Taarifa za Tarehe'
+        )
+      : t(
+          language,
+          'Edit Dates and Notes',
+          'Hariri Tarehe na Maelezo'
+        )}
+  </button>
+</div>
+
+{showDawascoBillDetails && (
+  <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-5">
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <Input
+        label={t(
+          language,
+          'Bill Date',
+          'Tarehe ya Ankara'
+        )}
+        type="date"
+        value={waterSupplierBillForm.billDate}
+        onChange={(e) =>
+          setWaterSupplierBillForm((previous) => ({
+            ...previous,
+            billDate: e.target.value,
+          }))
+        }
+      />
+
+      <Input
+        label={t(
+          language,
+          'Payment Deadline',
+          'Tarehe ya Mwisho ya Malipo'
+        )}
+        type="date"
+        value={waterSupplierBillForm.dueDate}
+        onChange={(e) =>
+          setWaterSupplierBillForm((previous) => ({
+            ...previous,
+            dueDate: e.target.value,
+          }))
+        }
+      />
+
+      <Input
+        label={t(
+          language,
+          'Billing Period Start',
+          'Mwanzo wa Kipindi cha Ankara'
+        )}
+        type="date"
+        value={waterSupplierBillForm.billingPeriodStart}
+        onChange={(e) =>
+          setWaterSupplierBillForm((previous) => ({
+            ...previous,
+            billingPeriodStart: e.target.value,
+          }))
+        }
+      />
+
+      <Input
+        label={t(
+          language,
+          'Billing Period End',
+          'Mwisho wa Kipindi cha Ankara'
+        )}
+        type="date"
+        value={waterSupplierBillForm.billingPeriodEnd}
+        onChange={(e) =>
+          setWaterSupplierBillForm((previous) => ({
+            ...previous,
+            billingPeriodEnd: e.target.value,
+          }))
+        }
+      />
+    </div>
+
+    <div className="mt-4">
+      <Textarea
+        label={t(language, 'Notes', 'Maelezo')}
+        rows={3}
+        value={waterSupplierBillForm.notes}
+        onChange={(e) =>
+          setWaterSupplierBillForm((previous) => ({
+            ...previous,
+            notes: e.target.value,
+          }))
+        }
+        placeholder={t(
+          language,
+          'Optional bill details',
+          'Maelezo ya ziada kama yapo'
+        )}
+      />
+    </div>
+  </div>
+)}
 
       <div className="mt-5 flex justify-end gap-3">
         <button
@@ -4549,8 +4788,36 @@ return (
       </div>
     </div>
   </div>
+
+                            )}
+
+{activeWaterSection === 'utilityReports' && (
+  <div className="lg:col-span-2">
+    <ReportsSection
+      language={language}
+      reportScope="water"
+      houses={houses}
+      meters={meters}
+      waterMeters={waterMeters}
+      waterBills={waterBills}
+      waterPayments={waterPayments}
+      waterPaymentAllocations={waterPaymentAllocations}
+      waterSupplierBills={waterSupplierBills}
+      waterFundExpenses={waterFundExpenses}
+      totalUnitsUsed={totalUnitsUsed}
+      totalWaterAmount={totalWaterAmount}
+      totalDiscount={totalDiscount}
+      onNewMeterReading={startNewMeterReading}
+      onStartWaterPayment={startWaterPayment}
+      onEditWaterSupplierBill={startEditingWaterSupplierBill}
+      onCancelWaterSupplierBill={cancelWaterSupplierBill}
+      onEditWaterFundExpense={startEditingWaterFundExpense}
+      onReverseWaterFundExpense={reverseWaterFundExpense}
+    />
+  </div>
 )}
-                            {activeWaterSection === 'readings' && (
+
+{activeWaterSection === 'readings' && (
             <Card className="lg:col-span-2 overflow-hidden">
               <CardHeader className="border-b border-cyan-100 bg-gradient-to-r from-cyan-50 to-blue-50">
   <CardTitle>
@@ -5443,7 +5710,9 @@ className={
 waterPaymentAllocations={waterPaymentAllocations}
 waterSupplierBills={waterSupplierBills}
 waterFundExpenses={waterFundExpenses}
+onEditWaterSupplierBill={startEditingWaterSupplierBill}
 onCancelWaterSupplierBill={cancelWaterSupplierBill}
+onEditWaterFundExpense={startEditingWaterFundExpense}
 onReverseWaterFundExpense={reverseWaterFundExpense}
 onStartWaterPayment={startWaterPayment}
   serviceCharges={serviceCharges}
@@ -5547,6 +5816,7 @@ previousUnits: String(row.previousUnits ?? ''),
 
 function ReportsSection({
   language,
+  reportScope = 'general',
   houses,
   meters,
   waterMeters,
@@ -5555,7 +5825,9 @@ function ReportsSection({
 waterPaymentAllocations,
 waterSupplierBills,
 waterFundExpenses,
+onEditWaterSupplierBill,
 onCancelWaterSupplierBill,
+onEditWaterFundExpense,
 onReverseWaterFundExpense,
 onStartWaterPayment,
 serviceCharges,
@@ -5577,7 +5849,9 @@ onEditMeter,
   onEditServiceCharge,
   onDeleteServiceCharge,
 }) {
-  const [reportType, setReportType] = useState('rent');
+  const [reportType, setReportType] = useState(
+  reportScope === 'water' ? '' : 'rent'
+);
   const [waterSearch, setWaterSearch] = useState('');
 const [waterStatusFilter, setWaterStatusFilter] = useState('All');
     const getRentStatusInfo = (row) => {
@@ -5690,54 +5964,113 @@ const filteredWaterPayments = waterPayments.filter(
 
 return (
   <div className="space-y-4">
-      <div className="flex justify-end">
-        <select
-          className="rounded-xl border px-3 py-2 text-sm"
-          value={reportType}
-          onChange={(e) => setReportType(e.target.value)}
+     {reportScope === 'water' ? (
+  <div className="rounded-3xl border border-blue-200 bg-white p-5 shadow-sm">
+    <div className="mb-4">
+      <h3 className="text-2xl font-bold text-slate-900">
+        {t(
+          language,
+          'Utility Reports',
+          'Ripoti za Huduma'
+        )}
+      </h3>
+
+      <p className="mt-1 text-sm text-slate-600">
+        {t(
+          language,
+          'Select the report you want to open.',
+          'Chagua ripoti unayotaka kufungua.'
+        )}
+      </p>
+    </div>
+
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      {[
+        [
+          'waterMeters',
+          t(
+            language,
+            'Water Meter Register',
+            'Rejesta ya Mita za Maji'
+          ),
+        ],
+        [
+          'waterBills',
+          t(
+            language,
+            'Monthly Water Bills',
+            'Ankara za Maji za Mwezi'
+          ),
+        ],
+        [
+          'waterPayments',
+          t(
+            language,
+            'Water Payment History',
+            'Historia ya Malipo ya Maji'
+          ),
+        ],
+        [
+          'waterFund',
+          t(
+            language,
+            'Water Fund Report',
+            'Ripoti ya Mfuko wa Matumizi'
+          ),
+        ],
+        [
+          'legacyWater',
+          t(
+            language,
+            'Previous Water Records',
+            'Historia ya Zamani ya Maji'
+          ),
+        ],
+      ].map(([value, label]) => (
+        <button
+          key={value}
+          type="button"
+          onClick={() => setReportType(value)}
+          className={`min-h-24 rounded-2xl border px-4 py-4 text-left text-sm font-bold transition ${
+            reportType === value
+              ? 'border-blue-700 bg-blue-700 text-white shadow-md'
+              : 'border-blue-200 bg-blue-50 text-blue-950 hover:bg-blue-100'
+          }`}
         >
-          <option value="rent">{t(language, 'Rent Report', 'Ripoti ya Kodi')}</option>
-          <option value="waterMeters">
-  {t(
-    language,
-    'Water Meter Register',
-    'Rejesta ya Mita za Maji'
-  )}
-</option>
+          {label}
+        </button>
+      ))}
+    </div>
+  </div>
+) : (
+  <div className="flex justify-end">
+    <select
+      className="rounded-xl border px-3 py-2 text-sm"
+      value={reportType}
+      onChange={(e) => setReportType(e.target.value)}
+    >
+      <option value="rent">
+        {t(language, 'Rent Report', 'Ripoti ya Kodi')}
+      </option>
 
-<option value="waterBills">
-  {t(
-    language,
-    'Monthly Water Bills',
-    'Ankara za Maji za Mwezi'
-  )}
-</option>
+      <option value="service">
+        {t(
+          language,
+          'Service Charge Report',
+          'Ripoti ya Service Charge'
+        )}
+      </option>
 
-<option value="waterPayments">
-  {t(
-    language,
-    'Water Payment History',
-    'Historia ya Malipo ya Maji'
-  )}
-</option>
-<option value="waterFund">
-  {t(
-    language,
-    'Water Fund Report',
-    'Ripoti ya Mfuko wa Matumizi'
-  )}
-</option>
-<option value="legacyWater">
-  {t(
-    language,
-    'Previous Water Records',
-    'Historia ya Zamani ya Maji'
-  )}
-</option>
-          <option value="service">{t(language, 'Service Charge Report', 'Ripoti ya Service Charge')}</option>
-                    <option value="rentHistory">{t(language, 'Rent Payment History', 'Historia ya Malipo ya Kodi')}</option>
-        </select>
-      </div>
+      <option value="rentHistory">
+        {t(
+          language,
+          'Rent Payment History',
+          'Historia ya Malipo ya Kodi'
+        )}
+      </option>
+    </select>
+  </div>
+)}
 
       {reportType === 'rent' && (
         <Card>
@@ -7390,7 +7723,7 @@ const hasConfirmedBaseline =
               {t(language, 'Bill Date', 'Tarehe ya Ankara')}
             </th>
             <th className="px-3 py-3">
-              {t(language, 'Bill Number', 'Namba ya Ankara')}
+              {t(language, 'Control Number', 'Namba ya Malipo')}
             </th>
             <th className="px-3 py-3">
               {t(language, 'Billing Period', 'Kipindi cha Ankara')}
@@ -7502,8 +7835,10 @@ const hasConfirmedBaseline =
                     </td>
 
                     <td className="px-3 py-3 font-semibold">
-                      {bill.billNumber || '-'}
-                    </td>
+  {bill.controlNumber ||
+    bill.billNumber ||
+    '991040283845'}
+</td>
 
                     <td className="px-3 py-3">
                       {bill.billingPeriodStart ||
@@ -7548,28 +7883,40 @@ const hasConfirmedBaseline =
 
                     <td className="px-3 py-3">
                       {billIsActive ? (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            onCancelWaterSupplierBill(bill)
-                          }
-                          className="rounded-lg bg-slate-700 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800"
-                        >
-                          {t(
-                            language,
-                            'Cancel Bill',
-                            'Batilisha Ankara'
-                          )}
-                        </button>
-                      ) : (
-                        <span className="text-xs text-slate-400">
-                          {t(
-                            language,
-                            'History preserved',
-                            'Historia imehifadhiwa'
-                          )}
-                        </span>
-                      )}
+  <div className="flex flex-wrap gap-2">
+    <button
+      type="button"
+      onClick={() =>
+        onEditWaterSupplierBill(bill)
+      }
+      className="rounded-lg bg-blue-700 px-3 py-2 text-xs font-bold text-white hover:bg-blue-800"
+    >
+      {t(language, 'Edit', 'Hariri')}
+    </button>
+
+    <button
+      type="button"
+      onClick={() =>
+        onCancelWaterSupplierBill(bill)
+      }
+      className="rounded-lg bg-slate-700 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800"
+    >
+      {t(
+        language,
+        'Cancel Bill',
+        'Batilisha Ankara'
+      )}
+    </button>
+  </div>
+) : (
+  <span className="text-xs text-slate-400">
+    {t(
+      language,
+      'History preserved',
+      'Historia imehifadhiwa'
+    )}
+  </span>
+)}
                     </td>
                   </tr>
                 );
@@ -7781,28 +8128,40 @@ const hasConfirmedBaseline =
 
                     <td className="px-3 py-3">
                       {expenseIsActive ? (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            onReverseWaterFundExpense(expense)
-                          }
-                          className="rounded-lg bg-red-700 px-3 py-2 text-xs font-bold text-white hover:bg-red-800"
-                        >
-                          {t(
-                            language,
-                            'Reverse',
-                            'Rejesha Nyuma'
-                          )}
-                        </button>
-                      ) : (
-                        <span className="text-xs text-slate-400">
-                          {t(
-                            language,
-                            'History preserved',
-                            'Historia imehifadhiwa'
-                          )}
-                        </span>
-                      )}
+  <div className="flex flex-wrap gap-2">
+    <button
+      type="button"
+      onClick={() =>
+        onEditWaterFundExpense(expense)
+      }
+      className="rounded-lg bg-blue-700 px-3 py-2 text-xs font-bold text-white hover:bg-blue-800"
+    >
+      {t(language, 'Edit', 'Hariri')}
+    </button>
+
+    <button
+      type="button"
+      onClick={() =>
+        onReverseWaterFundExpense(expense)
+      }
+      className="rounded-lg bg-red-700 px-3 py-2 text-xs font-bold text-white hover:bg-red-800"
+    >
+      {t(
+        language,
+        'Reverse',
+        'Rejesha Nyuma'
+      )}
+    </button>
+  </div>
+) : (
+  <span className="text-xs text-slate-400">
+    {t(
+      language,
+      'History preserved',
+      'Historia imehifadhiwa'
+    )}
+  </span>
+)}
                     </td>
                   </tr>
                 );
