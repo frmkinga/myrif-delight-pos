@@ -91,6 +91,27 @@ const emptyWaterPaymentForm = {
   paymentDate: todayISO(),
   notes: '',
 };
+
+const emptyWaterSupplierBillForm = {
+  billNumber: '',
+  billDate: todayISO(),
+  dueDate: '',
+  billingPeriodStart: '',
+  billingPeriodEnd: '',
+  billAmount: '',
+  notes: '',
+};
+
+const emptyWaterFundExpenseForm = {
+  supplierBillId: '',
+  expenseType: 'DAWASCO Payment',
+  expenseDate: todayISO(),
+  amount: '',
+  payee: '',
+  referenceNumber: '',
+  notes: '',
+};
+
 function Input({ label, className = '', ...props }) {
   return (
     <div className="space-y-1">
@@ -179,7 +200,13 @@ const waterBills = Array.isArray(data?.waterBills)
 const waterPayments = Array.isArray(data?.waterPayments)
   ? data.waterPayments
   : [];
+const waterSupplierBills = Array.isArray(data?.waterSupplierBills)
+  ? data.waterSupplierBills
+  : [];
 
+const waterFundExpenses = Array.isArray(data?.waterFundExpenses)
+  ? data.waterFundExpenses
+  : [];
 const waterPaymentAllocations = Array.isArray(
   data?.waterPaymentAllocations
 )
@@ -203,7 +230,30 @@ const rentPayments = Array.isArray(data?.rentPayments)
 
 const [isWaterPaymentOpen, setIsWaterPaymentOpen] = useState(false);
 const [isSavingWaterPayment, setIsSavingWaterPayment] = useState(false);
-  const [serviceChargeForm, setServiceChargeForm] = useState({ ...emptyServiceChargeForm });
+
+const [waterSupplierBillForm, setWaterSupplierBillForm] = useState({
+  ...emptyWaterSupplierBillForm,
+});
+
+const [waterFundExpenseForm, setWaterFundExpenseForm] = useState({
+  ...emptyWaterFundExpenseForm,
+});
+
+const [isWaterSupplierBillFormOpen, setIsWaterSupplierBillFormOpen] =
+  useState(false);
+
+const [isWaterFundExpenseFormOpen, setIsWaterFundExpenseFormOpen] =
+  useState(false);
+
+const [isSavingWaterSupplierBill, setIsSavingWaterSupplierBill] =
+  useState(false);
+
+const [isSavingWaterFundExpense, setIsSavingWaterFundExpense] =
+  useState(false);
+
+const [serviceChargeForm, setServiceChargeForm] = useState({
+  ...emptyServiceChargeForm,
+});
   const [isRentPaymentEntry, setIsRentPaymentEntry] = useState(false);
     useEffect(() => {
     const existingHistory = Array.isArray(data?.rentPayments) ? data.rentPayments : [];
@@ -536,6 +586,419 @@ const saveHouse = async () => {
 
   setHouseForm({ ...emptyHouseForm });
   setIsRentPaymentEntry(false);
+};
+
+const saveWaterSupplierBill = async () => {
+  const billAmount = Number(
+    waterSupplierBillForm.billAmount || 0
+  );
+
+  if (!waterSupplierBillForm.billDate || billAmount <= 0) {
+    alert(
+      t(
+        language,
+        'Enter the bill date and a valid bill amount.',
+        'Weka tarehe ya ankara na kiasi sahihi cha ankara.'
+      )
+    );
+    return;
+  }
+
+  if (
+    waterSupplierBillForm.billingPeriodStart &&
+    waterSupplierBillForm.billingPeriodEnd &&
+    waterSupplierBillForm.billingPeriodEnd <
+      waterSupplierBillForm.billingPeriodStart
+  ) {
+    alert(
+      t(
+        language,
+        'The billing period end date cannot be earlier than its start date.',
+        'Tarehe ya mwisho ya kipindi cha ankara haiwezi kuwa kabla ya tarehe ya kuanza.'
+      )
+    );
+    return;
+  }
+
+  const shopId = String(
+    data?.currentUser?.shop_id ||
+      data?.currentUser?.shopId ||
+      'shop-1'
+  ).trim();
+
+  const record = {
+    id: `water-supplier-bill-${Date.now()}`,
+    shop_id: shopId,
+    supplierName: 'DAWASCO',
+    billNumber: String(
+      waterSupplierBillForm.billNumber || ''
+    ).trim(),
+    billDate: waterSupplierBillForm.billDate,
+    dueDate: waterSupplierBillForm.dueDate || null,
+    billingPeriodStart:
+      waterSupplierBillForm.billingPeriodStart || null,
+    billingPeriodEnd:
+      waterSupplierBillForm.billingPeriodEnd || null,
+    billAmount,
+    status: 'Active',
+    notes: String(waterSupplierBillForm.notes || '').trim(),
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
+  setIsSavingWaterSupplierBill(true);
+
+  const { error } = await supabase
+    .from('waterSupplierBills')
+    .insert([record]);
+
+  setIsSavingWaterSupplierBill(false);
+
+  if (error) {
+    alert(
+      t(
+        language,
+        `DAWASCO bill could not be saved: ${error.message}`,
+        `Ankara ya DAWASCO haijahifadhiwa: ${error.message}`
+      )
+    );
+    return;
+  }
+
+  saveData({
+    ...data,
+    waterSupplierBills: [record, ...waterSupplierBills],
+  });
+
+  setWaterSupplierBillForm({
+    ...emptyWaterSupplierBillForm,
+  });
+
+  setIsWaterSupplierBillFormOpen(false);
+
+  alert(
+    t(
+      language,
+      'The DAWASCO bill has been saved permanently.',
+      'Ankara ya DAWASCO imehifadhiwa kwa kudumu.'
+    )
+  );
+};
+const saveWaterFundExpense = async () => {
+  const expenseAmount = Number(
+    waterFundExpenseForm.amount || 0
+  );
+
+  if (
+    !waterFundExpenseForm.expenseDate ||
+    expenseAmount <= 0
+  ) {
+    alert(
+      t(
+        language,
+        'Enter the expense date and a valid amount.',
+        'Weka tarehe ya matumizi na kiasi sahihi.'
+      )
+    );
+    return;
+  }
+
+  const isDawascoPayment =
+    waterFundExpenseForm.expenseType ===
+    'DAWASCO Payment';
+
+  if (
+    isDawascoPayment &&
+    !waterFundExpenseForm.supplierBillId
+  ) {
+    alert(
+      t(
+        language,
+        'Select the DAWASCO bill being paid.',
+        'Chagua ankara ya DAWASCO inayolipwa.'
+      )
+    );
+    return;
+  }
+
+  if (isDawascoPayment) {
+    const selectedBill = activeWaterSupplierBills.find(
+      (bill) =>
+        String(bill.id || '') ===
+        String(
+          waterFundExpenseForm.supplierBillId || ''
+        )
+    );
+
+    if (!selectedBill) {
+      alert(
+        t(
+          language,
+          'The selected DAWASCO bill was not found.',
+          'Ankara ya DAWASCO iliyochaguliwa haijapatikana.'
+        )
+      );
+      return;
+    }
+
+    const amountAlreadyPaid = activeWaterFundExpenses
+      .filter(
+        (expense) =>
+          String(expense.supplierBillId || '') ===
+            String(selectedBill.id || '') &&
+          String(expense.expenseType || '') ===
+            'DAWASCO Payment'
+      )
+      .reduce(
+        (total, expense) =>
+          total + Number(expense.amount || 0),
+        0
+      );
+
+    const remainingBillBalance = Math.max(
+      0,
+      Number(selectedBill.billAmount || 0) -
+        amountAlreadyPaid
+    );
+
+    if (expenseAmount > remainingBillBalance) {
+      alert(
+        t(
+          language,
+          `The payment exceeds the remaining DAWASCO balance of TZS ${currency(
+            remainingBillBalance
+          )}.`,
+          `Malipo yanazidi salio la DAWASCO la TZS ${currency(
+            remainingBillBalance
+          )}.`
+        )
+      );
+      return;
+    }
+  }
+
+  const shopId = String(
+    data?.currentUser?.shop_id ||
+      data?.currentUser?.shopId ||
+      'shop-1'
+  ).trim();
+
+  const record = {
+    id: `water-fund-expense-${Date.now()}`,
+    shop_id: shopId,
+    supplierBillId: isDawascoPayment
+      ? waterFundExpenseForm.supplierBillId
+      : null,
+    expenseType: waterFundExpenseForm.expenseType,
+    expenseDate: waterFundExpenseForm.expenseDate,
+    amount: expenseAmount,
+    payee: String(
+      waterFundExpenseForm.payee ||
+        (isDawascoPayment ? 'DAWASCO' : '')
+    ).trim(),
+    referenceNumber: String(
+      waterFundExpenseForm.referenceNumber || ''
+    ).trim(),
+    status: 'Active',
+    notes: String(
+      waterFundExpenseForm.notes || ''
+    ).trim(),
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
+  setIsSavingWaterFundExpense(true);
+
+  const { error } = await supabase
+    .from('waterFundExpenses')
+    .insert([record]);
+
+  setIsSavingWaterFundExpense(false);
+
+  if (error) {
+    alert(
+      t(
+        language,
+        `The water expense could not be saved: ${error.message}`,
+        `Matumizi ya maji hayajahifadhiwa: ${error.message}`
+      )
+    );
+    return;
+  }
+
+  saveData({
+    ...data,
+    waterFundExpenses: [record, ...waterFundExpenses],
+  });
+
+  setWaterFundExpenseForm({
+    ...emptyWaterFundExpenseForm,
+  });
+
+  setIsWaterFundExpenseFormOpen(false);
+
+  alert(
+    t(
+      language,
+      'The water expense has been saved permanently.',
+      'Matumizi ya maji yamehifadhiwa kwa kudumu.'
+    )
+  );
+};
+
+const reverseWaterFundExpense = async (expense) => {
+  const confirmed = window.confirm(
+    t(
+      language,
+      'Reverse this water payment or expense? The original record will remain permanently visible in the report.',
+      'Unataka kurejesha nyuma malipo au matumizi haya? Rekodi yake ya awali itaendelea kuonekana kwenye ripoti ya kudumu.'
+    )
+  );
+
+  if (!confirmed) return;
+
+  const shopId = String(
+    expense?.shop_id ||
+      data?.currentUser?.shop_id ||
+      data?.currentUser?.shopId ||
+      'shop-1'
+  ).trim();
+
+  const reversedAt = new Date().toISOString();
+
+  const { data: updatedExpense, error } = await supabase
+    .from('waterFundExpenses')
+    .update({
+      status: 'Reversed',
+      updated_at: reversedAt,
+    })
+    .eq('id', expense.id)
+    .eq('shop_id', shopId)
+    .select('*')
+    .single();
+
+  if (error || !updatedExpense) {
+    alert(
+      t(
+        language,
+        `The transaction could not be reversed: ${
+          error?.message || 'Record not found'
+        }`,
+        `Muamala haujaweza kurejeshwa nyuma: ${
+          error?.message || 'Rekodi haijapatikana'
+        }`
+      )
+    );
+    return;
+  }
+
+  saveData({
+    ...data,
+    waterFundExpenses: waterFundExpenses.map((item) =>
+      String(item.id || '') === String(expense.id || '')
+        ? {
+            ...item,
+            status: 'Reversed',
+            updated_at: reversedAt,
+          }
+        : item
+    ),
+  });
+
+  alert(
+    t(
+      language,
+      'The transaction has been reversed and its history preserved.',
+      'Muamala umerejeshwa nyuma na historia yake imehifadhiwa.'
+    )
+  );
+};
+
+const cancelWaterSupplierBill = async (bill) => {
+  const linkedActivePayments = activeWaterFundExpenses.filter(
+    (expense) =>
+      String(expense.supplierBillId || '') ===
+        String(bill.id || '') &&
+      String(expense.expenseType || '') ===
+        'DAWASCO Payment'
+  );
+
+  if (linkedActivePayments.length > 0) {
+    alert(
+      t(
+        language,
+        'This bill has active payments. Reverse those payments before cancelling the bill.',
+        'Ankara hii ina malipo yanayotumika. Rejesha nyuma malipo hayo kabla ya kufuta ankara.'
+      )
+    );
+    return;
+  }
+
+  const confirmed = window.confirm(
+    t(
+      language,
+      'Cancel this DAWASCO bill? Its original record will remain permanently visible in the report.',
+      'Unataka kubatilisha ankara hii ya DAWASCO? Rekodi yake ya awali itaendelea kuonekana kwenye ripoti ya kudumu.'
+    )
+  );
+
+  if (!confirmed) return;
+
+  const shopId = String(
+    bill?.shop_id ||
+      data?.currentUser?.shop_id ||
+      data?.currentUser?.shopId ||
+      'shop-1'
+  ).trim();
+
+  const cancelledAt = new Date().toISOString();
+
+  const { data: updatedBill, error } = await supabase
+    .from('waterSupplierBills')
+    .update({
+      status: 'Cancelled',
+      updated_at: cancelledAt,
+    })
+    .eq('id', bill.id)
+    .eq('shop_id', shopId)
+    .select('*')
+    .single();
+
+  if (error || !updatedBill) {
+    alert(
+      t(
+        language,
+        `The DAWASCO bill could not be cancelled: ${
+          error?.message || 'Record not found'
+        }`,
+        `Ankara ya DAWASCO haijaweza kubatilishwa: ${
+          error?.message || 'Rekodi haijapatikana'
+        }`
+      )
+    );
+    return;
+  }
+
+  saveData({
+    ...data,
+    waterSupplierBills: waterSupplierBills.map((item) =>
+      String(item.id || '') === String(bill.id || '')
+        ? {
+            ...item,
+            status: 'Cancelled',
+            updated_at: cancelledAt,
+          }
+        : item
+    ),
+  });
+
+  alert(
+    t(
+      language,
+      'The bill has been cancelled and its history preserved.',
+      'Ankara imebatilishwa na historia yake imehifadhiwa.'
+    )
+  );
 };
 
   const saveMeter = async () => {
@@ -1663,7 +2126,81 @@ const totalWaterCredit = waterPayments.reduce(
     total + Number(payment.unappliedAmount || 0),
   0
 );
+const activeWaterSupplierBills = waterSupplierBills.filter(
+  (bill) => String(bill.status || 'Active') === 'Active'
+);
 
+const activeWaterFundExpenses = waterFundExpenses.filter(
+  (expense) => String(expense.status || 'Active') === 'Active'
+);
+
+const totalDawascoBills = activeWaterSupplierBills.reduce(
+  (total, bill) => total + Number(bill.billAmount || 0),
+  0
+);
+
+const totalWaterExpensesPaid = activeWaterFundExpenses.reduce(
+  (total, expense) => total + Number(expense.amount || 0),
+  0
+);
+
+const totalDawascoPayments = activeWaterFundExpenses
+  .filter(
+    (expense) =>
+      String(expense.expenseType || '') === 'DAWASCO Payment'
+  )
+  .reduce(
+    (total, expense) => total + Number(expense.amount || 0),
+    0
+  );
+
+const unpaidDawascoBalance = Math.max(
+  0,
+  totalDawascoBills - totalDawascoPayments
+);
+
+const availableWaterCash =
+  totalWaterCollected - totalWaterExpensesPaid;
+
+const realWaterFundBalance =
+  availableWaterCash - unpaidDawascoBalance;
+  const currentWaterMonth = todayISO().slice(0, 7);
+
+const waterPaymentsThisMonth = waterPayments.filter(
+  (payment) =>
+    String(payment.paymentDate || '').slice(0, 7) ===
+    currentWaterMonth
+);
+
+const supplierBillsThisMonth = activeWaterSupplierBills.filter(
+  (bill) =>
+    String(bill.billDate || '').slice(0, 7) ===
+    currentWaterMonth
+);
+
+const waterExpensesThisMonth = activeWaterFundExpenses.filter(
+  (expense) =>
+    String(expense.expenseDate || '').slice(0, 7) ===
+    currentWaterMonth
+);
+
+const waterCollectedThisMonth = waterPaymentsThisMonth.reduce(
+  (total, payment) =>
+    total + Number(payment.amountReceived || 0),
+  0
+);
+
+const dawascoBillsThisMonth = supplierBillsThisMonth.reduce(
+  (total, bill) =>
+    total + Number(bill.billAmount || 0),
+  0
+);
+
+const waterExpensesPaidThisMonth = waterExpensesThisMonth.reduce(
+  (total, expense) =>
+    total + Number(expense.amount || 0),
+  0
+);
 const totalDiscount = waterBills.reduce(
   (total, bill) =>
     total + Number(bill.discount || 0),
@@ -1696,7 +2233,11 @@ const totalServiceCharge = serviceCharges.reduce(
   ],
   ['readings', t(language, 'Meter Readings', 'Usomaji wa Mita')],
   ['billing', t(language, 'Bills and Payments', 'Ankara na Malipo')],
-  ['alerts', t(language, 'Account Alerts', 'Tahadhari za Akaunti')],
+[
+  'waterFund',
+  t(language, 'Expense Fund', 'Mfuko wa Matumizi'),
+],
+['alerts', t(language, 'Account Alerts', 'Tahadhari za Akaunti')],
 ];
 
   return (
@@ -2948,6 +3489,865 @@ return (
     </div>
   </div>
 )}
+
+{activeWaterSection === 'waterFund' && (
+  <div className="space-y-5 lg:col-span-2">
+    <div className="overflow-hidden rounded-3xl border border-emerald-200 bg-white shadow-sm">
+      <div className="border-b border-emerald-100 bg-emerald-50 px-6 py-5">
+        <p className="text-sm font-bold uppercase tracking-wide text-emerald-700">
+          {t(
+            language,
+            'Water Expense Fund',
+            'Mfuko wa Matumizi ya Maji'
+          )}
+        </p>
+
+        <h3 className="mt-1 text-2xl font-bold text-slate-900">
+          {t(
+            language,
+            'Water Fund Movement Summary',
+            'Muhtasari wa Mwenendo wa Mfuko'
+          )}
+        </h3>
+
+        <p className="mt-1 text-sm text-slate-600">
+          {t(
+            language,
+            'Actual collections, DAWASCO bills, paid expenses and the remaining balance.',
+            'Fedha zilizokusanywa kutoka kwa wapangaji, ankara za DAWASCO, matumizi yaliyolipwa na salio lililobaki.'
+          )}
+        </p>
+      </div>
+
+
+<div className="flex flex-wrap gap-3 border-b border-emerald-100 px-6 py-4">
+  <button
+    type="button"
+    onClick={() => {
+      setIsWaterSupplierBillFormOpen((current) => !current);
+      setIsWaterFundExpenseFormOpen(false);
+    }}
+    className="rounded-xl bg-blue-700 px-5 py-3 text-sm font-bold text-white shadow-sm hover:bg-blue-800"
+  >
+    {t(
+      language,
+      'Register DAWASCO Bill',
+      'Sajili Ankara ya DAWASCO'
+    )}
+  </button>
+
+  <button
+    type="button"
+    onClick={() => {
+      setIsWaterFundExpenseFormOpen((current) => !current);
+      setIsWaterSupplierBillFormOpen(false);
+    }}
+    className="rounded-xl bg-orange-600 px-5 py-3 text-sm font-bold text-white shadow-sm hover:bg-orange-700"
+  >
+    {t(
+      language,
+      'Record Payment or Expense',
+      'Sajili Malipo au Matumizi'
+    )}
+  </button>
+</div>
+
+{isWaterSupplierBillFormOpen && (
+  <div className="border-b border-blue-100 bg-blue-50/50 p-6">
+    <div className="rounded-2xl border border-blue-200 bg-white p-5 shadow-sm">
+      <div className="mb-5">
+        <h4 className="text-xl font-bold text-blue-950">
+          {t(
+            language,
+            'Register DAWASCO Bill',
+            'Sajili Ankara ya DAWASCO'
+          )}
+        </h4>
+        <p className="mt-1 text-sm text-slate-600">
+          {t(
+            language,
+            'Enter the actual bill exactly as presented by DAWASCO.',
+            'Weka taarifa za ankara halisi kama ilivyowasilishwa na DAWASCO.'
+          )}
+        </p>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <Input
+          label={t(
+            language,
+            'Bill Number',
+            'Namba ya Ankara'
+          )}
+          value={waterSupplierBillForm.billNumber}
+          onChange={(e) =>
+            setWaterSupplierBillForm((previous) => ({
+              ...previous,
+              billNumber: e.target.value,
+            }))
+          }
+          placeholder={t(
+            language,
+            'Enter DAWASCO bill number',
+            'Weka namba ya ankara ya DAWASCO'
+          )}
+        />
+
+        <Input
+          label={t(
+            language,
+            'Bill Date',
+            'Tarehe ya Ankara'
+          )}
+          type="date"
+          value={waterSupplierBillForm.billDate}
+          onChange={(e) =>
+            setWaterSupplierBillForm((previous) => ({
+              ...previous,
+              billDate: e.target.value,
+            }))
+          }
+        />
+
+        <Input
+          label={t(
+            language,
+            'Due Date',
+            'Tarehe ya Mwisho ya Malipo'
+          )}
+          type="date"
+          value={waterSupplierBillForm.dueDate}
+          onChange={(e) =>
+            setWaterSupplierBillForm((previous) => ({
+              ...previous,
+              dueDate: e.target.value,
+            }))
+          }
+        />
+
+        <Input
+          label={t(
+            language,
+            'Billing Period Start',
+            'Mwanzo wa Kipindi cha Ankara'
+          )}
+          type="date"
+          value={waterSupplierBillForm.billingPeriodStart}
+          onChange={(e) =>
+            setWaterSupplierBillForm((previous) => ({
+              ...previous,
+              billingPeriodStart: e.target.value,
+            }))
+          }
+        />
+
+        <Input
+          label={t(
+            language,
+            'Billing Period End',
+            'Mwisho wa Kipindi cha Ankara'
+          )}
+          type="date"
+          value={waterSupplierBillForm.billingPeriodEnd}
+          onChange={(e) =>
+            setWaterSupplierBillForm((previous) => ({
+              ...previous,
+              billingPeriodEnd: e.target.value,
+            }))
+          }
+        />
+
+        <Input
+          label={t(
+            language,
+            'Bill Amount',
+            'Kiasi cha Ankara'
+          )}
+          type="number"
+          min="0"
+          step="0.01"
+          value={waterSupplierBillForm.billAmount}
+          onChange={(e) =>
+            setWaterSupplierBillForm((previous) => ({
+              ...previous,
+              billAmount: e.target.value,
+            }))
+          }
+          placeholder="0"
+        />
+      </div>
+
+      <div className="mt-4">
+        <Textarea
+          label={t(language, 'Notes', 'Maelezo')}
+          rows={3}
+          value={waterSupplierBillForm.notes}
+          onChange={(e) =>
+            setWaterSupplierBillForm((previous) => ({
+              ...previous,
+              notes: e.target.value,
+            }))
+          }
+          placeholder={t(
+            language,
+            'Optional bill details',
+            'Maelezo ya ziada kama yapo'
+          )}
+        />
+      </div>
+
+      <div className="mt-5 flex justify-end gap-3">
+        <button
+          type="button"
+          onClick={() => {
+            setWaterSupplierBillForm({
+              ...emptyWaterSupplierBillForm,
+            });
+            setIsWaterSupplierBillFormOpen(false);
+          }}
+          disabled={isSavingWaterSupplierBill}
+          className="rounded-xl bg-slate-200 px-5 py-3 text-sm font-bold text-slate-800 disabled:opacity-50"
+        >
+          {t(language, 'Cancel', 'Ghairi')}
+        </button>
+
+        <button
+          type="button"
+          onClick={saveWaterSupplierBill}
+          disabled={isSavingWaterSupplierBill}
+          className="rounded-xl bg-blue-700 px-5 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {isSavingWaterSupplierBill
+            ? t(language, 'Saving...', 'Inahifadhi...')
+            : t(
+                language,
+                'Save DAWASCO Bill',
+                'Hifadhi Ankara ya DAWASCO'
+              )}
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
+{isWaterFundExpenseFormOpen && (
+  <div className="border-b border-orange-100 bg-orange-50/50 p-6">
+    <div className="rounded-2xl border border-orange-200 bg-white p-5 shadow-sm">
+      <div className="mb-5">
+        <h4 className="text-xl font-bold text-orange-950">
+          {t(
+            language,
+            'Record Water Payment or Expense',
+            'Sajili Malipo au Matumizi ya Maji'
+          )}
+        </h4>
+        <p className="mt-1 text-sm text-slate-600">
+          {t(
+            language,
+            'Select the type of expense and record the actual amount paid.',
+            'Chagua aina ya matumizi na uweke kiasi halisi kilicholipwa.'
+          )}
+        </p>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <Select
+          label={t(
+            language,
+            'Expense Type',
+            'Aina ya Matumizi'
+          )}
+          value={waterFundExpenseForm.expenseType}
+          onChange={(e) => {
+            const expenseType = e.target.value;
+
+            setWaterFundExpenseForm((previous) => ({
+              ...previous,
+              expenseType,
+              supplierBillId: '',
+              payee:
+                expenseType === 'DAWASCO Payment'
+                  ? 'DAWASCO'
+                  : '',
+            }));
+          }}
+        >
+          <option value="DAWASCO Payment">
+            {t(
+              language,
+              'DAWASCO Payment',
+              'Malipo ya DAWASCO'
+            )}
+          </option>
+
+          <option value="Purchased Water">
+            {t(
+              language,
+              'Purchased Water',
+              'Maji Yaliyonunuliwa'
+            )}
+          </option>
+
+          <option value="Repair">
+            {t(language, 'Repair', 'Matengenezo')}
+          </option>
+
+          <option value="Other">
+            {t(
+              language,
+              'Other Water Expense',
+              'Matumizi Mengine ya Maji'
+            )}
+          </option>
+        </Select>
+
+        {waterFundExpenseForm.expenseType ===
+          'DAWASCO Payment' && (
+          <Select
+            label={t(
+              language,
+              'DAWASCO Bill Being Paid',
+              'Ankara ya DAWASCO Inayolipwa'
+            )}
+            value={waterFundExpenseForm.supplierBillId}
+            onChange={(e) =>
+              setWaterFundExpenseForm((previous) => ({
+                ...previous,
+                supplierBillId: e.target.value,
+              }))
+            }
+          >
+            <option value="">
+              {t(
+                language,
+                'Select an unpaid bill',
+                'Chagua ankara ambayo haijamalizika'
+              )}
+            </option>
+
+            {activeWaterSupplierBills
+              .filter((bill) => {
+                const amountPaid =
+                  activeWaterFundExpenses
+                    .filter(
+                      (expense) =>
+                        String(
+                          expense.supplierBillId || ''
+                        ) === String(bill.id || '') &&
+                        String(
+                          expense.expenseType || ''
+                        ) === 'DAWASCO Payment'
+                    )
+                    .reduce(
+                      (total, expense) =>
+                        total +
+                        Number(expense.amount || 0),
+                      0
+                    );
+
+                return (
+                  Number(bill.billAmount || 0) -
+                    amountPaid >
+                  0
+                );
+              })
+              .map((bill) => {
+                const amountPaid =
+                  activeWaterFundExpenses
+                    .filter(
+                      (expense) =>
+                        String(
+                          expense.supplierBillId || ''
+                        ) === String(bill.id || '') &&
+                        String(
+                          expense.expenseType || ''
+                        ) === 'DAWASCO Payment'
+                    )
+                    .reduce(
+                      (total, expense) =>
+                        total +
+                        Number(expense.amount || 0),
+                      0
+                    );
+
+                const remainingBalance = Math.max(
+                  0,
+                  Number(bill.billAmount || 0) -
+                    amountPaid
+                );
+
+                return (
+                  <option key={bill.id} value={bill.id}>
+                    {bill.billNumber || bill.billDate} — TZS{' '}
+                    {currency(remainingBalance)}
+                  </option>
+                );
+              })}
+          </Select>
+        )}
+
+        <Input
+          label={t(
+            language,
+            'Payment or Expense Date',
+            'Tarehe ya Malipo au Matumizi'
+          )}
+          type="date"
+          value={waterFundExpenseForm.expenseDate}
+          onChange={(e) =>
+            setWaterFundExpenseForm((previous) => ({
+              ...previous,
+              expenseDate: e.target.value,
+            }))
+          }
+        />
+
+        <Input
+          label={t(language, 'Amount Paid', 'Kiasi Kilicholipwa')}
+          type="number"
+          min="0"
+          step="0.01"
+          value={waterFundExpenseForm.amount}
+          onChange={(e) =>
+            setWaterFundExpenseForm((previous) => ({
+              ...previous,
+              amount: e.target.value,
+            }))
+          }
+          placeholder="0"
+        />
+
+        <Input
+          label={t(
+            language,
+            'Paid To',
+            'Aliyelipwa'
+          )}
+          value={waterFundExpenseForm.payee}
+          onChange={(e) =>
+            setWaterFundExpenseForm((previous) => ({
+              ...previous,
+              payee: e.target.value,
+            }))
+          }
+          placeholder={
+            waterFundExpenseForm.expenseType ===
+            'DAWASCO Payment'
+              ? 'DAWASCO'
+              : t(
+                  language,
+                  'Person or supplier paid',
+                  'Mtu au muuzaji aliyelipwa'
+                )
+          }
+        />
+
+        <Input
+          label={t(
+            language,
+            'Receipt or Reference Number',
+            'Namba ya Risiti au Kumbukumbu'
+          )}
+          value={waterFundExpenseForm.referenceNumber}
+          onChange={(e) =>
+            setWaterFundExpenseForm((previous) => ({
+              ...previous,
+              referenceNumber: e.target.value,
+            }))
+          }
+          placeholder={t(
+            language,
+            'Optional',
+            'Si lazima'
+          )}
+        />
+      </div>
+
+      <div className="mt-4">
+        <Textarea
+          label={t(language, 'Notes', 'Maelezo')}
+          rows={3}
+          value={waterFundExpenseForm.notes}
+          onChange={(e) =>
+            setWaterFundExpenseForm((previous) => ({
+              ...previous,
+              notes: e.target.value,
+            }))
+          }
+          placeholder={
+            waterFundExpenseForm.expenseType ===
+            'Purchased Water'
+              ? t(
+                  language,
+                  'For example: water purchased after DAWASCO supply stopped',
+                  'Mfano: maji yaliyonunuliwa baada ya huduma ya DAWASCO kukatika'
+                )
+              : t(
+                  language,
+                  'Optional expense details',
+                  'Maelezo ya ziada kama yapo'
+                )
+          }
+        />
+      </div>
+
+      <div className="mt-5 flex justify-end gap-3">
+        <button
+          type="button"
+          onClick={() => {
+            setWaterFundExpenseForm({
+              ...emptyWaterFundExpenseForm,
+            });
+            setIsWaterFundExpenseFormOpen(false);
+          }}
+          disabled={isSavingWaterFundExpense}
+          className="rounded-xl bg-slate-200 px-5 py-3 text-sm font-bold text-slate-800 disabled:opacity-50"
+        >
+          {t(language, 'Cancel', 'Ghairi')}
+        </button>
+
+        <button
+          type="button"
+          onClick={saveWaterFundExpense}
+          disabled={isSavingWaterFundExpense}
+          className="rounded-xl bg-orange-600 px-5 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {isSavingWaterFundExpense
+            ? t(language, 'Saving...', 'Inahifadhi...')
+            : t(
+                language,
+                'Save Payment or Expense',
+                'Hifadhi Malipo au Matumizi'
+              )}
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
+      <div className="grid gap-4 p-6 md:grid-cols-3">
+        <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
+          <p className="text-sm font-bold uppercase text-blue-700">
+            {t(
+              language,
+              'Collections This Month',
+              'Makusanyo ya Mwezi Huu'
+            )}
+          </p>
+          <p className="mt-3 text-3xl font-bold text-blue-950">
+            TZS {currency(waterCollectedThisMonth)}
+          </p>
+          <p className="mt-1 text-xs text-blue-700">
+            {t(
+              language,
+              'Money actually received from tenants',
+              'Fedha zilizopokelewa kutoka kwa wapangaji'
+            )}
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-orange-200 bg-orange-50 p-5">
+          <p className="text-sm font-bold uppercase text-orange-700">
+            {t(
+              language,
+              'DAWASCO Bills This Month',
+              'Ankara za DAWASCO Mwezi Huu'
+            )}
+          </p>
+          <p className="mt-3 text-3xl font-bold text-orange-950">
+            TZS {currency(dawascoBillsThisMonth)}
+          </p>
+          <p className="mt-1 text-xs text-orange-700">
+            {t(
+              language,
+              'Actual bills presented',
+              'Ankara halisi zilizowasilishwa'
+            )}
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-5">
+          <p className="text-sm font-bold uppercase text-red-700">
+            {t(
+              language,
+              'Expenses Paid This Month',
+              'Matumizi Yaliyolipwa Mwezi Huu'
+            )}
+          </p>
+          <p className="mt-3 text-3xl font-bold text-red-950">
+            TZS {currency(waterExpensesPaidThisMonth)}
+          </p>
+          <p className="mt-1 text-xs text-red-700">
+            {t(
+              language,
+              'DAWASCO, purchased water, repairs and other costs',
+              'DAWASCO, maji yaliyonunuliwa, matengenezo na matumizi mengine'
+            )}
+          </p>
+        </div>
+      </div>
+
+      <div className="grid gap-4 px-6 pb-6 xl:grid-cols-3">
+        <div className="rounded-2xl border border-blue-200 bg-blue-50/60 p-5">
+          <h4 className="font-bold uppercase text-blue-800">
+            {t(
+              language,
+              'Money Received This Month',
+              'Fedha Zilizoingia Mwezi Huu'
+            )}
+          </h4>
+
+          <div className="mt-4 space-y-3">
+            {waterPaymentsThisMonth.length === 0 ? (
+              <p className="text-sm text-slate-500">
+                {t(
+                  language,
+                  'No tenant payment received this month.',
+                  'Hakuna malipo ya mpangaji yaliyopokelewa mwezi huu.'
+                )}
+              </p>
+            ) : (
+              waterPaymentsThisMonth.map((payment) => (
+                <div
+                  key={payment.id}
+                  className="flex items-start justify-between gap-3 border-b border-blue-100 pb-3 text-sm"
+                >
+                  <div>
+                    <p className="font-semibold text-slate-900">
+                      {payment.tenantName || '-'}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {payment.houseNumber || '-'} ·{' '}
+                      {payment.paymentDate || '-'}
+                    </p>
+                  </div>
+
+                  <p className="font-bold text-blue-900">
+                    TZS {currency(payment.amountReceived)}
+                  </p>
+                </div>
+              ))
+            )}
+
+            <div className="flex justify-between border-t border-blue-200 pt-3 font-bold text-blue-950">
+              <span>
+                {t(language, 'Total Received', 'Jumla Iliyoingia')}
+              </span>
+              <span>TZS {currency(waterCollectedThisMonth)}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-orange-200 bg-orange-50/60 p-5">
+          <h4 className="font-bold uppercase text-orange-800">
+            {t(
+              language,
+              'Bills and Expenses This Month',
+              'Ankara na Matumizi ya Mwezi Huu'
+            )}
+          </h4>
+
+          <div className="mt-4 space-y-4">
+            {supplierBillsThisMonth.length === 0 &&
+            waterExpensesThisMonth.length === 0 ? (
+              <p className="text-sm text-slate-500">
+                {t(
+                  language,
+                  'No bill or expense has been recorded this month.',
+                  'Hakuna ankara au matumizi yaliyosajiliwa mwezi huu.'
+                )}
+              </p>
+            ) : (
+              <>
+                {supplierBillsThisMonth.map((bill) => {
+                  const amountPaid = activeWaterFundExpenses
+                    .filter(
+                      (expense) =>
+                        String(expense.supplierBillId || '') ===
+                          String(bill.id || '') &&
+                        String(expense.expenseType || '') ===
+                          'DAWASCO Payment'
+                    )
+                    .reduce(
+                      (total, expense) =>
+                        total + Number(expense.amount || 0),
+                      0
+                    );
+
+                  const billBalance = Math.max(
+                    0,
+                    Number(bill.billAmount || 0) - amountPaid
+                  );
+
+                  return (
+                    <div
+                      key={bill.id}
+                      className="rounded-xl border border-orange-200 bg-white p-3 text-sm"
+                    >
+                      <div className="flex justify-between gap-3">
+                        <div>
+                          <p className="font-semibold text-slate-900">
+                            DAWASCO
+                            {bill.billNumber
+                              ? ` — ${bill.billNumber}`
+                              : ''}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            {bill.billDate || '-'}
+                          </p>
+                        </div>
+
+                        <p className="font-bold text-orange-900">
+                          TZS {currency(bill.billAmount)}
+                        </p>
+                      </div>
+
+                      <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                        <p className="text-emerald-700">
+                          {t(language, 'Paid', 'Imelipwa')}:{' '}
+                          <strong>TZS {currency(amountPaid)}</strong>
+                        </p>
+                        <p className="text-red-700">
+                          {t(language, 'Balance', 'Salio')}:{' '}
+                          <strong>TZS {currency(billBalance)}</strong>
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {waterExpensesThisMonth
+                  .filter(
+                    (expense) =>
+                      String(expense.expenseType || '') !==
+                      'DAWASCO Payment'
+                  )
+                  .map((expense) => (
+                    <div
+                      key={expense.id}
+                      className="flex items-start justify-between gap-3 border-b border-orange-100 pb-3 text-sm"
+                    >
+                      <div>
+                        <p className="font-semibold text-slate-900">
+                          {expense.expenseType === 'Purchased Water'
+                            ? t(
+                                language,
+                                'Purchased Water',
+                                'Maji Yaliyonunuliwa'
+                              )
+                            : expense.expenseType === 'Repair'
+                              ? t(
+                                  language,
+                                  'Repairs',
+                                  'Matengenezo'
+                                )
+                              : t(
+                                  language,
+                                  'Other Expense',
+                                  'Matumizi Mengine'
+                                )}
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          {expense.payee || '-'} ·{' '}
+                          {expense.expenseDate || '-'}
+                        </p>
+                      </div>
+
+                      <p className="font-bold text-orange-900">
+                        TZS {currency(expense.amount)}
+                      </p>
+                    </div>
+                  ))}
+              </>
+            )}
+
+            <div className="flex justify-between border-t border-orange-200 pt-3 font-bold text-orange-950">
+              <span>
+                {t(
+                  language,
+                  'Total Expenses Paid',
+                  'Jumla ya Matumizi Yaliyolipwa'
+                )}
+              </span>
+              <span>TZS {currency(waterExpensesPaidThisMonth)}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-5">
+          <h4 className="font-bold uppercase text-emerald-800">
+            {t(
+              language,
+              'Water Fund Balance',
+              'Salio la Mfuko wa Maji'
+            )}
+          </h4>
+
+          <div className="mt-4 space-y-4 text-sm">
+            <div className="flex justify-between gap-3">
+              <span className="text-slate-700">
+                {t(language, 'Available Cash', 'Fedha Iliyopo')}
+              </span>
+              <strong
+                className={
+                  availableWaterCash >= 0
+                    ? 'text-emerald-800'
+                    : 'text-red-700'
+                }
+              >
+                TZS {currency(availableWaterCash)}
+              </strong>
+            </div>
+
+            <div className="flex justify-between gap-3">
+              <span className="text-slate-700">
+                {t(
+                  language,
+                  'Unpaid DAWASCO Bills',
+                  'Deni la DAWASCO'
+                )}
+              </span>
+              <strong className="text-red-700">
+                TZS {currency(unpaidDawascoBalance)}
+              </strong>
+            </div>
+
+            <div className="border-t border-emerald-200 pt-4">
+              <div className="flex justify-between gap-3 text-lg">
+                <span className="font-bold text-emerald-950">
+                  {t(language, 'Real Balance', 'Salio Halisi')}
+                </span>
+                <strong
+                  className={
+                    realWaterFundBalance >= 0
+                      ? 'text-emerald-800'
+                      : 'text-red-700'
+                  }
+                >
+                  TZS {currency(realWaterFundBalance)}
+                </strong>
+              </div>
+
+              <p className="mt-2 text-xs text-slate-500">
+                {realWaterFundBalance >= 0
+                  ? t(
+                      language,
+                      'This amount remains available for future water expenses.',
+                      'Kiasi hiki kinabaki kwa matumizi ya maji yajayo.'
+                    )
+                  : t(
+                      language,
+                      'This shortage will be carried forward.',
+                      'Upungufu huu utaendelea kuonekana hadi utakapofidiwa.'
+                    )}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
               {activeWaterSection === 'alerts' && (
   <div className="space-y-4 lg:col-span-2">
     <div className="rounded-3xl border border-amber-200 bg-white shadow-sm">
@@ -4005,8 +5405,12 @@ className={
   waterMeters={waterMeters}
   waterBills={waterBills}
   waterPayments={waterPayments}
-  waterPaymentAllocations={waterPaymentAllocations}
-  onStartWaterPayment={startWaterPayment}
+waterPaymentAllocations={waterPaymentAllocations}
+waterSupplierBills={waterSupplierBills}
+waterFundExpenses={waterFundExpenses}
+onCancelWaterSupplierBill={cancelWaterSupplierBill}
+onReverseWaterFundExpense={reverseWaterFundExpense}
+onStartWaterPayment={startWaterPayment}
   serviceCharges={serviceCharges}
   rentPayments={rentPayments}
   totalRent={totalRent}
@@ -4114,6 +5518,10 @@ function ReportsSection({
   waterBills,
   waterPayments,
 waterPaymentAllocations,
+waterSupplierBills,
+waterFundExpenses,
+onCancelWaterSupplierBill,
+onReverseWaterFundExpense,
 onStartWaterPayment,
 serviceCharges,
   rentPayments,
@@ -4277,7 +5685,13 @@ return (
     'Historia ya Malipo ya Maji'
   )}
 </option>
-
+<option value="waterFund">
+  {t(
+    language,
+    'Water Fund Report',
+    'Ripoti ya Mfuko wa Matumizi'
+  )}
+</option>
 <option value="legacyWater">
   {t(
     language,
@@ -5657,6 +7071,733 @@ const hasConfirmedBaseline =
     </Card>
   </div>
 )}
+
+{reportType === 'waterFund' && (() => {
+  const activeSupplierBills = waterSupplierBills.filter(
+    (bill) => String(bill.status || 'Active') === 'Active'
+  );
+
+  const activeFundExpenses = waterFundExpenses.filter(
+    (expense) =>
+      String(expense.status || 'Active') === 'Active'
+  );
+
+  const totalCollected = waterPayments.reduce(
+    (total, payment) =>
+      total + Number(payment.amountReceived || 0),
+    0
+  );
+
+  const totalSupplierBills = activeSupplierBills.reduce(
+    (total, bill) =>
+      total + Number(bill.billAmount || 0),
+    0
+  );
+
+  const totalExpensesPaid = activeFundExpenses.reduce(
+    (total, expense) =>
+      total + Number(expense.amount || 0),
+    0
+  );
+
+  const totalSupplierPayments = activeFundExpenses
+    .filter(
+      (expense) =>
+        String(expense.expenseType || '') ===
+        'DAWASCO Payment'
+    )
+    .reduce(
+      (total, expense) =>
+        total + Number(expense.amount || 0),
+      0
+    );
+
+  const supplierBalance = Math.max(
+    0,
+    totalSupplierBills - totalSupplierPayments
+  );
+
+  const cashAvailable =
+    totalCollected - totalExpensesPaid;
+
+  const realBalance =
+    cashAvailable - supplierBalance;
+
+  const sortedWaterPayments = waterPayments
+    .slice()
+    .sort(
+      (a, b) =>
+        new Date(
+          b.paymentDate || b.paidAt || b.created_at || 0
+        ).getTime() -
+        new Date(
+          a.paymentDate || a.paidAt || a.created_at || 0
+        ).getTime()
+    );
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-3xl border border-emerald-200 bg-white shadow-sm">
+        <div className="border-b border-emerald-100 bg-emerald-50 px-6 py-5">
+          <h3 className="text-2xl font-bold text-emerald-950">
+            {t(
+              language,
+              'Water Expense Fund Report',
+              'Ripoti ya Mfuko wa Matumizi'
+            )}
+          </h3>
+
+          <p className="mt-1 text-sm text-slate-600">
+            {t(
+              language,
+              'Permanent collections, DAWASCO bills, water expenses and carried balance.',
+              'Makusanyo ya kudumu, ankara za DAWASCO, matumizi ya maji na salio linaloendelea.'
+            )}
+          </p>
+        </div>
+
+        <div className="grid gap-4 p-6 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+            <p className="text-xs font-bold uppercase text-blue-700">
+              {t(
+                language,
+                'Collected from Tenants',
+                'Zilizokusanywa kwa Wapangaji'
+              )}
+            </p>
+            <p className="mt-2 text-2xl font-bold text-blue-950">
+              TZS {currency(totalCollected)}
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4">
+            <p className="text-xs font-bold uppercase text-orange-700">
+              {t(
+                language,
+                'DAWASCO Bills',
+                'Ankara za DAWASCO'
+              )}
+            </p>
+            <p className="mt-2 text-2xl font-bold text-orange-950">
+              TZS {currency(totalSupplierBills)}
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-red-200 bg-red-50 p-4">
+            <p className="text-xs font-bold uppercase text-red-700">
+              {t(
+                language,
+                'Expenses Paid',
+                'Matumizi Yaliyolipwa'
+              )}
+            </p>
+            <p className="mt-2 text-2xl font-bold text-red-950">
+              TZS {currency(totalExpensesPaid)}
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+            <p className="text-xs font-bold uppercase text-amber-700">
+              {t(
+                language,
+                'DAWASCO Balance',
+                'Deni la DAWASCO'
+              )}
+            </p>
+            <p className="mt-2 text-2xl font-bold text-amber-950">
+              TZS {currency(supplierBalance)}
+            </p>
+          </div>
+
+          <div
+            className={`rounded-2xl border p-4 ${
+              realBalance >= 0
+                ? 'border-emerald-200 bg-emerald-50'
+                : 'border-red-200 bg-red-50'
+            }`}
+          >
+            <p
+              className={`text-xs font-bold uppercase ${
+                realBalance >= 0
+                  ? 'text-emerald-700'
+                  : 'text-red-700'
+              }`}
+            >
+              {t(language, 'Real Balance', 'Salio Halisi')}
+            </p>
+            <p
+              className={`mt-2 text-2xl font-bold ${
+                realBalance >= 0
+                  ? 'text-emerald-950'
+                  : 'text-red-950'
+              }`}
+            >
+              TZS {currency(realBalance)}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            {t(
+              language,
+              'Permanent Tenant Collection History',
+              'Historia ya Kudumu ya Makusanyo ya Wapangaji'
+            )}
+          </CardTitle>
+        </CardHeader>
+
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b bg-slate-50 text-left">
+                  <th className="px-3 py-3">
+                    {t(language, 'Date', 'Tarehe')}
+                  </th>
+                  <th className="px-3 py-3">
+                    {t(language, 'House', 'Nyumba')}
+                  </th>
+                  <th className="px-3 py-3">
+                    {t(language, 'Tenant', 'Mpangaji')}
+                  </th>
+                  <th className="px-3 py-3">
+                    {t(language, 'Meter', 'Mita')}
+                  </th>
+                  <th className="px-3 py-3 text-right">
+                    {t(
+                      language,
+                      'Amount Received',
+                      'Kiasi Kilichopokelewa'
+                    )}
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {sortedWaterPayments.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={5}
+                      className="px-3 py-6 text-center text-slate-500"
+                    >
+                      {t(
+                        language,
+                        'No tenant water payment has been recorded.',
+                        'Hakuna malipo ya maji ya mpangaji yaliyosajiliwa.'
+                      )}
+                    </td>
+                  </tr>
+                ) : (
+                  sortedWaterPayments.map((payment) => (
+                    <tr
+                      key={payment.id}
+                      className="border-b"
+                    >
+                      <td className="px-3 py-3">
+                        {payment.paymentDate || '-'}
+                      </td>
+                      <td className="px-3 py-3 font-semibold">
+                        {payment.houseNumber || '-'}
+                      </td>
+                      <td className="px-3 py-3">
+                        {payment.tenantName || '-'}
+                      </td>
+                      <td className="px-3 py-3">
+                        {payment.meterNumber || '-'}
+                      </td>
+                      <td className="px-3 py-3 text-right font-bold text-emerald-700">
+                        TZS {currency(payment.amountReceived)}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+
+              <tfoot>
+                <tr className="bg-blue-50 font-bold text-blue-950">
+                  <td colSpan={4} className="px-3 py-3">
+                    {t(
+                      language,
+                      'Total Collected',
+                      'Jumla Iliyokusanywa'
+                    )}
+                  </td>
+                  <td className="px-3 py-3 text-right">
+                    TZS {currency(totalCollected)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+  <CardHeader>
+    <CardTitle>
+      {t(
+        language,
+        'Permanent DAWASCO Bill Register',
+        'Rejesta ya Kudumu ya Ankara za DAWASCO'
+      )}
+    </CardTitle>
+  </CardHeader>
+
+  <CardContent>
+    <div className="overflow-x-auto">
+      <table className="min-w-full text-sm">
+        <thead>
+          <tr className="border-b bg-orange-50 text-left">
+            <th className="px-3 py-3">
+              {t(language, 'Bill Date', 'Tarehe ya Ankara')}
+            </th>
+            <th className="px-3 py-3">
+              {t(language, 'Bill Number', 'Namba ya Ankara')}
+            </th>
+            <th className="px-3 py-3">
+              {t(language, 'Billing Period', 'Kipindi cha Ankara')}
+            </th>
+            <th className="px-3 py-3">
+              {t(language, 'Due Date', 'Mwisho wa Malipo')}
+            </th>
+            <th className="px-3 py-3 text-right">
+              {t(language, 'Bill Amount', 'Kiasi cha Ankara')}
+            </th>
+            <th className="px-3 py-3 text-right">
+              {t(language, 'Amount Paid', 'Kiasi Kilicholipwa')}
+            </th>
+            <th className="px-3 py-3 text-right">
+              {t(language, 'Balance', 'Salio')}
+            </th>
+            <th className="px-3 py-3">
+              {t(language, 'Status', 'Hali')}
+            </th>
+            <th className="px-3 py-3">
+              {t(language, 'Action', 'Hatua')}
+            </th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {waterSupplierBills.length === 0 ? (
+            <tr>
+              <td
+                colSpan={9}
+                className="px-3 py-6 text-center text-slate-500"
+              >
+                {t(
+                  language,
+                  'No DAWASCO bill has been recorded.',
+                  'Hakuna ankara ya DAWASCO iliyosajiliwa.'
+                )}
+              </td>
+            </tr>
+          ) : (
+            waterSupplierBills
+              .slice()
+              .sort(
+                (a, b) =>
+                  new Date(
+                    b.billDate || b.created_at || 0
+                  ).getTime() -
+                  new Date(
+                    a.billDate || a.created_at || 0
+                  ).getTime()
+              )
+              .map((bill) => {
+                const billIsActive =
+                  String(bill.status || 'Active') ===
+                  'Active';
+
+                const amountPaid = activeFundExpenses
+                  .filter(
+                    (expense) =>
+                      String(
+                        expense.supplierBillId || ''
+                      ) === String(bill.id || '') &&
+                      String(
+                        expense.expenseType || ''
+                      ) === 'DAWASCO Payment'
+                  )
+                  .reduce(
+                    (total, expense) =>
+                      total +
+                      Number(expense.amount || 0),
+                    0
+                  );
+
+                const balance = billIsActive
+                  ? Math.max(
+                      0,
+                      Number(bill.billAmount || 0) -
+                        amountPaid
+                    )
+                  : 0;
+
+                const billStatus = !billIsActive
+                  ? t(language, 'Cancelled', 'Imebatilishwa')
+                  : balance <= 0
+                    ? t(language, 'Paid', 'Imelipwa')
+                    : amountPaid > 0
+                      ? t(
+                          language,
+                          'Partially Paid',
+                          'Imelipwa Sehemu'
+                        )
+                      : t(
+                          language,
+                          'Unpaid',
+                          'Haijalipwa'
+                        );
+
+                return (
+                  <tr
+                    key={bill.id}
+                    className={`border-b ${
+                      !billIsActive
+                        ? 'bg-slate-50 text-slate-500'
+                        : ''
+                    }`}
+                  >
+                    <td className="px-3 py-3">
+                      {bill.billDate || '-'}
+                    </td>
+
+                    <td className="px-3 py-3 font-semibold">
+                      {bill.billNumber || '-'}
+                    </td>
+
+                    <td className="px-3 py-3">
+                      {bill.billingPeriodStart ||
+                      bill.billingPeriodEnd
+                        ? `${bill.billingPeriodStart || '-'} — ${
+                            bill.billingPeriodEnd || '-'
+                          }`
+                        : '-'}
+                    </td>
+
+                    <td className="px-3 py-3">
+                      {bill.dueDate || '-'}
+                    </td>
+
+                    <td className="px-3 py-3 text-right font-bold">
+                      TZS {currency(bill.billAmount)}
+                    </td>
+
+                    <td className="px-3 py-3 text-right font-bold text-emerald-700">
+                      TZS {currency(amountPaid)}
+                    </td>
+
+                    <td className="px-3 py-3 text-right font-bold text-red-700">
+                      TZS {currency(balance)}
+                    </td>
+
+                    <td className="px-3 py-3">
+                      <span
+                        className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${
+                          !billIsActive
+                            ? 'bg-slate-200 text-slate-700'
+                            : balance <= 0
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : amountPaid > 0
+                                ? 'bg-amber-100 text-amber-700'
+                                : 'bg-red-100 text-red-700'
+                        }`}
+                      >
+                        {billStatus}
+                      </span>
+                    </td>
+
+                    <td className="px-3 py-3">
+                      {billIsActive ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onCancelWaterSupplierBill(bill)
+                          }
+                          className="rounded-lg bg-slate-700 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800"
+                        >
+                          {t(
+                            language,
+                            'Cancel Bill',
+                            'Batilisha Ankara'
+                          )}
+                        </button>
+                      ) : (
+                        <span className="text-xs text-slate-400">
+                          {t(
+                            language,
+                            'History preserved',
+                            'Historia imehifadhiwa'
+                          )}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })
+          )}
+        </tbody>
+
+        <tfoot>
+          <tr className="bg-orange-50 font-bold text-orange-950">
+            <td colSpan={4} className="px-3 py-3">
+              {t(
+                language,
+                'Total Active DAWASCO Bills',
+                'Jumla ya Ankara za DAWASCO Zinazotumika'
+              )}
+            </td>
+            <td className="px-3 py-3 text-right">
+              TZS {currency(totalSupplierBills)}
+            </td>
+            <td className="px-3 py-3 text-right">
+              TZS {currency(totalSupplierPayments)}
+            </td>
+            <td className="px-3 py-3 text-right">
+              TZS {currency(supplierBalance)}
+            </td>
+            <td colSpan={2} />
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </CardContent>
+</Card>
+
+<Card>
+  <CardHeader>
+    <CardTitle>
+      {t(
+        language,
+        'Permanent Water Expense History',
+        'Historia ya Kudumu ya Matumizi ya Maji'
+      )}
+    </CardTitle>
+  </CardHeader>
+
+  <CardContent>
+    <div className="overflow-x-auto">
+      <table className="min-w-full text-sm">
+        <thead>
+          <tr className="border-b bg-red-50 text-left">
+            <th className="px-3 py-3">
+              {t(language, 'Date', 'Tarehe')}
+            </th>
+            <th className="px-3 py-3">
+              {t(language, 'Expense Type', 'Aina ya Matumizi')}
+            </th>
+            <th className="px-3 py-3">
+              {t(language, 'Paid To', 'Aliyelipwa')}
+            </th>
+            <th className="px-3 py-3">
+              {t(
+                language,
+                'Bill or Reference',
+                'Ankara au Kumbukumbu'
+              )}
+            </th>
+            <th className="px-3 py-3">
+              {t(language, 'Notes', 'Maelezo')}
+            </th>
+            <th className="px-3 py-3 text-right">
+              {t(language, 'Amount', 'Kiasi')}
+            </th>
+            <th className="px-3 py-3">
+              {t(language, 'Status', 'Hali')}
+            </th>
+            <th className="px-3 py-3">
+              {t(language, 'Action', 'Hatua')}
+            </th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {waterFundExpenses.length === 0 ? (
+            <tr>
+              <td
+                colSpan={8}
+                className="px-3 py-6 text-center text-slate-500"
+              >
+                {t(
+                  language,
+                  'No water expense has been recorded.',
+                  'Hakuna matumizi ya maji yaliyosajiliwa.'
+                )}
+              </td>
+            </tr>
+          ) : (
+            waterFundExpenses
+              .slice()
+              .sort(
+                (a, b) =>
+                  new Date(
+                    b.expenseDate || b.created_at || 0
+                  ).getTime() -
+                  new Date(
+                    a.expenseDate || a.created_at || 0
+                  ).getTime()
+              )
+              .map((expense) => {
+                const expenseIsActive =
+                  String(expense.status || 'Active') ===
+                  'Active';
+
+                const linkedBill = waterSupplierBills.find(
+                  (bill) =>
+                    String(bill.id || '') ===
+                    String(expense.supplierBillId || '')
+                );
+
+                const expenseLabel =
+                  expense.expenseType ===
+                  'DAWASCO Payment'
+                    ? t(
+                        language,
+                        'DAWASCO Payment',
+                        'Malipo ya DAWASCO'
+                      )
+                    : expense.expenseType ===
+                        'Purchased Water'
+                      ? t(
+                          language,
+                          'Purchased Water',
+                          'Maji Yaliyonunuliwa'
+                        )
+                      : expense.expenseType === 'Repair'
+                        ? t(
+                            language,
+                            'Repair',
+                            'Matengenezo'
+                          )
+                        : t(
+                            language,
+                            'Other Water Expense',
+                            'Matumizi Mengine ya Maji'
+                          );
+
+                return (
+                  <tr
+                    key={expense.id}
+                    className={`border-b ${
+                      !expenseIsActive
+                        ? 'bg-slate-50 text-slate-500'
+                        : ''
+                    }`}
+                  >
+                    <td className="px-3 py-3">
+                      {expense.expenseDate || '-'}
+                    </td>
+
+                    <td className="px-3 py-3 font-semibold">
+                      {expenseLabel}
+                    </td>
+
+                    <td className="px-3 py-3">
+                      {expense.payee || '-'}
+                    </td>
+
+                    <td className="px-3 py-3">
+                      {linkedBill
+                        ? linkedBill.billNumber ||
+                          linkedBill.billDate ||
+                          '-'
+                        : expense.referenceNumber || '-'}
+                    </td>
+
+                    <td className="max-w-xs px-3 py-3">
+                      {expense.notes || '-'}
+                    </td>
+
+                    <td
+                      className={`px-3 py-3 text-right font-bold ${
+                        expenseIsActive
+                          ? 'text-red-700'
+                          : 'text-slate-500 line-through'
+                      }`}
+                    >
+                      TZS {currency(expense.amount)}
+                    </td>
+
+                    <td className="px-3 py-3">
+                      <span
+                        className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${
+                          expenseIsActive
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : 'bg-slate-200 text-slate-700'
+                        }`}
+                      >
+                        {expenseIsActive
+                          ? t(
+                              language,
+                              'Active',
+                              'Inatumika'
+                            )
+                          : t(
+                              language,
+                              'Reversed',
+                              'Imerejeshwa Nyuma'
+                            )}
+                      </span>
+                    </td>
+
+                    <td className="px-3 py-3">
+                      {expenseIsActive ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onReverseWaterFundExpense(expense)
+                          }
+                          className="rounded-lg bg-red-700 px-3 py-2 text-xs font-bold text-white hover:bg-red-800"
+                        >
+                          {t(
+                            language,
+                            'Reverse',
+                            'Rejesha Nyuma'
+                          )}
+                        </button>
+                      ) : (
+                        <span className="text-xs text-slate-400">
+                          {t(
+                            language,
+                            'History preserved',
+                            'Historia imehifadhiwa'
+                          )}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })
+          )}
+        </tbody>
+
+        <tfoot>
+          <tr className="bg-red-50 font-bold text-red-950">
+            <td colSpan={5} className="px-3 py-3">
+              {t(
+                language,
+                'Total Active Water Expenses',
+                'Jumla ya Matumizi ya Maji Yanayotumika'
+              )}
+            </td>
+            <td className="px-3 py-3 text-right">
+              TZS {currency(totalExpensesPaid)}
+            </td>
+            <td colSpan={2} />
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </CardContent>
+</Card>
+    </div>
+  );
+})()}
+
 {reportType === 'legacyWater' && (() => {
   const sortedLegacyMeters = meters
     .slice()

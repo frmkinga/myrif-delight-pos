@@ -1021,6 +1021,8 @@ waterMeters: [],
 waterBills: [],
 waterPayments: [],
 waterPaymentAllocations: [],
+waterSupplierBills: [],
+waterFundExpenses: [],
 serviceCharges: [],
 rentPayments: [],
   centralFundTransactions: [],
@@ -1123,6 +1125,12 @@ waterPayments: Array.isArray(parsed.waterPayments)
 waterPaymentAllocations: Array.isArray(parsed.waterPaymentAllocations)
   ? parsed.waterPaymentAllocations
   : [],
+waterSupplierBills: Array.isArray(parsed.waterSupplierBills)
+  ? parsed.waterSupplierBills
+  : [],
+waterFundExpenses: Array.isArray(parsed.waterFundExpenses)
+  ? parsed.waterFundExpenses
+  : [],
 serviceCharges: Array.isArray(parsed.serviceCharges)
   ? parsed.serviceCharges
   : [],
@@ -1171,6 +1179,12 @@ waterBills: (data.waterBills || []).filter(sameShop),
 waterPayments: (data.waterPayments || []).filter(sameShop),
 waterPaymentAllocations: (
   data.waterPaymentAllocations || []
+).filter(sameShop),
+waterSupplierBills: (
+  data.waterSupplierBills || []
+).filter(sameShop),
+waterFundExpenses: (
+  data.waterFundExpenses || []
 ).filter(sameShop),
 serviceCharges: (data.serviceCharges || []).filter(sameShop),
 rentPayments: (data.rentPayments || []).filter(sameShop),
@@ -1241,6 +1255,15 @@ let waterPaymentsQuery = supabase.from('waterPayments').select('*');
 let waterPaymentAllocationsQuery = supabase
   .from('waterPaymentAllocations')
   .select('*');
+
+let waterSupplierBillsQuery = supabase
+  .from('waterSupplierBills')
+  .select('*');
+
+let waterFundExpensesQuery = supabase
+  .from('waterFundExpenses')
+  .select('*');
+
 let serviceChargesQuery = supabase.from('servicecharges').select('*');
 let rentPaymentsQuery = supabase.from('rentPayments').select('*');
 
@@ -1269,6 +1292,17 @@ waterPaymentAllocationsQuery = waterPaymentAllocationsQuery.eq(
   'shop_id',
   sessionShopId
 );
+
+waterSupplierBillsQuery = waterSupplierBillsQuery.eq(
+  'shop_id',
+  sessionShopId
+);
+
+waterFundExpensesQuery = waterFundExpensesQuery.eq(
+  'shop_id',
+  sessionShopId
+);
+
 serviceChargesQuery = serviceChargesQuery.eq('shop_id', sessionShopId);
 rentPaymentsQuery = rentPaymentsQuery.eq('shop_id', sessionShopId);
 }
@@ -1290,9 +1324,11 @@ rentPaymentsQuery = rentPaymentsQuery.eq('shop_id', sessionShopId);
 { data: cloudWaterBills },
 { data: cloudWaterPayments },
 { data: cloudWaterPaymentAllocations },
+{ data: cloudWaterSupplierBills },
+{ data: cloudWaterFundExpenses },
 { data: cloudServiceCharges },
 { data: cloudRentPayments },
-  { data: cloudCentralFundTransactions },
+{ data: cloudCentralFundTransactions },
 ] = await Promise.all([
   productsQuery,
   salesQuery,
@@ -1306,12 +1342,14 @@ rentPaymentsQuery = rentPaymentsQuery.eq('shop_id', sessionShopId);
   gasQuery,
   housesQuery,
   metersQuery,
-waterMetersQuery,
-waterBillsQuery,
-waterPaymentsQuery,
-waterPaymentAllocationsQuery,
-serviceChargesQuery,
-rentPaymentsQuery,
+  waterMetersQuery,
+  waterBillsQuery,
+  waterPaymentsQuery,
+  waterPaymentAllocationsQuery,
+  waterSupplierBillsQuery,
+  waterFundExpensesQuery,
+  serviceChargesQuery,
+  rentPaymentsQuery,
   centralFundTransactionsQuery,
 ]);
 
@@ -1429,6 +1467,42 @@ waterPaymentAllocations: (
   allocationOrder: Number(allocation?.allocationOrder || 1),
   created_at: allocation?.created_at || '',
 })),
+
+waterSupplierBills: (
+  cloudWaterSupplierBills || []
+).map((bill) => ({
+  id: bill?.id || '',
+  shop_id: String(bill?.shop_id || '').trim(),
+  supplierName: bill?.supplierName || 'DAWASCO',
+  billNumber: bill?.billNumber || '',
+  billDate: bill?.billDate || '',
+  dueDate: bill?.dueDate || '',
+  billingPeriodStart: bill?.billingPeriodStart || '',
+  billingPeriodEnd: bill?.billingPeriodEnd || '',
+  billAmount: Number(bill?.billAmount || 0),
+  status: bill?.status || 'Active',
+  notes: bill?.notes || '',
+  created_at: bill?.created_at || '',
+  updated_at: bill?.updated_at || '',
+})),
+
+waterFundExpenses: (
+  cloudWaterFundExpenses || []
+).map((expense) => ({
+  id: expense?.id || '',
+  shop_id: String(expense?.shop_id || '').trim(),
+  supplierBillId: expense?.supplierBillId || '',
+  expenseType: expense?.expenseType || 'Other',
+  expenseDate: expense?.expenseDate || '',
+  amount: Number(expense?.amount || 0),
+  payee: expense?.payee || '',
+  referenceNumber: expense?.referenceNumber || '',
+  status: expense?.status || 'Active',
+  notes: expense?.notes || '',
+  created_at: expense?.created_at || '',
+  updated_at: expense?.updated_at || '',
+})),
+
 serviceCharges: (cloudServiceCharges || []).map((s) => ({
     id: s?.id || '',
     shop_id: String(s?.shop_id || '').trim(),
@@ -12157,6 +12231,16 @@ const mergedWaterPaymentAllocations = mergeRowsById(
   loadedData.waterPaymentAllocations || []
 );
 
+const mergedWaterSupplierBills = mergeRowsById(
+  prev.waterSupplierBills || [],
+  loadedData.waterSupplierBills || []
+);
+
+const mergedWaterFundExpenses = mergeRowsById(
+  prev.waterFundExpenses || [],
+  loadedData.waterFundExpenses || []
+);
+
 const mergedServiceCharges = mergeRowsById(
   prev.serviceCharges || [],
   loadedData.serviceCharges || []
@@ -12200,6 +12284,8 @@ waterPaymentAllocations: Array.isArray(
 )
   ? loadedData.waterPaymentAllocations
   : prev.waterPaymentAllocations,
+waterSupplierBills: mergedWaterSupplierBills,
+waterFundExpenses: mergedWaterFundExpenses,
 serviceCharges: mergedServiceCharges,
         };
       });
