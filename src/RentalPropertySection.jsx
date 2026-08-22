@@ -1177,32 +1177,57 @@ const latestExistingReading = meters
       new Date(a.readingDate || a.created_at || 0).getTime()
   )[0];
 
-const previousOutstandingBalance =
-  canManuallySetPreviousReading
-    ? 0
-    : waterBills
-  .filter(
-    (bill) =>
-      String(bill.meterId || '') === String(meterRegistryId) &&
-      Number(bill.balance || 0) > 0
-  )
-  .reduce(
-    (total, bill) => total + Number(bill.balance || 0),
-    0
-  );
 
 const currentBillAmount = Number(meterPreviewTotal || 0);
 
+const {
+  data: existingSameDayWaterBill,
+  error: existingSameDayWaterBillError,
+} = await supabase
+  .from('waterBills')
+  .select('*')
+  .eq('shop_id', shopId)
+  .eq('meterId', meterRegistryId)
+  .eq('readingDate', meterForm.readingDate)
+  .maybeSingle();
+
+if (existingSameDayWaterBillError) {
+  alert(
+    `Water bill check failed: ${existingSameDayWaterBillError.message}`
+  );
+  return;
+}
+
+const existingAmountPaid = Number(
+  existingSameDayWaterBill?.amountPaid || 0
+);
+
+const correctedBillBalance = Math.max(
+  0,
+  currentBillAmount - existingAmountPaid
+);
+
+const correctedBillStatus =
+  existingAmountPaid > currentBillAmount
+    ? 'Credit'
+    : correctedBillBalance <= 0
+      ? 'Paid'
+      : existingAmountPaid > 0
+        ? 'Partially Paid'
+        : 'Unpaid';
+
 const waterBillRecord = {
-  id: `water-bill-${Date.now()}`,
+  id:
+    existingSameDayWaterBill?.id ||
+    `water-bill-${Date.now()}`,
   shop_id: shopId,
   meterId: meterRegistryId,
   houseNumber: meterForm.houseNumber,
   tenantName: selectedHouse?.tenantName || '',
   houseStatus: selectedHouse?.houseStatus || '',
   meterNumber: meterForm.meterNumber,
- billingPeriodStart:
-  meterForm.previousReadingDate || null,
+  billingPeriodStart:
+    meterForm.previousReadingDate || null,
   billingPeriodEnd: meterForm.readingDate
     ? addDaysISO(meterForm.readingDate, -1)
     : null,
@@ -1215,19 +1240,19 @@ const waterBillRecord = {
   ),
   discount: Number(meterForm.discount || 0),
   currentBillAmount,
-  previousBalance: previousOutstandingBalance,
-  totalPayable:
-    previousOutstandingBalance + currentBillAmount,
-  amountPaid: 0,
-  balance: currentBillAmount,
-  status: currentBillAmount > 0 ? 'Unpaid' : 'Paid',
+  previousBalance: 0,
+  totalPayable: currentBillAmount,
+  amountPaid: existingAmountPaid,
+  balance: correctedBillBalance,
+  status: correctedBillStatus,
   dueDate: meterPreviewNextReading || null,
   nextReadingDate: meterPreviewNextReading || null,
   notes: meterForm.notes || '',
-  created_at: new Date().toISOString(),
+  created_at:
+    existingSameDayWaterBill?.created_at ||
+    new Date().toISOString(),
   updated_at: new Date().toISOString(),
 };
-
 const record = {
   id: meterForm.id || `meter-${Date.now()}`,
   houseNumber: meterForm.houseNumber,
@@ -1264,7 +1289,14 @@ const record = {
     )
   : [permanentMeterRecord, ...waterMeters];
 
-const updatedWaterBills = [waterBillRecord, ...waterBills];
+const updatedWaterBills = existingSameDayWaterBill
+  ? waterBills.map((bill) =>
+      String(bill.id || '') ===
+      String(existingSameDayWaterBill.id || '')
+        ? waterBillRecord
+        : bill
+    )
+  : [waterBillRecord, ...waterBills];
 
 saveData({
   ...data,
@@ -1320,7 +1352,10 @@ if (waterMeterError) {
 
 const { error: waterBillError } = await supabase
   .from('waterBills')
-  .insert([waterBillRecord]);
+  .upsert(
+    [waterBillRecord],
+    { onConflict: 'id' }
+  );
 
 if (waterBillError) {
   alert(
