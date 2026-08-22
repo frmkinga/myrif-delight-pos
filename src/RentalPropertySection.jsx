@@ -316,7 +316,8 @@ const hasExistingMeter = Boolean(
           String(meterForm.meterNumber || '')
     )
 );
-
+const canManuallySetPreviousReading =
+  !selectedPermanentMeter?.lastReadingDate;
 const selectedMeterOutstandingBalance = waterBills
   .filter(
     (bill) =>
@@ -663,9 +664,9 @@ const permanentMeterRecord = {
   meterNumber: meterForm.meterNumber,
   meterType: meterForm.meterType || 'Water',
   costPerUnit: Number(meterForm.costPerUnit || WATER_UNIT_PRICE),
-  openingReading: registeredMeter
-    ? Number(registeredMeter.openingReading || 0)
-    : Number(meterForm.previousUnits || 0),
+openingReading: registeredMeter?.lastReadingDate
+  ? Number(registeredMeter.openingReading || 0)
+  : Number(meterForm.previousUnits || 0),
   lastReading: Number(meterForm.currentUnits || 0),
   lastReadingDate: meterForm.readingDate || null,
   nextReadingDate: meterPreviewNextReading || null,
@@ -3267,7 +3268,7 @@ return (
     onChange={(e) =>
       setMeterForm((p) => ({
         ...p,
-        meterNumber: e.target.value,
+        meterNumber: e.target.value.toUpperCase().replace(/\s+/g, ''),
       }))
     }
   />
@@ -3489,21 +3490,26 @@ const previousMeterReading = selectedPermanentMeter
 <div className="self-start rounded-2xl border border-slate-200 bg-slate-50 p-4">
   <Input
     label={
-      hasExistingMeter
-        ? t(
-            language,
-            'Previous Reading (Automatic)',
-            'Usomaji Uliopita (Automatic)'
-          )
-        : t(
-    language,
-    'Previous Reading (Manual)',
-    'Usomaji Uliopita (Weka Mwenyewe)'
-  )
-    }
+  canManuallySetPreviousReading
+    ? t(
+        language,
+        'Previous Reading (Set Once)',
+        'Usomaji Uliopita (Weka Mara Moja)'
+      )
+    : t(
+        language,
+        'Previous Reading (Automatic)',
+        'Usomaji Uliopita (Automatic)'
+      )
+}
     type="number"
-    value={meterForm.previousUnits}
-    className="bg-white font-semibold text-slate-800"
+value={meterForm.previousUnits}
+readOnly={!canManuallySetPreviousReading}
+className={
+  canManuallySetPreviousReading
+    ? 'bg-white font-semibold text-slate-800'
+    : 'cursor-not-allowed bg-slate-200 font-semibold text-slate-800'
+}
     placeholder={t(
       language,
       'Enter the first meter reading',
@@ -3518,17 +3524,17 @@ const previousMeterReading = selectedPermanentMeter
   />
 
   <p className="mt-2 text-xs text-slate-500">
-    {hasExistingMeter
-      ? t(
-          language,
-          'Retrieved from the latest saved reading.',
-          'Imechukuliwa kutoka kwenye usomaji wa mwisho uliohifadhiwa.'
-        )
-      : t(
-          language,
-          'Required only when registering the meter for the first time.',
-          'Inahitajika mara moja tu wakati wa kusajili mita kwa mara ya kwanza.'
-        )}
+    {canManuallySetPreviousReading
+  ? t(
+      language,
+      'Enter the reading found on the physical meter. This can be set only once.',
+      'Weka usomaji uliokutwa kwenye mita halisi. Hii itawekwa mara moja tu.'
+    )
+  : t(
+      language,
+      'Retrieved automatically from the latest confirmed reading.',
+      'Imechukuliwa moja kwa moja kutoka kwenye usomaji wa mwisho uliothibitishwa.'
+    )}
   </p>
 </div>
 

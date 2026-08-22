@@ -12191,8 +12191,14 @@ waterMeters: Array.isArray(loadedData.waterMeters)
 waterBills: Array.isArray(loadedData.waterBills)
   ? loadedData.waterBills
   : prev.waterBills,
-waterPayments: mergedWaterPayments,
-waterPaymentAllocations: mergedWaterPaymentAllocations,
+waterPayments: Array.isArray(loadedData.waterPayments)
+  ? loadedData.waterPayments
+  : prev.waterPayments,
+waterPaymentAllocations: Array.isArray(
+  loadedData.waterPaymentAllocations
+)
+  ? loadedData.waterPaymentAllocations
+  : prev.waterPaymentAllocations,
 serviceCharges: mergedServiceCharges,
         };
       });
