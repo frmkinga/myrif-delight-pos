@@ -63,8 +63,9 @@ const emptyMeterForm = {
   paymentReceived: 'No',
   paymentDate: '',
   amountReceived: '',
-  previousUnits: '',
-  currentUnits: '',
+  previousReadingDate: '',
+previousUnits: '',
+currentUnits: '',
   costPerUnit: String(WATER_UNIT_PRICE),
   discount: '',
   nextReadingDate: '',
@@ -317,8 +318,11 @@ const hasExistingMeter = Boolean(
     )
 );
 const canManuallySetPreviousReading =
-  !selectedPermanentMeter?.lastReadingDate;
-const selectedMeterOutstandingBalance = waterBills
+  selectedPermanentMeter?.baselineConfirmed !== true;
+const selectedMeterOutstandingBalance =
+  canManuallySetPreviousReading
+    ? 0
+    : waterBills
   .filter(
     (bill) =>
       (
@@ -538,7 +542,9 @@ const saveHouse = async () => {
   if (
     !meterForm.houseNumber ||
     !meterForm.meterNumber ||
-    meterForm.previousUnits === '' ||
+!meterForm.previousReadingDate ||
+!meterForm.readingDate ||
+meterForm.previousUnits === '' ||
 meterForm.currentUnits === ''
   ) {
     alert(
@@ -554,6 +560,22 @@ meterForm.currentUnits === ''
     );
     return;
   }
+
+  
+if (
+  meterForm.previousReadingDate &&
+  meterForm.readingDate &&
+  meterForm.previousReadingDate > meterForm.readingDate
+) {
+  alert(
+    t(
+      language,
+      'Previous reading date cannot be later than the current reading date.',
+      'Tarehe ya usomaji uliopita haiwezi kuwa baada ya tarehe ya usomaji wa sasa.'
+    )
+  );
+  return;
+}
 
   if (
   Number(meterForm.currentUnits) <
@@ -670,8 +692,9 @@ openingReading: registeredMeter?.lastReadingDate
   lastReading: Number(meterForm.currentUnits || 0),
   lastReadingDate: meterForm.readingDate || null,
   nextReadingDate: meterPreviewNextReading || null,
-  active: true,
-  notes: meterForm.notes || '',
+ active: true,
+baselineConfirmed: true,
+notes: meterForm.notes || '',
   created_at:
     registeredMeter?.created_at || new Date().toISOString(),
   updated_at: new Date().toISOString(),
@@ -691,7 +714,10 @@ const latestExistingReading = meters
       new Date(a.readingDate || a.created_at || 0).getTime()
   )[0];
 
-const previousOutstandingBalance = waterBills
+const previousOutstandingBalance =
+  canManuallySetPreviousReading
+    ? 0
+    : waterBills
   .filter(
     (bill) =>
       String(bill.meterId || '') === String(meterRegistryId) &&
@@ -712,10 +738,8 @@ const waterBillRecord = {
   tenantName: selectedHouse?.tenantName || '',
   houseStatus: selectedHouse?.houseStatus || '',
   meterNumber: meterForm.meterNumber,
-  billingPeriodStart:
-    registeredMeter?.lastReadingDate ||
-    latestExistingReading?.readingDate ||
-    null,
+ billingPeriodStart:
+  meterForm.previousReadingDate || null,
   billingPeriodEnd: meterForm.readingDate
     ? addDaysISO(meterForm.readingDate, -1)
     : null,
@@ -1478,7 +1502,9 @@ const startNewMeterReading = (row) => {
     paymentReceived: 'No',
     paymentDate: '',
     amountReceived: '',
-    previousUnits: String(row.lastReading ?? row.currentUnits ?? ''),
+previousReadingDate:
+  row.lastReadingDate || row.readingDate || '',
+previousUnits: String(row.lastReading ?? row.currentUnits ?? ''),
     currentUnits: '',
     costPerUnit: String(row.costPerUnit ?? WATER_UNIT_PRICE),
     discount: '',
@@ -1493,16 +1519,19 @@ const startNewMeterReading = (row) => {
   const dueSoon = houses.filter((h) => h.nextPaymentDate && daysBetween(today, h.nextPaymentDate) !== null && daysBetween(today, h.nextPaymentDate) >= 0 && daysBetween(today, h.nextPaymentDate) <= 7);
   const overdue = houses.filter((h) => h.nextPaymentDate && daysBetween(today, h.nextPaymentDate) < 0 && h.houseStatus === 'Occupied');
  const meterReminderSource = waterMeters.filter(
-  (meter) => meter.active !== false
+  (meter) =>
+    meter.active !== false &&
+    meter.baselineConfirmed === true
 );
 
 const housesWithoutMeters = houses.filter(
   (house) =>
     house.houseStatus === 'Occupied' &&
-    !meterReminderSource.some(
+    !waterMeters.some(
       (meter) =>
+        meter.active !== false &&
         String(meter.houseNumber || '').trim().toLowerCase() ===
-        String(house.houseNumber || '').trim().toLowerCase()
+          String(house.houseNumber || '').trim().toLowerCase()
     )
 );
 
@@ -1535,19 +1564,6 @@ const metersNeedingAttention = [
   ...readingOverdue.map((meter) => ({
     ...meter,
     attentionType: 'overdue',
-  })),
-  ...housesWithoutMeters.map((house) => ({
-    id: `missing-meter-${house.id}`,
-    houseNumber: house.houseNumber,
-    meterNumber: '',
-    lastReading: null,
-    lastReadingDate: null,
-    nextReadingDate: null,
-    attentionType: 'missingMeter',
-  })),
-  ...metersWithoutReadings.map((meter) => ({
-    ...meter,
-    attentionType: 'noReading',
   })),
   ...readingSoon.map((meter) => ({
     ...meter,
@@ -3174,9 +3190,10 @@ const latestMeter = permanentMeter
   readingDate: todayISO(),
   paymentReceived: 'No',
   paymentDate: '',
-  amountReceived: '',
-  previousUnits:
-    latestMeter?.currentUnits !== undefined &&
+ amountReceived: '',
+previousReadingDate: latestMeter?.readingDate || '',
+previousUnits:
+  latestMeter?.currentUnits !== undefined &&
     latestMeter?.currentUnits !== null
       ? String(latestMeter.currentUnits)
       : '',
@@ -3324,7 +3341,9 @@ const previousMeterReading = selectedPermanentMeter
   : latestLegacyReading;
 
   const billingPeriodStart =
-    previousMeterReading?.readingDate || '';
+  meterForm.previousReadingDate ||
+  previousMeterReading?.readingDate ||
+  '';
 
   const billingPeriodEnd = meterForm.readingDate
     ? addDaysISO(meterForm.readingDate, -1)
@@ -3488,6 +3507,37 @@ const previousMeterReading = selectedPermanentMeter
 >
 
 <div className="self-start rounded-2xl border border-slate-200 bg-slate-50 p-4">
+    <Input
+    label={
+      canManuallySetPreviousReading
+        ? t(
+            language,
+            'Previous Reading Date (Set Once)',
+            'Tarehe ya Usomaji Uliopita (Weka Mara Moja)'
+          )
+        : t(
+            language,
+            'Previous Reading Date (Automatic)',
+            'Tarehe ya Usomaji Uliopita (Automatic)'
+          )
+    }
+    type="date"
+    max={meterForm.readingDate || undefined}
+    value={meterForm.previousReadingDate || ''}
+    readOnly={!canManuallySetPreviousReading}
+    className={
+      canManuallySetPreviousReading
+        ? 'mb-4 bg-white font-semibold text-slate-800'
+        : 'mb-4 cursor-not-allowed bg-slate-200 font-semibold text-slate-800'
+    }
+    onChange={(e) =>
+      setMeterForm((p) => ({
+        ...p,
+        previousReadingDate: e.target.value,
+      }))
+    }
+  />
+
   <Input
     label={
   canManuallySetPreviousReading
@@ -3993,7 +4043,12 @@ className={
       meterType: row.meterType || 'Water',
       meterNumber: row.meterNumber || '',
       readingDate: row.readingDate || todayISO(),
-      previousUnits: String(row.previousUnits ?? ''),
+previousReadingDate:
+  row.billingPeriodStart ||
+  row.previousReadingDate ||
+  row.readingDate ||
+  '',
+previousUnits: String(row.previousUnits ?? ''),
       currentUnits: String(row.currentUnits ?? ''),
       costPerUnit: String(row.costPerUnit ?? WATER_UNIT_PRICE),
       discount: String(row.discount ?? ''),
@@ -4390,7 +4445,13 @@ return (
                 meter.nextReadingDate
               );
 
-              return days !== null && days >= 0 && days <= 7;
+              return (
+  meter.active !== false &&
+  meter.baselineConfirmed === true &&
+  days !== null &&
+  days >= 0 &&
+  days <= 7
+);
             }).length
           }
         </p>
@@ -4412,7 +4473,12 @@ return (
                 meter.nextReadingDate
               );
 
-              return days !== null && days < 0;
+              return (
+  meter.active !== false &&
+  meter.baselineConfirmed === true &&
+  days !== null &&
+  days < 0
+);
             }).length
           }
         </p>
@@ -4476,12 +4542,24 @@ return (
                 );
 
                 const readingDays = daysBetween(
-                  todayISO(),
-                  meter.nextReadingDate
-                );
+  todayISO(),
+  meter.nextReadingDate
+);
+
+const hasConfirmedBaseline =
+  meter.baselineConfirmed === true;
 
                 const readingStatus =
-                  readingDays === null
+  !hasConfirmedBaseline
+    ? {
+        label: t(
+          language,
+          'Waiting for starting reading',
+          'Inasubiri usomaji wa kuanzia'
+        ),
+        className: 'bg-slate-100 text-slate-700',
+      }
+    : readingDays === null
                     ? {
                         label: t(
                           language,
@@ -4628,9 +4706,11 @@ return (
                               'Usomaji Unaofuata'
                             )}
                           </p>
-                          <p className="font-medium text-slate-800">
-                            {meter.nextReadingDate || '-'}
-                          </p>
+                         <p className="font-medium text-slate-800">
+  {hasConfirmedBaseline
+    ? meter.nextReadingDate || '-'
+    : '-'}
+</p>
                         </div>
                       </div>
 
