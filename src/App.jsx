@@ -1025,6 +1025,16 @@ waterSupplierBills: [],
 waterFundExpenses: [],
 serviceCharges: [],
 rentPayments: [],
+rentalTenants: [],
+propertyOccupancies: [],
+rentalTenancies: [],
+rentInvoices: [],
+rentalPayments: [],
+rentPaymentAllocations: [],
+rentalExpenses: [],
+rentRecordCorrections: [],
+rentSmsReminders: [],
+rentSmsAttempts: [],
   centralFundTransactions: [],
 };
 
@@ -1136,7 +1146,37 @@ serviceCharges: Array.isArray(parsed.serviceCharges)
   : [],
 rentPayments: Array.isArray(parsed.rentPayments)
   ? parsed.rentPayments
-  : [], 
+  : [],
+rentalTenants: Array.isArray(parsed.rentalTenants)
+  ? parsed.rentalTenants
+  : [],
+propertyOccupancies: Array.isArray(parsed.propertyOccupancies)
+  ? parsed.propertyOccupancies
+  : [],
+rentalTenancies: Array.isArray(parsed.rentalTenancies)
+  ? parsed.rentalTenancies
+  : [],
+rentInvoices: Array.isArray(parsed.rentInvoices)
+  ? parsed.rentInvoices
+  : [],
+rentalPayments: Array.isArray(parsed.rentalPayments)
+  ? parsed.rentalPayments
+  : [],
+rentPaymentAllocations: Array.isArray(parsed.rentPaymentAllocations)
+  ? parsed.rentPaymentAllocations
+  : [],
+rentalExpenses: Array.isArray(parsed.rentalExpenses)
+  ? parsed.rentalExpenses
+  : [],
+rentRecordCorrections: Array.isArray(parsed.rentRecordCorrections)
+  ? parsed.rentRecordCorrections
+  : [],
+rentSmsReminders: Array.isArray(parsed.rentSmsReminders)
+  ? parsed.rentSmsReminders
+  : [],
+rentSmsAttempts: Array.isArray(parsed.rentSmsAttempts)
+  ? parsed.rentSmsAttempts
+  : [],
 
     centralFundTransactions: Array.isArray(
       parsed.centralFundTransactions
@@ -1188,6 +1228,16 @@ waterFundExpenses: (
 ).filter(sameShop),
 serviceCharges: (data.serviceCharges || []).filter(sameShop),
 rentPayments: (data.rentPayments || []).filter(sameShop),
+rentalTenants: (data.rentalTenants || []).filter(sameShop),
+propertyOccupancies: (data.propertyOccupancies || []).filter(sameShop),
+rentalTenancies: (data.rentalTenancies || []).filter(sameShop),
+rentInvoices: (data.rentInvoices || []).filter(sameShop),
+rentalPayments: (data.rentalPayments || []).filter(sameShop),
+rentPaymentAllocations: (data.rentPaymentAllocations || []).filter(sameShop),
+rentalExpenses: (data.rentalExpenses || []).filter(sameShop),
+rentRecordCorrections: (data.rentRecordCorrections || []).filter(sameShop),
+rentSmsReminders: (data.rentSmsReminders || []).filter(sameShop),
+rentSmsAttempts: (data.rentSmsAttempts || []).filter(sameShop),
   });
 }
 
@@ -1266,6 +1316,16 @@ let waterFundExpensesQuery = supabase
 
 let serviceChargesQuery = supabase.from('servicecharges').select('*');
 let rentPaymentsQuery = supabase.from('rentPayments').select('*');
+let rentalTenantsQuery = supabase.from('rentalTenants').select('*');
+let propertyOccupanciesQuery = supabase.from('propertyOccupancies').select('*');
+let rentalTenanciesQuery = supabase.from('rentalTenancies').select('*');
+let rentInvoicesQuery = supabase.from('rentInvoices').select('*');
+let rentalPaymentsQuery = supabase.from('rentalPayments').select('*');
+let rentPaymentAllocationsQuery = supabase.from('rentPaymentAllocations').select('*');
+let rentalExpensesQuery = supabase.from('rentalExpenses').select('*');
+let rentRecordCorrectionsQuery = supabase.from('rentRecordCorrections').select('*');
+let rentSmsRemindersQuery = supabase.from('rentSmsReminders').select('*');
+let rentSmsAttemptsQuery = supabase.from('rentSmsAttempts').select('*');
 
 let centralFundTransactionsQuery = supabase
   .from('centralFundTransactions')
@@ -1305,6 +1365,16 @@ waterFundExpensesQuery = waterFundExpensesQuery.eq(
 
 serviceChargesQuery = serviceChargesQuery.eq('shop_id', sessionShopId);
 rentPaymentsQuery = rentPaymentsQuery.eq('shop_id', sessionShopId);
+rentalTenantsQuery = rentalTenantsQuery.eq('shop_id', sessionShopId);
+propertyOccupanciesQuery = propertyOccupanciesQuery.eq('shop_id', sessionShopId);
+rentalTenanciesQuery = rentalTenanciesQuery.eq('shop_id', sessionShopId);
+rentInvoicesQuery = rentInvoicesQuery.eq('shop_id', sessionShopId);
+rentalPaymentsQuery = rentalPaymentsQuery.eq('shop_id', sessionShopId);
+rentPaymentAllocationsQuery = rentPaymentAllocationsQuery.eq('shop_id', sessionShopId);
+rentalExpensesQuery = rentalExpensesQuery.eq('shop_id', sessionShopId);
+rentRecordCorrectionsQuery = rentRecordCorrectionsQuery.eq('shop_id', sessionShopId);
+rentSmsRemindersQuery = rentSmsRemindersQuery.eq('shop_id', sessionShopId);
+rentSmsAttemptsQuery = rentSmsAttemptsQuery.eq('shop_id', sessionShopId);
 }
 
         const [
@@ -1328,6 +1398,16 @@ rentPaymentsQuery = rentPaymentsQuery.eq('shop_id', sessionShopId);
 { data: cloudWaterFundExpenses },
 { data: cloudServiceCharges },
 { data: cloudRentPayments },
+{ data: cloudRentalTenants },
+{ data: cloudPropertyOccupancies },
+{ data: cloudRentalTenancies },
+{ data: cloudRentInvoices },
+{ data: cloudRentalPayments },
+{ data: cloudRentPaymentAllocations },
+{ data: cloudRentalExpenses },
+{ data: cloudRentRecordCorrections },
+{ data: cloudRentSmsReminders },
+{ data: cloudRentSmsAttempts },
 { data: cloudCentralFundTransactions },
 ] = await Promise.all([
   productsQuery,
@@ -1350,6 +1430,16 @@ rentPaymentsQuery = rentPaymentsQuery.eq('shop_id', sessionShopId);
   waterFundExpensesQuery,
   serviceChargesQuery,
   rentPaymentsQuery,
+  rentalTenantsQuery,
+  propertyOccupanciesQuery,
+  rentalTenanciesQuery,
+  rentInvoicesQuery,
+  rentalPaymentsQuery,
+  rentPaymentAllocationsQuery,
+  rentalExpensesQuery,
+  rentRecordCorrectionsQuery,
+  rentSmsRemindersQuery,
+  rentSmsAttemptsQuery,
   centralFundTransactionsQuery,
 ]);
 
@@ -1535,6 +1625,125 @@ serviceCharges: (cloudServiceCharges || []).map((s) => ({
     balance: Number(p?.balance || 0),
     source: p?.source || '',
     created_at: p?.created_at || '',
+  })),
+
+  rentalTenants: (cloudRentalTenants || []).map((row) => ({
+    ...row,
+    shop_id: String(row?.shop_id || '').trim(),
+    fullName: row?.fullName || '',
+    phoneNumber: row?.phoneNumber || '',
+    smsConsent: row?.smsConsent !== false,
+    active: row?.active !== false,
+  })),
+
+  propertyOccupancies: (cloudPropertyOccupancies || []).map((row) => ({
+    ...row,
+    shop_id: String(row?.shop_id || '').trim(),
+    houseId: row?.houseId || '',
+    tenantId: row?.tenantId || '',
+    occupantName: row?.occupantName || '',
+    occupancyType: row?.occupancyType || 'Vacant',
+    startDate: row?.startDate || '',
+    endDate: row?.endDate || '',
+    active: row?.active !== false,
+  })),
+
+  rentalTenancies: (cloudRentalTenancies || []).map((row) => ({
+    ...row,
+    shop_id: String(row?.shop_id || '').trim(),
+    houseId: row?.houseId || '',
+    tenantId: row?.tenantId || '',
+    occupancyId: row?.occupancyId || '',
+    startDate: row?.startDate || '',
+    endDate: row?.endDate || '',
+    monthlyRentAmount: Number(row?.monthlyRentAmount || 0),
+    paidThroughDate: row?.paidThroughDate || '',
+    nextPaymentDate: row?.nextPaymentDate || '',
+    status: row?.status || 'Active',
+    smsRemindersEnabled: row?.smsRemindersEnabled !== false,
+  })),
+
+  rentInvoices: (cloudRentInvoices || []).map((row) => ({
+    ...row,
+    shop_id: String(row?.shop_id || '').trim(),
+    tenancyId: row?.tenancyId || '',
+    houseId: row?.houseId || '',
+    tenantId: row?.tenantId || '',
+    periodStart: row?.periodStart || '',
+    periodEnd: row?.periodEnd || '',
+    issueDate: row?.issueDate || '',
+    dueDate: row?.dueDate || '',
+    monthsCovered: Number(row?.monthsCovered || 0),
+    invoiceAmount: Number(row?.invoiceAmount || 0),
+    amountPaid: Number(row?.amountPaid || 0),
+    balance: Number(row?.balance || 0),
+    status: row?.status || 'Unpaid',
+    invoiceNumber: row?.invoiceNumber || '',
+  })),
+
+  rentalPayments: (cloudRentalPayments || []).map((row) => ({
+    ...row,
+    shop_id: String(row?.shop_id || '').trim(),
+    tenancyId: row?.tenancyId || '',
+    houseId: row?.houseId || '',
+    tenantId: row?.tenantId || '',
+    paymentDate: row?.paymentDate || '',
+    amountReceived: Number(row?.amountReceived || 0),
+    allocatedAmount: Number(row?.allocatedAmount || 0),
+    creditAmount: Number(row?.creditAmount || 0),
+    receiptNumber: row?.receiptNumber || '',
+    paymentMethod: row?.paymentMethod || 'Cash',
+    status: row?.status || 'Active',
+  })),
+
+  rentPaymentAllocations: (cloudRentPaymentAllocations || []).map((row) => ({
+    ...row,
+    shop_id: String(row?.shop_id || '').trim(),
+    paymentId: row?.paymentId || '',
+    invoiceId: row?.invoiceId || '',
+    amount: Number(row?.amount || 0),
+    status: row?.status || 'Active',
+  })),
+
+  rentalExpenses: (cloudRentalExpenses || []).map((row) => ({
+    ...row,
+    shop_id: String(row?.shop_id || '').trim(),
+    houseId: row?.houseId || '',
+    expenseDate: row?.expenseDate || '',
+    expenseType: row?.expenseType || '',
+    amount: Number(row?.amount || 0),
+    status: row?.status || 'Active',
+  })),
+
+  rentRecordCorrections: (cloudRentRecordCorrections || []).map((row) => ({
+    ...row,
+    shop_id: String(row?.shop_id || '').trim(),
+    recordType: row?.recordType || '',
+    recordId: row?.recordId || '',
+    actionType: row?.actionType || '',
+  })),
+
+  rentSmsReminders: (cloudRentSmsReminders || []).map((row) => ({
+    ...row,
+    shop_id: String(row?.shop_id || '').trim(),
+    tenancyId: row?.tenancyId || '',
+    tenantId: row?.tenantId || '',
+    houseId: row?.houseId || '',
+    phoneNumber: row?.phoneNumber || '',
+    dueDate: row?.dueDate || '',
+    reminderStage: row?.reminderStage || '',
+    scheduledDate: row?.scheduledDate || '',
+    message: row?.message || '',
+    status: row?.status || 'Pending',
+    preferredChannel: row?.preferredChannel || 'SMSGate',
+  })),
+
+  rentSmsAttempts: (cloudRentSmsAttempts || []).map((row) => ({
+    ...row,
+    shop_id: String(row?.shop_id || '').trim(),
+    reminderId: row?.reminderId || '',
+    channel: row?.channel || 'SMSGate',
+    status: row?.status || 'Processing',
   })),
 
   centralFundTransactions: (
@@ -1735,6 +1944,16 @@ const normalized = normalizeData({
   monthlyWakalaCommissions: raw.monthlyWakalaCommissions || [],
   gasEntries: separateGas || raw.gasEntries,
   rentPayments: raw.rentPayments || [],
+  rentalTenants: raw.rentalTenants || [],
+  propertyOccupancies: raw.propertyOccupancies || [],
+  rentalTenancies: raw.rentalTenancies || [],
+  rentInvoices: raw.rentInvoices || [],
+  rentalPayments: raw.rentalPayments || [],
+  rentPaymentAllocations: raw.rentPaymentAllocations || [],
+  rentalExpenses: raw.rentalExpenses || [],
+  rentRecordCorrections: raw.rentRecordCorrections || [],
+  rentSmsReminders: raw.rentSmsReminders || [],
+  rentSmsAttempts: raw.rentSmsAttempts || [],
 });
 
       await writeToDB(DB_DATA_KEY, normalized);
@@ -12249,6 +12468,56 @@ const mergedServiceCharges = mergeRowsById(
   loadedData.serviceCharges || []
 );
 
+const mergedRentalTenants = mergeRowsById(
+  prev.rentalTenants || [],
+  loadedData.rentalTenants || []
+);
+
+const mergedPropertyOccupancies = mergeRowsById(
+  prev.propertyOccupancies || [],
+  loadedData.propertyOccupancies || []
+);
+
+const mergedRentalTenancies = mergeRowsById(
+  prev.rentalTenancies || [],
+  loadedData.rentalTenancies || []
+);
+
+const mergedRentInvoices = mergeRowsById(
+  prev.rentInvoices || [],
+  loadedData.rentInvoices || []
+);
+
+const mergedRentalPayments = mergeRowsById(
+  prev.rentalPayments || [],
+  loadedData.rentalPayments || []
+);
+
+const mergedRentPaymentAllocations = mergeRowsById(
+  prev.rentPaymentAllocations || [],
+  loadedData.rentPaymentAllocations || []
+);
+
+const mergedRentalExpenses = mergeRowsById(
+  prev.rentalExpenses || [],
+  loadedData.rentalExpenses || []
+);
+
+const mergedRentRecordCorrections = mergeRowsById(
+  prev.rentRecordCorrections || [],
+  loadedData.rentRecordCorrections || []
+);
+
+const mergedRentSmsReminders = mergeRowsById(
+  prev.rentSmsReminders || [],
+  loadedData.rentSmsReminders || []
+);
+
+const mergedRentSmsAttempts = mergeRowsById(
+  prev.rentSmsAttempts || [],
+  loadedData.rentSmsAttempts || []
+);
+
         return {
           ...prev,
           ...loadedData,
@@ -12290,6 +12559,16 @@ waterPaymentAllocations: Array.isArray(
 waterSupplierBills: mergedWaterSupplierBills,
 waterFundExpenses: mergedWaterFundExpenses,
 serviceCharges: mergedServiceCharges,
+rentalTenants: mergedRentalTenants,
+propertyOccupancies: mergedPropertyOccupancies,
+rentalTenancies: mergedRentalTenancies,
+rentInvoices: mergedRentInvoices,
+rentalPayments: mergedRentalPayments,
+rentPaymentAllocations: mergedRentPaymentAllocations,
+rentalExpenses: mergedRentalExpenses,
+rentRecordCorrections: mergedRentRecordCorrections,
+rentSmsReminders: mergedRentSmsReminders,
+rentSmsAttempts: mergedRentSmsAttempts,
         };
       });
     };

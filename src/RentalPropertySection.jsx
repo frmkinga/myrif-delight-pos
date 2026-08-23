@@ -4,6 +4,23 @@ import { supabase } from './supabaseClient';
 const currency = (value) =>
   new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(Number(value || 0));
 
+const formatPersonName = (value) =>
+  String(value || '')
+    .toLowerCase()
+    .replace(
+      /(^|[\s'-])\p{L}/gu,
+      (letter) => letter.toUpperCase()
+    );
+const cleanAmountInput = (value) =>
+  String(value || '').replace(/[^\d]/g, '');
+
+const formatAmountInput = (value) => {
+  const cleanValue = cleanAmountInput(value);
+
+  return cleanValue
+    ? Number(cleanValue).toLocaleString('en-US')
+    : '';
+};
 const todayISO = () => {
   const d = new Date();
   const year = d.getFullYear();
@@ -81,6 +98,66 @@ const emptyHouseForm = {
   paymentType: 'Full',
   houseStatus: 'Occupied',
   itemsIssued: '',
+};
+
+const emptyRentalRegistrationForm = {
+  houseId: '',
+  occupancyType: 'Rent Paying Tenant',
+  tenantName: '',
+  phoneNumber: '',
+  occupation: '',
+  emergencyContactName: '',
+  emergencyContactPhone: '',
+  paymentDate: todayISO(),
+  startDate: addDaysISO(todayISO(), 1),
+  monthlyRentAmount: '',
+  amountReceived: '',
+  paidThroughDate: '',
+  smsRemindersEnabled: true,
+  notes: '',
+};
+const emptyRentalTenantEditForm = {
+  tenantId: '',
+  fullName: '',
+  phoneNumber: '',
+  occupation: '',
+  emergencyContactName: '',
+  emergencyContactPhone: '',
+  smsConsent: true,
+  notes: '',
+};
+const emptyRentalPaymentForm = {
+  tenancyId: '',
+  amountReceived: '',
+  paymentDate: todayISO(),
+  paymentMethod: 'Cash',
+  notes: '',
+};
+const emptyRentalPaymentCorrectionForm = {
+  paymentId: '',
+  correctedAmount: '',
+  correctedPaymentDate: todayISO(),
+  reason: '',
+};
+const emptyRentalCorrectionForm = {
+  tenancyId: '',
+  tenantName: '',
+  phoneNumber: '',
+  startDate: '',
+  monthlyRentAmount: '',
+  paidThroughDate: '',
+  smsRemindersEnabled: true,
+  reason: '',
+};
+
+const emptyRentalExpenseForm = {
+  houseId: '',
+  expenseDate: todayISO(),
+  expenseType: 'Repair',
+  description: '',
+  amount: '',
+  payee: '',
+  referenceNumber: '',
 };
 
 const emptyMeterForm = {
@@ -205,6 +282,8 @@ function PreviewValue({ label, value }) {
 
 export default function RentalPropertySectionPreview({ language = 'sw', setLanguage, data, saveData }) {
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeRentSection, setActiveRentSection] = useState('summary');
+  const [activeRentReport, setActiveRentReport] = useState('');
   const [activeWaterSection, setActiveWaterSection] = useState('summary');
 const [showWaterOptionalFields, setShowWaterOptionalFields] = useState(false);
 
@@ -248,6 +327,120 @@ const serviceCharges = Array.isArray(data?.serviceCharges)
 const rentPayments = Array.isArray(data?.rentPayments)
   ? data.rentPayments
   : [];
+
+const rentalTenants = Array.isArray(data?.rentalTenants)
+  ? data.rentalTenants
+  : [];
+
+const propertyOccupancies = Array.isArray(data?.propertyOccupancies)
+  ? data.propertyOccupancies
+  : [];
+
+const rentalTenancies = Array.isArray(data?.rentalTenancies)
+  ? data.rentalTenancies
+  : [];
+
+const rentInvoices = Array.isArray(data?.rentInvoices)
+  ? data.rentInvoices
+  : [];
+
+const rentalPayments = Array.isArray(data?.rentalPayments)
+  ? data.rentalPayments
+  : [];
+
+const rentPaymentAllocations = Array.isArray(data?.rentPaymentAllocations)
+  ? data.rentPaymentAllocations
+  : [];
+
+const rentalExpenses = Array.isArray(data?.rentalExpenses)
+  ? data.rentalExpenses
+  : [];
+
+const rentRecordCorrections = Array.isArray(data?.rentRecordCorrections)
+  ? data.rentRecordCorrections
+  : [];
+
+const rentSmsReminders = Array.isArray(data?.rentSmsReminders)
+  ? data.rentSmsReminders
+  : [];
+
+const rentSmsAttempts = Array.isArray(data?.rentSmsAttempts)
+  ? data.rentSmsAttempts
+  : [];
+
+  const [
+    rentalRegistrationForm,
+    setRentalRegistrationForm,
+  ] = useState({
+    ...emptyRentalRegistrationForm,
+  });
+
+  const [
+    rentalTenantEditForm,
+    setRentalTenantEditForm,
+  ] = useState({
+    ...emptyRentalTenantEditForm,
+  });
+
+  const [rentalPaymentForm, setRentalPaymentForm] = useState({
+    ...emptyRentalPaymentForm,
+  });
+  const [
+    rentalPaymentCorrectionForm,
+    setRentalPaymentCorrectionForm,
+  ] = useState({
+    ...emptyRentalPaymentCorrectionForm,
+  });
+  const [rentalExpenseForm, setRentalExpenseForm] = useState({
+    ...emptyRentalExpenseForm,
+  });
+
+  const [rentalCorrectionForm, setRentalCorrectionForm] = useState({
+    ...emptyRentalCorrectionForm,
+  });
+
+  const [isRentalRegistrationOpen, setIsRentalRegistrationOpen] =
+    useState(false);
+
+  const [isRentalTenantEditOpen, setIsRentalTenantEditOpen] =
+    useState(false);
+
+  const [isRentalPaymentOpen, setIsRentalPaymentOpen] =
+    useState(false);
+  const [
+    isRentalPaymentCorrectionOpen,
+    setIsRentalPaymentCorrectionOpen,
+  ] = useState(false);
+  const [isRentalExpenseOpen, setIsRentalExpenseOpen] =
+    useState(false);
+
+  const [isRentalCorrectionOpen, setIsRentalCorrectionOpen] =
+    useState(false);
+
+  const [rentSmsTestPhone, setRentSmsTestPhone] =
+    useState('');
+
+  const [isSendingRentSmsTest, setIsSendingRentSmsTest] =
+    useState(false);
+
+  const [isSavingRentalRegistration, setIsSavingRentalRegistration] =
+    useState(false);
+
+      const [isSavingRentalTenantEdit, setIsSavingRentalTenantEdit] =
+    useState(false);
+
+      const [
+    isSavingRentalPaymentCorrection,
+    setIsSavingRentalPaymentCorrection,
+  ] = useState(false);
+  const [isSavingRentalPayment, setIsSavingRentalPayment] =
+    useState(false);
+
+  const [isSavingRentalExpense, setIsSavingRentalExpense] =
+    useState(false);
+
+  const [isSavingRentalCorrection, setIsSavingRentalCorrection] =
+    useState(false);
 
   const [houseForm, setHouseForm] = useState({ ...emptyHouseForm });
   const [meterForm, setMeterForm] = useState({ ...emptyMeterForm });
@@ -361,6 +554,209 @@ const [serviceChargeForm, setServiceChargeForm] = useState({
         }
       });
   }, [houses, rentPayments.length]);
+  const activeRentalTenancies = rentalTenancies.filter(
+  (tenancy) => tenancy.status === 'Active'
+);
+
+const getRentalHouse = (houseId) =>
+  houses.find(
+    (house) => String(house.id) === String(houseId)
+  );
+
+const getRentalTenant = (tenantId) =>
+  rentalTenants.find(
+    (tenant) => String(tenant.id) === String(tenantId)
+  );
+
+const activeRentAccounts = activeRentalTenancies.map((tenancy) => ({
+  ...tenancy,
+  house: getRentalHouse(tenancy.houseId),
+  tenant: getRentalTenant(tenancy.tenantId),
+}));
+
+const selectedRentPaymentAccount =
+  activeRentAccounts.find(
+    (account) =>
+      String(account.id) ===
+      String(rentalPaymentForm.tenancyId)
+  );
+
+const selectedRentPaymentMeter =
+  selectedRentPaymentAccount
+    ? waterMeters.find(
+        (meter) =>
+          String(meter.houseNumber || '') ===
+            String(
+              selectedRentPaymentAccount.house
+                ?.houseNumber || ''
+            ) &&
+          meter.active !== false
+      )
+    : null;
+
+    const selectedRentalTenantEditAccount =
+  activeRentAccounts.find(
+    (account) =>
+      String(account.tenantId) ===
+      String(rentalTenantEditForm.tenantId)
+  );
+
+const selectedRentalTenantEditMeter =
+  selectedRentalTenantEditAccount
+    ? waterMeters.find(
+        (meter) =>
+          String(meter.houseNumber || '') ===
+            String(
+              selectedRentalTenantEditAccount.house
+                ?.houseNumber || ''
+            ) &&
+          meter.active !== false
+      )
+    : null;
+
+    const selectedRentalPaymentCorrection =
+  rentalPayments.find(
+    (payment) =>
+      String(payment.id) ===
+        String(
+          rentalPaymentCorrectionForm.paymentId
+        ) &&
+      payment.status === 'Active'
+  );
+
+const selectedRentalPaymentCorrectionAccount =
+  selectedRentalPaymentCorrection
+    ? activeRentAccounts.find(
+        (account) =>
+          String(account.id) ===
+          String(
+            selectedRentalPaymentCorrection.tenancyId
+          )
+      )
+    : null;
+const newTenantMonthlyRent = Number(
+  rentalRegistrationForm.monthlyRentAmount || 0
+);
+
+const newTenantAmountReceived = Number(
+  rentalRegistrationForm.amountReceived || 0
+);
+
+const newTenantFullMonths =
+  newTenantMonthlyRent > 0
+    ? Math.floor(
+        newTenantAmountReceived /
+          newTenantMonthlyRent
+      )
+    : 0;
+
+const newTenantPaidThroughDate =
+  rentalRegistrationForm.startDate &&
+  newTenantFullMonths > 0
+    ? addDaysISO(
+        addMonthsISO(
+          rentalRegistrationForm.startDate,
+          newTenantFullMonths
+        ),
+        -1
+      )
+    : '';
+
+const newTenantNextPaymentDate =
+  newTenantPaidThroughDate
+    ? addDaysISO(
+        newTenantPaidThroughDate,
+        1
+      )
+    : '';
+
+const newTenantRemainingCredit =
+  newTenantMonthlyRent > 0
+    ? Math.max(
+        0,
+        newTenantAmountReceived -
+          newTenantFullMonths *
+            newTenantMonthlyRent
+      )
+    : 0;
+const activeRentInvoices = rentInvoices.filter(
+  (invoice) => invoice.status !== 'Reversed'
+);
+
+const activeRentalPayments = rentalPayments.filter(
+  (payment) => payment.status === 'Active'
+);
+
+const activeRentalExpenses = rentalExpenses.filter(
+  (expense) => expense.status === 'Active'
+);
+
+const totalRentInvoiced = activeRentInvoices.reduce(
+  (total, invoice) =>
+    total + Number(invoice.invoiceAmount || 0),
+  0
+);
+
+const totalRentCollected = activeRentalPayments.reduce(
+  (total, payment) =>
+    total + Number(payment.amountReceived || 0),
+  0
+);
+
+const totalRentOutstanding = activeRentInvoices.reduce(
+  (total, invoice) =>
+    total + Number(invoice.balance || 0),
+  0
+);
+
+const totalRentCredit = activeRentalPayments.reduce(
+  (total, payment) =>
+    total + Number(payment.creditAmount || 0),
+  0
+);
+
+const totalRentalExpensesPaid = activeRentalExpenses.reduce(
+  (total, expense) =>
+    total + Number(expense.amount || 0),
+  0
+);
+
+const netRentFundBalance =
+  totalRentCollected - totalRentalExpensesPaid;
+
+const ownerOccupiedHouses = propertyOccupancies.filter(
+  (occupancy) =>
+    occupancy.active === true &&
+    occupancy.occupancyType === 'Owner or Family'
+);
+
+const vacantRentalHouses = propertyOccupancies.filter(
+  (occupancy) =>
+    occupancy.active === true &&
+    occupancy.occupancyType === 'Vacant'
+);
+
+const rentDueSoonAccounts = activeRentAccounts.filter((account) => {
+  const days = daysBetween(todayISO(), account.nextPaymentDate);
+
+  return (
+    account.nextPaymentDate &&
+    days !== null &&
+    days >= 0 &&
+    days <= 30
+  );
+});
+
+const rentOverdueAccounts = activeRentAccounts.filter((account) => {
+  const days = daysBetween(todayISO(), account.nextPaymentDate);
+
+  return (
+    account.nextPaymentDate &&
+    days !== null &&
+    days < 0
+  );
+});
+
 
 const meterPreviewUnitsUsed = Math.max(
   0,
@@ -427,6 +823,1458 @@ const selectedMeterOutstandingBalance =
 const selectedMeterTotalPayable =
   selectedMeterOutstandingBalance +
   Number(meterPreviewTotal || 0);
+
+const sendRentSmsTest = async () => {
+  const phoneNumber = String(
+    rentSmsTestPhone || ''
+  ).trim();
+
+  if (!phoneNumber) {
+    alert(
+      t(
+        language,
+        'Enter the phone number that should receive the test message.',
+        'Weka namba ya simu itakayopokea ujumbe wa majaribio.'
+      )
+    );
+    return;
+  }
+
+  const confirmed = window.confirm(
+    t(
+      language,
+      `Send a test SMS to ${phoneNumber} using SIM 2?`,
+      `Utume SMS ya majaribio kwenda ${phoneNumber} kupitia SIM 2?`
+    )
+  );
+
+  if (!confirmed) {
+    return;
+  }
+
+  setIsSendingRentSmsTest(true);
+
+  try {
+    const { data: testResult, error: testError } =
+      await supabase.functions.invoke(
+        'send-rent-sms-reminders',
+        {
+          body: {
+            mode: 'test',
+            phoneNumber,
+          },
+        }
+      );
+
+    if (testError) {
+      throw testError;
+    }
+
+    if (testResult?.sent !== true) {
+      throw new Error(
+        testResult?.error ||
+          'The SMS provider did not confirm the test message.'
+      );
+    }
+
+    alert(
+      t(
+        language,
+        `The test SMS was submitted successfully to ${testResult.phoneNumber} through SIM 2.`,
+        `SMS ya majaribio imetumwa kwenda ${testResult.phoneNumber} kupitia SIM 2.`
+      )
+    );
+  } catch (error) {
+    alert(
+      t(
+        language,
+        `Test SMS failed: ${
+          error?.message || 'Unknown error'
+        }`,
+        `SMS ya majaribio imeshindikana: ${
+          error?.message || 'Hitilafu isiyojulikana'
+        }`
+      )
+    );
+  } finally {
+    setIsSendingRentSmsTest(false);
+  }
+};
+
+  const sendDueRentSmsReminders = async () => {
+  try {
+    const { data: sendResult, error: sendError } =
+      await supabase.functions.invoke(
+        'send-rent-sms-reminders',
+        {
+          body: {
+            requestedAt: new Date().toISOString(),
+          },
+        }
+      );
+
+    if (sendError) {
+      throw sendError;
+    }
+
+    const [
+      { data: freshReminders, error: remindersError },
+      { data: freshAttempts, error: attemptsError },
+    ] = await Promise.all([
+      supabase
+        .from('rentSmsReminders')
+        .select('*')
+        .eq('shop_id', 'shop-1'),
+      supabase
+        .from('rentSmsAttempts')
+        .select('*')
+        .eq('shop_id', 'shop-1'),
+    ]);
+
+    const refreshError =
+      remindersError || attemptsError;
+
+    if (!refreshError) {
+      saveData({
+        ...data,
+        rentSmsReminders:
+          freshReminders || rentSmsReminders,
+        rentSmsAttempts:
+          freshAttempts || rentSmsAttempts,
+      });
+    }
+
+    const processed = Number(
+      sendResult?.processed || 0
+    );
+
+    alert(
+      processed > 0
+        ? t(
+            language,
+            `${processed} rent reminder(s) were processed.`,
+            `Vikumbusho ${processed} vya kodi vimefanyiwa kazi.`
+          )
+        : t(
+            language,
+            'The SMSGate connection worked. There is no rent reminder due for sending today.',
+            'Muunganisho wa SMSGate umefanya kazi. Hakuna kikumbusho cha kodi kinachotakiwa kutumwa leo.'
+          )
+    );
+  } catch (error) {
+    alert(
+      t(
+        language,
+        `Sending rent reminders failed: ${
+          error?.message || 'Unknown error'
+        }`,
+        `Kutuma vikumbusho vya kodi kumeshindikana: ${
+          error?.message || 'Hitilafu isiyojulikana'
+        }`
+      )
+    );
+  }
+};
+
+  const saveRentalExpense = async () => {
+  const expenseAmount = Number(
+    rentalExpenseForm.amount || 0
+  );
+
+  if (
+    !rentalExpenseForm.expenseDate ||
+    !rentalExpenseForm.expenseType ||
+    expenseAmount <= 0
+  ) {
+    alert(
+      t(
+        language,
+        'Please enter the expense date, type and amount.',
+        'Tafadhali weka tarehe, aina na kiasi cha matumizi.'
+      )
+    );
+    return;
+  }
+
+  setIsSavingRentalExpense(true);
+
+  try {
+    const expenseRecord = {
+      id: `rental-expense-${Date.now()}`,
+      shop_id: 'shop-1',
+      houseId: rentalExpenseForm.houseId || null,
+      expenseDate:
+        rentalExpenseForm.expenseDate || todayISO(),
+      expenseType: rentalExpenseForm.expenseType,
+      description:
+        rentalExpenseForm.description?.trim() || '',
+      amount: expenseAmount,
+      payee: rentalExpenseForm.payee?.trim() || '',
+      referenceNumber:
+        rentalExpenseForm.referenceNumber?.trim() || '',
+      status: 'Active',
+    };
+
+    const { data: savedExpense, error: expenseError } =
+      await supabase
+        .from('rentalExpenses')
+        .insert([expenseRecord])
+        .select('*')
+        .single();
+
+    if (expenseError) {
+      throw expenseError;
+    }
+
+    saveData({
+      ...data,
+      rentalExpenses: [
+        savedExpense || expenseRecord,
+        ...rentalExpenses,
+      ],
+    });
+
+    setRentalExpenseForm({
+      ...emptyRentalExpenseForm,
+      expenseDate: todayISO(),
+    });
+    setIsRentalExpenseOpen(false);
+
+    alert(
+      t(
+        language,
+        'The rental expense has been saved permanently.',
+        'Matumizi ya kodi yamehifadhiwa kwa kudumu.'
+      )
+    );
+  } catch (error) {
+    alert(
+      t(
+        language,
+        `Saving the rental expense failed: ${
+          error?.message || 'Unknown error'
+        }`,
+        `Kuhifadhi matumizi ya kodi kumeshindikana: ${
+          error?.message || 'Hitilafu isiyojulikana'
+        }`
+      )
+    );
+  } finally {
+    setIsSavingRentalExpense(false);
+  }
+};
+  const openRentalPaymentCorrectionForm = (
+    payment = null
+  ) => {
+    setRentalPaymentCorrectionForm({
+      ...emptyRentalPaymentCorrectionForm,
+      paymentId: payment?.id || '',
+      correctedAmount:
+        payment?.amountReceived || '',
+      correctedPaymentDate:
+        payment?.paymentDate || todayISO(),
+      reason: '',
+    });
+
+    setIsRentalPaymentCorrectionOpen(true);
+  };
+
+  const handleRentalPaymentCorrectionSelection = (
+    paymentId
+  ) => {
+    const selectedPayment = rentalPayments.find(
+      (payment) =>
+        String(payment.id) === String(paymentId) &&
+        payment.status === 'Active'
+    );
+
+    if (!selectedPayment) {
+      setRentalPaymentCorrectionForm({
+        ...emptyRentalPaymentCorrectionForm,
+      });
+      return;
+    }
+
+    setRentalPaymentCorrectionForm({
+      paymentId: selectedPayment.id,
+      correctedAmount:
+        selectedPayment.amountReceived || '',
+      correctedPaymentDate:
+        selectedPayment.paymentDate || todayISO(),
+      reason: '',
+    });
+  };
+
+  const openRentalPaymentForm = (
+    tenancyId = ''
+  ) => {
+    setRentalPaymentForm({
+      ...emptyRentalPaymentForm,
+      tenancyId: tenancyId || '',
+      amountReceived: '',
+      paymentDate: todayISO(),
+      paymentMethod: 'Cash',
+      notes: '',
+    });
+
+    setIsRentalPaymentOpen(true);
+  };
+  const saveRentalPaymentCorrection = async () => {
+    const correctedAmount = Number(
+      rentalPaymentCorrectionForm.correctedAmount || 0
+    );
+
+    if (
+      !rentalPaymentCorrectionForm.paymentId ||
+      correctedAmount <= 0 ||
+      !rentalPaymentCorrectionForm.correctedPaymentDate ||
+      !rentalPaymentCorrectionForm.reason.trim()
+    ) {
+      alert(
+        t(
+          language,
+          'Select the payment, enter the corrected amount and date, and explain the reason for the correction.',
+          'Chagua malipo, weka kiasi na tarehe sahihi, kisha eleza sababu ya marekebisho.'
+        )
+      );
+      return;
+    }
+
+    const originalPayment = rentalPayments.find(
+      (payment) =>
+        String(payment.id) ===
+        String(rentalPaymentCorrectionForm.paymentId)
+    );
+
+    const paymentAccount = activeRentAccounts.find(
+      (account) =>
+        String(account.id) ===
+        String(originalPayment?.tenancyId)
+    );
+
+    const confirmed = window.confirm(
+      t(
+        language,
+        `Confirm payment correction:\n\nHouse: ${
+          paymentAccount?.house?.houseNumber || '-'
+        }\nTenant: ${
+          paymentAccount?.tenant?.fullName ||
+          paymentAccount?.house?.tenantName ||
+          '-'
+        }\nOld receipt: ${
+          originalPayment?.receiptNumber || '-'
+        }\nOld amount: TZS ${Number(
+          originalPayment?.amountReceived || 0
+        ).toLocaleString()}\nOld payment date: ${
+          originalPayment?.paymentDate || '-'
+        }\n\nCorrected amount: TZS ${correctedAmount.toLocaleString()}\nCorrected payment date: ${
+          rentalPaymentCorrectionForm.correctedPaymentDate
+        }\nReason: ${
+          rentalPaymentCorrectionForm.reason
+        }\n\nThe original payment will remain in history as corrected. Continue?`,
+        `Thibitisha marekebisho ya malipo:\n\nNyumba: ${
+          paymentAccount?.house?.houseNumber || '-'
+        }\nMpangaji: ${
+          paymentAccount?.tenant?.fullName ||
+          paymentAccount?.house?.tenantName ||
+          '-'
+        }\nRisiti ya zamani: ${
+          originalPayment?.receiptNumber || '-'
+        }\nKiasi cha zamani: TZS ${Number(
+          originalPayment?.amountReceived || 0
+        ).toLocaleString()}\nTarehe ya zamani: ${
+          originalPayment?.paymentDate || '-'
+        }\n\nKiasi sahihi: TZS ${correctedAmount.toLocaleString()}\nTarehe sahihi ya malipo: ${
+          rentalPaymentCorrectionForm.correctedPaymentDate
+        }\nSababu: ${
+          rentalPaymentCorrectionForm.reason
+        }\n\nMalipo ya zamani yatabaki kwenye historia kama yaliyosahihishwa. Endelea?`
+      )
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setIsSavingRentalPaymentCorrection(true);
+
+    try {
+      const {
+        data: correctionResult,
+        error: correctionError,
+      } = await supabase.rpc(
+        'correct_rental_payment',
+        {
+          p_payment_id:
+            rentalPaymentCorrectionForm.paymentId,
+          p_corrected_amount: correctedAmount,
+          p_corrected_payment_date:
+            rentalPaymentCorrectionForm
+              .correctedPaymentDate,
+          p_reason:
+            rentalPaymentCorrectionForm.reason.trim(),
+        }
+      );
+
+      if (correctionError) {
+        throw correctionError;
+      }
+
+      const [
+        { data: freshHouses, error: housesError },
+        { data: freshTenancies, error: tenanciesError },
+        { data: freshInvoices, error: invoicesError },
+        { data: freshPayments, error: paymentsError },
+        { data: freshAllocations, error: allocationsError },
+        { data: freshReminders, error: remindersError },
+        { data: freshCorrections, error: correctionsError },
+      ] = await Promise.all([
+        supabase
+          .from('houses')
+          .select('*')
+          .eq('shop_id', 'shop-1'),
+        supabase
+          .from('rentalTenancies')
+          .select('*')
+          .eq('shop_id', 'shop-1'),
+        supabase
+          .from('rentInvoices')
+          .select('*')
+          .eq('shop_id', 'shop-1'),
+        supabase
+          .from('rentalPayments')
+          .select('*')
+          .eq('shop_id', 'shop-1'),
+        supabase
+          .from('rentPaymentAllocations')
+          .select('*')
+          .eq('shop_id', 'shop-1'),
+        supabase
+          .from('rentSmsReminders')
+          .select('*')
+          .eq('shop_id', 'shop-1'),
+        supabase
+          .from('rentRecordCorrections')
+          .select('*')
+          .eq('shop_id', 'shop-1'),
+      ]);
+
+      const refreshError =
+        housesError ||
+        tenanciesError ||
+        invoicesError ||
+        paymentsError ||
+        allocationsError ||
+        remindersError ||
+        correctionsError;
+
+      if (refreshError) {
+        throw refreshError;
+      }
+
+      saveData({
+        ...data,
+        houses: freshHouses || houses,
+        rentalTenancies:
+          freshTenancies || rentalTenancies,
+        rentInvoices:
+          freshInvoices || rentInvoices,
+        rentalPayments:
+          freshPayments || rentalPayments,
+        rentPaymentAllocations:
+          freshAllocations || rentPaymentAllocations,
+        rentSmsReminders:
+          freshReminders || rentSmsReminders,
+        rentRecordCorrections:
+          freshCorrections || rentRecordCorrections,
+      });
+
+      setRentalPaymentCorrectionForm({
+        ...emptyRentalPaymentCorrectionForm,
+      });
+      setIsRentalPaymentCorrectionOpen(false);
+
+      alert(
+        t(
+          language,
+          `Payment corrected permanently.\n\nNew receipt: ${
+            correctionResult?.receiptNumber || '-'
+          }\nCorrected amount: TZS ${correctedAmount.toLocaleString()}\nRent paid through: ${
+            correctionResult?.paidThroughDate || '-'
+          }\nNext payment date: ${
+            correctionResult?.nextPaymentDate || '-'
+          }\nCredit balance: TZS ${Number(
+            correctionResult?.creditBalance || 0
+          ).toLocaleString()}`,
+          `Malipo yamesahihishwa kwa kudumu.\n\nRisiti mpya: ${
+            correctionResult?.receiptNumber || '-'
+          }\nKiasi sahihi: TZS ${correctedAmount.toLocaleString()}\nKodi imelipwa hadi: ${
+            correctionResult?.paidThroughDate || '-'
+          }\nTarehe inayofuata ya malipo: ${
+            correctionResult?.nextPaymentDate || '-'
+          }\nSalio la mpangaji: TZS ${Number(
+            correctionResult?.creditBalance || 0
+          ).toLocaleString()}`
+        )
+      );
+    } catch (error) {
+      alert(
+        t(
+          language,
+          `Payment correction failed: ${
+            error?.message || 'Unknown error'
+          }`,
+          `Marekebisho ya malipo yameshindikana: ${
+            error?.message ||
+            'Hitilafu isiyojulikana'
+          }`
+        )
+      );
+    } finally {
+      setIsSavingRentalPaymentCorrection(false);
+    }
+  };
+
+  const saveRentalPayment = async () => {
+  const amountReceived = Number(
+    rentalPaymentForm.amountReceived || 0
+  );
+
+  if (!rentalPaymentForm.tenancyId || amountReceived <= 0) {
+    alert(
+      t(
+        language,
+        'Please select the tenant and enter the amount received.',
+        'Tafadhali chagua mpangaji na uweke kiasi kilichopokelewa.'
+      )
+    );
+    return;
+  }
+
+  const paymentTenantName =
+    selectedRentPaymentAccount?.tenant?.fullName ||
+    selectedRentPaymentAccount?.tenant?.tenantName ||
+    selectedRentPaymentAccount?.house?.tenantName ||
+    '-';
+
+  const paymentHouseNumber =
+    selectedRentPaymentAccount?.house?.houseNumber ||
+    '-';
+
+  const confirmed = window.confirm(
+    t(
+      language,
+      `Confirm receipt of TZS ${currency(
+        amountReceived
+      )} from ${paymentTenantName} for house ${paymentHouseNumber}? This payment will be saved permanently.`,
+      `Thibitisha kupokea TZS ${currency(
+        amountReceived
+      )} kutoka kwa ${paymentTenantName} wa nyumba ${paymentHouseNumber}. Malipo haya yatahifadhiwa moja kwa moja.`
+    )
+  );
+
+  if (!confirmed) {
+    return;
+  }
+
+  setIsSavingRentalPayment(true);
+
+  try {
+    const {
+      data: paymentResult,
+      error: paymentError,
+    } = await supabase.rpc(
+      'record_rental_payment',
+      {
+        p_tenancy_id: rentalPaymentForm.tenancyId,
+        p_amount_received: amountReceived,
+        p_payment_date:
+          rentalPaymentForm.paymentDate || todayISO(),
+        p_payment_method:
+          rentalPaymentForm.paymentMethod || 'Cash',
+        p_notes: rentalPaymentForm.notes || '',
+      }
+    );
+
+    if (paymentError) {
+      throw paymentError;
+    }
+
+    const { error: smsQueueError } = await supabase.rpc(
+      'prepare_rent_sms_reminders'
+    );
+
+    if (smsQueueError) {
+      console.error(
+        'Updating rent SMS reminders failed:',
+        smsQueueError
+      );
+    }
+
+    const [
+      { data: freshHouses, error: housesError },
+      { data: freshTenancies, error: tenanciesError },
+      { data: freshInvoices, error: invoicesError },
+      { data: freshPayments, error: paymentsError },
+      { data: freshAllocations, error: allocationsError },
+      { data: freshReminders, error: remindersError },
+    ] = await Promise.all([
+      supabase
+        .from('houses')
+        .select('*')
+        .eq('shop_id', 'shop-1'),
+      supabase
+        .from('rentalTenancies')
+        .select('*')
+        .eq('shop_id', 'shop-1'),
+      supabase
+        .from('rentInvoices')
+        .select('*')
+        .eq('shop_id', 'shop-1'),
+      supabase
+        .from('rentalPayments')
+        .select('*')
+        .eq('shop_id', 'shop-1'),
+      supabase
+        .from('rentPaymentAllocations')
+        .select('*')
+        .eq('shop_id', 'shop-1'),
+      supabase
+        .from('rentSmsReminders')
+        .select('*')
+        .eq('shop_id', 'shop-1'),
+    ]);
+
+    const refreshError =
+      housesError ||
+      tenanciesError ||
+      invoicesError ||
+      paymentsError ||
+      allocationsError ||
+      remindersError;
+
+    if (!refreshError) {
+      saveData({
+        ...data,
+        houses: freshHouses || houses,
+        rentalTenancies:
+          freshTenancies || rentalTenancies,
+        rentInvoices: freshInvoices || rentInvoices,
+        rentalPayments:
+          freshPayments || rentalPayments,
+        rentPaymentAllocations:
+          freshAllocations || rentPaymentAllocations,
+        rentSmsReminders:
+          freshReminders || rentSmsReminders,
+      });
+    }
+
+    setRentalPaymentForm({
+      ...emptyRentalPaymentForm,
+      paymentDate: todayISO(),
+    });
+    setIsRentalPaymentOpen(false);
+
+    alert(
+      t(
+        language,
+        `Payment saved permanently.
+
+Tenant: ${paymentTenantName}
+House: ${paymentHouseNumber}
+Amount received: TZS ${currency(amountReceived)}
+Complete months covered: ${
+          paymentResult?.monthsCovered || 0
+        }
+Paid through: ${
+          paymentResult?.paidThroughDate || '-'
+        }
+Next payment date: ${
+          paymentResult?.nextPaymentDate || '-'
+        }
+Remaining credit: TZS ${currency(
+          paymentResult?.creditBalance || 0
+        )}${
+          refreshError
+            ? '\n\nRefresh the page to display the updated records.'
+            : ''
+        }`,
+        `Malipo yamehifadhiwa kwa kudumu.
+
+Mpangaji: ${paymentTenantName}
+Nyumba: ${paymentHouseNumber}
+Kiasi kilichopokelewa: TZS ${currency(
+          amountReceived
+        )}
+Miezi kamili iliyolipiwa: ${
+          paymentResult?.monthsCovered || 0
+        }
+Imelipwa hadi: ${
+          paymentResult?.paidThroughDate || '-'
+        }
+Tarehe ya malipo yanayofuata: ${
+          paymentResult?.nextPaymentDate || '-'
+        }
+Salio lililobaki: TZS ${currency(
+          paymentResult?.creditBalance || 0
+        )}${
+          refreshError
+            ? '\n\nRefresh ukurasa ili kuona rekodi zilizosasishwa.'
+            : ''
+        }`
+      )
+    );
+  } catch (error) {
+    alert(
+      t(
+        language,
+        `Rent payment failed: ${
+          error?.message || 'Unknown error'
+        }`,
+        `Malipo ya kodi yameshindikana: ${
+          error?.message || 'Hitilafu isiyojulikana'
+        }`
+      )
+    );
+  } finally {
+    setIsSavingRentalPayment(false);
+  }
+};
+const openRentalCorrectionForm = (account) => {
+  if (!account) return;
+
+  setRentalCorrectionForm({
+    tenancyId: account.id || '',
+    tenantName:
+      account.tenant?.fullName ||
+      account.tenant?.tenantName ||
+      account.house?.tenantName ||
+      '',
+    phoneNumber:
+      account.tenant?.phoneNumber || '',
+    startDate:
+      account.startDate || '',
+    monthlyRentAmount:
+      account.monthlyRentAmount || '',
+    paidThroughDate:
+      account.paidThroughDate || '',
+    smsRemindersEnabled:
+      account.smsRemindersEnabled !== false,
+    reason: '',
+  });
+
+  setIsRentalCorrectionOpen(true);
+};
+
+const saveRentalCorrection = async () => {
+  if (
+    !rentalCorrectionForm.tenancyId ||
+    !rentalCorrectionForm.tenantName.trim() ||
+    !rentalCorrectionForm.startDate ||
+    Number(
+      rentalCorrectionForm.monthlyRentAmount || 0
+    ) <= 0 ||
+    !rentalCorrectionForm.reason.trim()
+  ) {
+    alert(
+      t(
+        language,
+        'Enter the tenant name, start date, monthly rent and reason for correction.',
+        'Weka jina la mpangaji, tarehe ya kuanza, kodi kwa mwezi na sababu ya marekebisho.'
+      )
+    );
+    return;
+  }
+
+  setIsSavingRentalCorrection(true);
+
+  try {
+    const { error: correctionError } =
+      await supabase.rpc(
+        'correct_initial_rental_setup',
+        {
+          p_tenancy_id:
+            rentalCorrectionForm.tenancyId,
+          p_tenant_name:
+            rentalCorrectionForm.tenantName.trim(),
+          p_phone_number:
+            rentalCorrectionForm.phoneNumber.trim(),
+          p_start_date:
+            rentalCorrectionForm.startDate,
+          p_monthly_rent: Number(
+            rentalCorrectionForm.monthlyRentAmount
+          ),
+          p_paid_through_date:
+            rentalCorrectionForm.paidThroughDate ||
+            null,
+          p_sms_enabled:
+            rentalCorrectionForm.smsRemindersEnabled ===
+            true,
+          p_reason:
+            rentalCorrectionForm.reason.trim(),
+        }
+      );
+
+    if (correctionError) {
+      throw correctionError;
+    }
+
+    const { error: reminderError } =
+      await supabase.rpc(
+        'prepare_rent_sms_reminders'
+      );
+
+    if (reminderError) {
+      console.error(
+        'Rent reminder refresh failed:',
+        reminderError
+      );
+    }
+
+    const [
+      { data: freshHouses, error: housesError },
+      { data: freshTenants, error: tenantsError },
+      {
+        data: freshOccupancies,
+        error: occupanciesError,
+      },
+      {
+        data: freshTenancies,
+        error: tenanciesError,
+      },
+      {
+        data: freshReminders,
+        error: remindersError,
+      },
+      {
+        data: freshCorrections,
+        error: correctionsError,
+      },
+    ] = await Promise.all([
+      supabase
+        .from('houses')
+        .select('*')
+        .eq('shop_id', 'shop-1'),
+
+      supabase
+        .from('rentalTenants')
+        .select('*')
+        .eq('shop_id', 'shop-1'),
+
+      supabase
+        .from('propertyOccupancies')
+        .select('*')
+        .eq('shop_id', 'shop-1'),
+
+      supabase
+        .from('rentalTenancies')
+        .select('*')
+        .eq('shop_id', 'shop-1'),
+
+      supabase
+        .from('rentSmsReminders')
+        .select('*')
+        .eq('shop_id', 'shop-1'),
+
+      supabase
+        .from('rentRecordCorrections')
+        .select('*')
+        .eq('shop_id', 'shop-1'),
+    ]);
+
+    const refreshError =
+      housesError ||
+      tenantsError ||
+      occupanciesError ||
+      tenanciesError ||
+      remindersError ||
+      correctionsError;
+
+    if (refreshError) {
+      throw refreshError;
+    }
+
+    saveData({
+      ...data,
+      houses: freshHouses || houses,
+      rentalTenants:
+        freshTenants || rentalTenants,
+      propertyOccupancies:
+        freshOccupancies || propertyOccupancies,
+      rentalTenancies:
+        freshTenancies || rentalTenancies,
+      rentSmsReminders:
+        freshReminders || rentSmsReminders,
+      rentRecordCorrections:
+        freshCorrections || rentRecordCorrections,
+    });
+
+    setRentalCorrectionForm({
+      ...emptyRentalCorrectionForm,
+    });
+
+    setIsRentalCorrectionOpen(false);
+
+    alert(
+      t(
+        language,
+        'The initial rental details were corrected and the previous values were preserved in history.',
+        'Taarifa za mwanzo za kodi zimerekebishwa na taarifa za awali zimehifadhiwa kwenye historia.'
+      )
+    );
+  } catch (error) {
+    alert(
+      t(
+        language,
+        `Rental correction failed: ${
+          error?.message || 'Unknown error'
+        }`,
+        `Marekebisho ya kodi yameshindikana: ${
+          error?.message ||
+          'Hitilafu isiyojulikana'
+        }`
+      )
+    );
+  } finally {
+    setIsSavingRentalCorrection(false);
+  }
+};
+const openRentalTenantEditForm = () => {
+  setRentalTenantEditForm({
+    ...emptyRentalTenantEditForm,
+  });
+  setIsRentalTenantEditOpen(true);
+};
+
+const handleRentalTenantEditSelection = (tenantId) => {
+  const selectedTenant = rentalTenants.find(
+    (tenant) =>
+      String(tenant.id) === String(tenantId)
+  );
+
+  if (!selectedTenant) {
+    setRentalTenantEditForm({
+      ...emptyRentalTenantEditForm,
+    });
+    return;
+  }
+
+  setRentalTenantEditForm({
+    tenantId: selectedTenant.id,
+    fullName:
+      selectedTenant.fullName ||
+      selectedTenant.tenantName ||
+      '',
+    phoneNumber:
+      selectedTenant.phoneNumber || '',
+    occupation:
+      selectedTenant.occupation || '',
+    emergencyContactName:
+      selectedTenant.emergencyContactName || '',
+    emergencyContactPhone:
+      selectedTenant.emergencyContactPhone || '',
+    smsConsent:
+      selectedTenant.smsConsent !== false,
+    notes:
+      selectedTenant.notes || '',
+  });
+};
+const saveRentalTenantDetails = async () => {
+  if (
+    !rentalTenantEditForm.tenantId ||
+    !rentalTenantEditForm.fullName.trim()
+  ) {
+    alert(
+      t(
+        language,
+        'Select a tenant and enter the tenant name.',
+        'Chagua mpangaji na uweke jina la mpangaji.'
+      )
+    );
+    return;
+  }
+
+  const selectedAccount = activeRentAccounts.find(
+    (account) =>
+      String(account.tenantId) ===
+      String(rentalTenantEditForm.tenantId)
+  );
+
+  const selectedMeter = waterMeters.find(
+    (meter) =>
+      String(meter.houseNumber || '') ===
+        String(selectedAccount?.house?.houseNumber || '') &&
+      meter.active !== false
+  );
+
+  const confirmed = window.confirm(
+    t(
+      language,
+      `Confirm tenant details:\n\nHouse: ${
+        selectedAccount?.house?.houseNumber || '-'
+      }\nPermanent meter: ${
+        selectedMeter?.meterNumber || '-'
+      }\nTenant name: ${
+        rentalTenantEditForm.fullName
+      }\nPhone number: ${
+        rentalTenantEditForm.phoneNumber || '-'
+      }\nOccupation: ${
+        rentalTenantEditForm.occupation || '-'
+      }\nEmergency contact: ${
+        rentalTenantEditForm.emergencyContactName || '-'
+      }\nEmergency phone: ${
+        rentalTenantEditForm.emergencyContactPhone || '-'
+      }\n\nThe house and meter will not change. Save these details?`,
+      `Thibitisha taarifa za mpangaji:\n\nNyumba: ${
+        selectedAccount?.house?.houseNumber || '-'
+      }\nMita ya kudumu: ${
+        selectedMeter?.meterNumber || '-'
+      }\nJina la mpangaji: ${
+        rentalTenantEditForm.fullName
+      }\nNamba ya simu: ${
+        rentalTenantEditForm.phoneNumber || '-'
+      }\nKazi: ${
+        rentalTenantEditForm.occupation || '-'
+      }\nMtu wa dharura: ${
+        rentalTenantEditForm.emergencyContactName || '-'
+      }\nSimu ya dharura: ${
+        rentalTenantEditForm.emergencyContactPhone || '-'
+      }\n\nNyumba na mita hazitabadilika. Uhifadhi taarifa hizi?`
+    )
+  );
+
+  if (!confirmed) {
+    return;
+  }
+
+  setIsSavingRentalTenantEdit(true);
+
+  try {
+    const { error } = await supabase.rpc(
+      'update_rental_tenant_details',
+      {
+        p_tenant_id:
+          rentalTenantEditForm.tenantId,
+        p_full_name:
+          rentalTenantEditForm.fullName,
+        p_phone_number:
+          rentalTenantEditForm.phoneNumber || '',
+        p_occupation:
+          rentalTenantEditForm.occupation || '',
+        p_emergency_contact_name:
+          rentalTenantEditForm.emergencyContactName || '',
+        p_emergency_contact_phone:
+          rentalTenantEditForm.emergencyContactPhone || '',
+        p_sms_consent:
+          rentalTenantEditForm.smsConsent === true,
+        p_notes:
+          rentalTenantEditForm.notes || '',
+      }
+    );
+
+    if (error) {
+      throw error;
+    }
+
+    const [
+      { data: freshHouses, error: housesError },
+      { data: freshTenants, error: tenantsError },
+      { data: freshOccupancies, error: occupanciesError },
+      { data: freshTenancies, error: tenanciesError },
+      { data: freshReminders, error: remindersError },
+      { data: freshCorrections, error: correctionsError },
+    ] = await Promise.all([
+      supabase
+        .from('houses')
+        .select('*')
+        .eq('shop_id', 'shop-1'),
+      supabase
+        .from('rentalTenants')
+        .select('*')
+        .eq('shop_id', 'shop-1'),
+      supabase
+        .from('propertyOccupancies')
+        .select('*')
+        .eq('shop_id', 'shop-1'),
+      supabase
+        .from('rentalTenancies')
+        .select('*')
+        .eq('shop_id', 'shop-1'),
+      supabase
+        .from('rentSmsReminders')
+        .select('*')
+        .eq('shop_id', 'shop-1'),
+      supabase
+        .from('rentRecordCorrections')
+        .select('*')
+        .eq('shop_id', 'shop-1'),
+    ]);
+
+    const refreshError =
+      housesError ||
+      tenantsError ||
+      occupanciesError ||
+      tenanciesError ||
+      remindersError ||
+      correctionsError;
+
+    if (refreshError) {
+      throw refreshError;
+    }
+
+    saveData({
+      ...data,
+      houses: freshHouses || houses,
+      rentalTenants:
+        freshTenants || rentalTenants,
+      propertyOccupancies:
+        freshOccupancies || propertyOccupancies,
+      rentalTenancies:
+        freshTenancies || rentalTenancies,
+      rentSmsReminders:
+        freshReminders || rentSmsReminders,
+      rentRecordCorrections:
+        freshCorrections || rentRecordCorrections,
+    });
+
+    setRentalTenantEditForm({
+      ...emptyRentalTenantEditForm,
+    });
+    setIsRentalTenantEditOpen(false);
+
+    alert(
+      t(
+        language,
+        'The tenant details were updated permanently. The house and permanent meter were not changed.',
+        'Taarifa za mpangaji zimesasishwa kwa kudumu. Nyumba na mita ya kudumu hazijabadilishwa.'
+      )
+    );
+  } catch (error) {
+    alert(
+      t(
+        language,
+        `Tenant update failed: ${
+          error?.message || 'Unknown error'
+        }`,
+        `Kusasisha taarifa za mpangaji kumeshindikana: ${
+          error?.message ||
+          'Hitilafu isiyojulikana'
+        }`
+      )
+    );
+  } finally {
+    setIsSavingRentalTenantEdit(false);
+  }
+};
+
+const saveRentalRegistration = async () => {
+  if (
+    !rentalRegistrationForm.houseId ||
+    !rentalRegistrationForm.occupancyType ||
+    !rentalRegistrationForm.startDate
+  ) {
+    alert(
+      t(
+        language,
+        'Please select the house, occupancy type and commencement date.',
+        'Tafadhali chagua nyumba, aina ya matumizi na tarehe ya kuanza.'
+      )
+    );
+    return;
+  }
+
+  if (
+    rentalRegistrationForm.occupancyType ===
+      'Rent Paying Tenant' &&
+    (
+      !rentalRegistrationForm.tenantName.trim() ||
+      !rentalRegistrationForm.phoneNumber.trim() ||
+      !rentalRegistrationForm.occupation.trim() ||
+      !rentalRegistrationForm.emergencyContactName.trim() ||
+      !rentalRegistrationForm.emergencyContactPhone.trim() ||
+      !rentalRegistrationForm.paymentDate ||
+      Number(
+        rentalRegistrationForm.monthlyRentAmount || 0
+      ) <= 0 ||
+      Number(
+        rentalRegistrationForm.amountReceived || 0
+      ) <= 0
+    )
+  ) {
+    alert(
+      t(
+        language,
+        'Enter the tenant name, phone number, occupation, emergency contact, payment date, monthly rent and amount received.',
+        'Weka jina la mpangaji, namba ya simu, kazi, mtu wa dharura, tarehe ya malipo, kodi kwa mwezi na kiasi kilichopokelewa.'
+      )
+    );
+    return;
+  }
+  const registrationHouse = houses.find(
+    (house) =>
+      String(house.id) ===
+      String(rentalRegistrationForm.houseId)
+  );
+
+  const registrationMeter = waterMeters.find(
+    (meter) =>
+      String(meter.houseNumber || '') ===
+        String(registrationHouse?.houseNumber || '') &&
+      meter.active !== false
+  );
+
+  const registrationConfirmed = window.confirm(
+    t(
+      language,
+      `Please confirm:\n\nHouse: ${
+        registrationHouse?.houseNumber || '-'
+      }\nPermanent meter: ${
+        registrationMeter?.meterNumber || '-'
+      }\nNew tenant: ${
+        rentalRegistrationForm.tenantName || '-'
+      }\nMonthly rent: TZS ${Number(
+        rentalRegistrationForm.monthlyRentAmount || 0
+      ).toLocaleString()}\nAmount received: TZS ${Number(
+        rentalRegistrationForm.amountReceived || 0
+      ).toLocaleString()}\nPayment date: ${
+        rentalRegistrationForm.paymentDate || '-'
+      }\nHouse commencement date: ${
+        rentalRegistrationForm.startDate || '-'
+      }\n\nSave these details permanently?`,
+      `Tafadhali thibitisha:\n\nNyumba: ${
+        registrationHouse?.houseNumber || '-'
+      }\nMita ya kudumu: ${
+        registrationMeter?.meterNumber || '-'
+      }\nMpangaji mpya: ${
+        rentalRegistrationForm.tenantName || '-'
+      }\nKodi kwa mwezi: TZS ${Number(
+        rentalRegistrationForm.monthlyRentAmount || 0
+      ).toLocaleString()}\nKiasi kilichopokelewa: TZS ${Number(
+        rentalRegistrationForm.amountReceived || 0
+      ).toLocaleString()}\nTarehe ya malipo: ${
+        rentalRegistrationForm.paymentDate || '-'
+      }\nTarehe ya kuanza kutumia nyumba: ${
+        rentalRegistrationForm.startDate || '-'
+      }\n\nUhifadhi taarifa hizi kwa kudumu?`
+    )
+  );
+
+  if (!registrationConfirmed) {
+    return;
+  }
+
+  setIsSavingRentalRegistration(true);
+
+  try {
+    const {
+      data: registrationResult,
+      error: registrationError,
+    } = await supabase.rpc(
+      'register_rental_occupancy_with_payment',
+      {
+        p_house_id: rentalRegistrationForm.houseId,
+        p_occupancy_type:
+          rentalRegistrationForm.occupancyType,
+        p_occupant_name:
+          rentalRegistrationForm.tenantName || '',
+        p_phone_number:
+          rentalRegistrationForm.phoneNumber || '',
+        p_occupation:
+          rentalRegistrationForm.occupation || '',
+        p_emergency_contact_name:
+          rentalRegistrationForm.emergencyContactName || '',
+        p_emergency_contact_phone:
+          rentalRegistrationForm.emergencyContactPhone || '',
+        p_payment_date:
+          rentalRegistrationForm.occupancyType ===
+          'Rent Paying Tenant'
+            ? rentalRegistrationForm.paymentDate || todayISO()
+            : null,
+        p_start_date:
+          rentalRegistrationForm.startDate,
+        p_monthly_rent:
+          rentalRegistrationForm.occupancyType ===
+          'Rent Paying Tenant'
+            ? Number(
+                rentalRegistrationForm.monthlyRentAmount || 0
+              )
+            : null,
+        p_amount_received:
+          rentalRegistrationForm.occupancyType ===
+          'Rent Paying Tenant'
+            ? Number(
+                rentalRegistrationForm.amountReceived || 0
+              )
+            : 0,
+        p_sms_enabled:
+          rentalRegistrationForm.smsRemindersEnabled === true,
+        p_notes:
+          rentalRegistrationForm.notes || '',
+      }
+    );
+
+    if (registrationError) {
+      throw registrationError;
+    }
+    const { error: smsQueueError } = await supabase.rpc(
+      'prepare_rent_sms_reminders'
+    );
+
+    if (smsQueueError) {
+      console.error(
+        'Rent SMS reminder preparation failed:',
+        smsQueueError
+      );
+    }
+
+    const [
+      { data: freshHouses, error: housesError },
+      { data: freshTenants, error: tenantsError },
+      { data: freshOccupancies, error: occupanciesError },
+      { data: freshTenancies, error: tenanciesError },
+      { data: freshInvoices, error: invoicesError },
+      { data: freshPayments, error: paymentsError },
+      { data: freshAllocations, error: allocationsError },
+      { data: freshReminders, error: remindersError },
+    ] = await Promise.all([
+      supabase
+        .from('houses')
+        .select('*')
+        .eq('shop_id', 'shop-1'),
+      supabase
+        .from('rentalTenants')
+        .select('*')
+        .eq('shop_id', 'shop-1'),
+      supabase
+        .from('propertyOccupancies')
+        .select('*')
+        .eq('shop_id', 'shop-1'),
+      supabase
+        .from('rentalTenancies')
+        .select('*')
+        .eq('shop_id', 'shop-1'),
+      supabase
+        .from('rentInvoices')
+        .select('*')
+        .eq('shop_id', 'shop-1'),
+      supabase
+        .from('rentalPayments')
+        .select('*')
+        .eq('shop_id', 'shop-1'),
+      supabase
+        .from('rentPaymentAllocations')
+        .select('*')
+        .eq('shop_id', 'shop-1'),
+      supabase
+        .from('rentSmsReminders')
+        .select('*')
+        .eq('shop_id', 'shop-1'),
+    ]);
+
+    const refreshError =
+      housesError ||
+      tenantsError ||
+      occupanciesError ||
+      tenanciesError ||
+      invoicesError ||
+      paymentsError ||
+      allocationsError ||
+      remindersError;
+
+    if (refreshError) {
+      throw refreshError;
+    }
+
+    saveData({
+      ...data,
+      houses: freshHouses || houses,
+      rentalTenants: freshTenants || rentalTenants,
+      propertyOccupancies:
+        freshOccupancies || propertyOccupancies,
+      rentalTenancies:
+        freshTenancies || rentalTenancies,
+      rentInvoices:
+        freshInvoices || rentInvoices,
+      rentalPayments:
+        freshPayments || rentalPayments,
+      rentPaymentAllocations:
+        freshAllocations || rentPaymentAllocations,
+      rentSmsReminders:
+        freshReminders || rentSmsReminders,
+    });
+
+    setRentalRegistrationForm({
+      ...emptyRentalRegistrationForm,
+    });
+    setIsRentalRegistrationOpen(false);
+
+    alert(
+      t(
+        language,
+        rentalRegistrationForm.occupancyType ===
+        'Rent Paying Tenant'
+          ? `Saved permanently.\n\nHouse: ${
+              registrationHouse?.houseNumber || '-'
+            }\nPermanent meter: ${
+              registrationMeter?.meterNumber || '-'
+            }\nTenant: ${
+              rentalRegistrationForm.tenantName || '-'
+            }\nAmount received: TZS ${Number(
+              rentalRegistrationForm.amountReceived || 0
+            ).toLocaleString()}\nFull months covered: ${
+              newTenantFullMonths
+            }\nRent paid through: ${
+              newTenantPaidThroughDate || '-'
+            }\nNext payment date: ${
+              newTenantNextPaymentDate || '-'
+            }\nRemaining credit: TZS ${Number(
+              newTenantRemainingCredit || 0
+            ).toLocaleString()}`
+          : `The ${rentalRegistrationForm.occupancyType} occupancy for house ${
+              registrationHouse?.houseNumber || '-'
+            } has been saved permanently.`,
+        rentalRegistrationForm.occupancyType ===
+        'Rent Paying Tenant'
+          ? `Imehifadhiwa kwa kudumu.\n\nNyumba: ${
+              registrationHouse?.houseNumber || '-'
+            }\nMita ya kudumu: ${
+              registrationMeter?.meterNumber || '-'
+            }\nMpangaji: ${
+              rentalRegistrationForm.tenantName || '-'
+            }\nKiasi kilichopokelewa: TZS ${Number(
+              rentalRegistrationForm.amountReceived || 0
+            ).toLocaleString()}\nMiezi kamili iliyolipwa: ${
+              newTenantFullMonths
+            }\nKodi imelipwa hadi: ${
+              newTenantPaidThroughDate || '-'
+            }\nTarehe inayofuata ya malipo: ${
+              newTenantNextPaymentDate || '-'
+            }\nSalio la mpangaji: TZS ${Number(
+              newTenantRemainingCredit || 0
+            ).toLocaleString()}`
+          : `Matumizi ya ${
+              rentalRegistrationForm.occupancyType
+            } katika nyumba ${
+              registrationHouse?.houseNumber || '-'
+            } yamehifadhiwa kwa kudumu.`
+      )
+    );
+  } catch (error) {
+    alert(
+      t(
+        language,
+        `Occupancy registration failed: ${
+          error?.message || 'Unknown error'
+        }`,
+        `Usajili wa matumizi ya nyumba umeshindikana: ${
+          error?.message || 'Hitilafu isiyojulikana'
+        }`
+      )
+    );
+  } finally {
+    setIsSavingRentalRegistration(false);
+  }
+};
 
   const housePreview = useMemo(() => {
   const monthlyRent = Number(houseForm.monthlyRentAmount || 0);
@@ -2414,10 +4262,45 @@ const totalServiceCharge = serviceCharges.reduce(
 
   const tabs = [
     ['dashboard', t(language, 'Dashboard', 'Dashibodi')],
-    ['houses', t(language, 'House Details', 'Taarifa za Nyumba')],
+    ['houses', t(language, 'Rent Information', 'Taarifa za Kodi')],
     ['meters', t(language, 'Water Information', 'Taarifa za Maji')],
     ['servicecharge', t(language, 'Service Charge', 'Service Charge')],
     ['reports', t(language, 'Reports', 'Ripoti')],
+  ];
+
+    const rentSections = [
+    ['summary', t(language, 'Summary', 'Muhtasari')],
+    [
+      'registration',
+      t(
+        language,
+        'Register House / Tenant',
+        'Sajili Nyumba / Mpangaji'
+      ),
+    ],
+    [
+      'attention',
+      t(
+        language,
+        'Rent Requiring Action',
+        'Kodi Zinazohitaji Hatua'
+      ),
+    ],
+    ['invoices', t(language, 'Rent Invoices', 'Ankara za Kodi')],
+    [
+      'payments',
+      t(language, 'Invoices and Payments', 'Ankara na Malipo'),
+    ],
+    ['rentFund', t(language, 'Rent Fund', 'Mfuko wa Kodi')],
+    [
+      'alerts',
+      t(language, 'Account Alerts', 'Tahadhari za Akaunti'),
+    ],
+    [
+      'smsReminders',
+      t(language, 'SMS Reminders', 'Vikumbusho vya SMS'),
+    ],
+    ['rentReports', t(language, 'Rent Reports', 'Ripoti za Kodi')],
   ];
 
   const waterSections = [
@@ -3002,93 +4885,5979 @@ const totalServiceCharge = serviceCharges.reduce(
     </div>
   );
 })() : null}
+
+
         {activeTab === 'houses' && (
-          <div className="grid gap-4 lg:grid-cols-2">
-            <Card>
-              <CardHeader><CardTitle>{t(language, 'House Details', 'Taarifa za Nyumba')}</CardTitle></CardHeader>
-              <CardContent className="space-y-3">
-                <Input label={t(language, 'House Number', 'Namba ya Nyumba')}  placeholder="e.g. G1" value={houseForm.houseNumber} onChange={(e) => setHouseForm((p) => ({ ...p, houseNumber: e.target.value }))} />
-                <Input label={t(language, 'Tenant Name', 'Jina la Mpangaji')} placeholder="Tenant name" value={houseForm.tenantName} onChange={(e) => setHouseForm((p) => ({ ...p, tenantName: e.target.value }))} />
-                <Input label={t(language, 'Date Rent Was Paid', 'Tarehe Kodi Ililipwa')} type="date" value={houseForm.rentPaidDate} onChange={(e) => setHouseForm((p) => ({ ...p, rentPaidDate: e.target.value }))} />
-                <Input label={t(language, 'Rent Start Date', 'Tarehe Kodi Kuanza')} type="date" value={houseForm.rentStartDate} onChange={(e) => setHouseForm((p) => ({ ...p, rentStartDate: e.target.value }))} />
-                <Input label={t(language, 'Rent End Date (Auto)', 'Tarehe Kodi Kuisha (Auto)')} type="date" value={housePreview.rentEndDate} readOnly />
-                <Input label={t(language, 'Monthly Rent Amount', 'Kiasi cha Kodi kwa Mwezi')} type="number" placeholder="Amount" value={houseForm.monthlyRentAmount} onChange={(e) => setHouseForm((p) => ({ ...p, monthlyRentAmount: e.target.value }))} />
-                <Input label={t(language, 'Amount Paid', 'Kiasi Kilicholipwa')} type="number" placeholder="Amount paid" value={houseForm.amountPaid} onChange={(e) => setHouseForm((p) => ({ ...p, amountPaid: e.target.value }))} />
-                <PreviewValue
-                  label={t(language, 'Rent Duration Covered (Auto)', 'Muda wa Kodi Uliolipwa (Auto)')}
-                  value={
-                    housePreview.calculatedMonths
-                      ? `${housePreview.calculatedMonths.toFixed(2)} month(s)`
-                      : '-'
-                  }
-                />
-
-                <PreviewValue
-                  label={t(language, 'Payment Type (Auto)', 'Aina ya Malipo (Auto)')}
-                  value={housePreview.paymentStatus}
-                />
-                <Select label={t(language, 'House Status', 'Hali ya Nyumba')} value={houseForm.houseStatus} onChange={(e) => setHouseForm((p) => ({ ...p, houseStatus: e.target.value }))}>
-                  <option value="Occupied">{t(language, 'Occupied', 'Ina Mpangaji')}</option>
-                  <option value="Vacant">{t(language, 'Vacant', 'Tupu')}</option>
-                </Select>
-                <Textarea label={t(language, 'Items Issued / Notes', 'Vitu Vilivyotolewa / Maelezo')} rows={4} placeholder="Number of keys, cards, meter token, handover notes" value={houseForm.itemsIssued} onChange={(e) => setHouseForm((p) => ({ ...p, itemsIssued: e.target.value }))} />
-                <div className="grid gap-3 md:grid-cols-2">
-  <PreviewValue
-    label={t(language, 'Next Payment Date', 'Tarehe ya Malipo Yanayofuata')}
-    value={housePreview.nextPaymentDate || '-'}
-  />
-
-  <PreviewValue
-    label={t(language, 'Full Months Paid', 'Miezi Kamili Iliyolipwa')}
-    value={housePreview.fullMonths || 0}
-  />
-
-  <PreviewValue
-    label={t(language, 'Amount Exceeding Full Months', 'Kiasi Kilichozidi Kuelekea Mwezi Unaofuata')}
-    value={`TZS ${currency(housePreview.extraAmount)}`}
-  />
-
-  <PreviewValue
-    label={t(language, 'Deficit to Complete Next Month', 'Pungufu ya Kukamilisha Mwezi Unaofuata')}
-    value={`TZS ${currency(housePreview.balance)}`}
-  />
-</div>
-                <Button type="button" onClick={saveHouse}>{t(language, 'Save House Details', 'Hifadhi Taarifa za Nyumba')}</Button>
-              </CardContent>
-            </Card>
-          </div>
-        )}
-        {activeTab === 'meters' && (
-          <div className="rounded-3xl border border-cyan-200 bg-gradient-to-r from-cyan-50 via-sky-50 to-blue-50 p-6 shadow-sm">
+          <div className="rounded-3xl border border-blue-200 bg-gradient-to-r from-blue-50 via-indigo-50 to-violet-50 p-6 shadow-sm">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
-                <p className="text-sm font-bold uppercase tracking-wide text-cyan-700">
+                <p className="text-sm font-bold uppercase tracking-wide text-blue-700">
                   {t(
                     language,
-                    'Water Management System',
-                    'Mfumo wa Usimamizi wa Maji'
+                    'Complete Rent Management System',
+                    'Mfumo Kamili wa Usimamizi wa Kodi'
                   )}
                 </p>
 
                 <h2 className="mt-2 text-3xl font-bold text-slate-950">
-                  {t(language, 'Water Information', 'Taarifa za Maji')}
+                  {t(language, 'Rent Information', 'Taarifa za Kodi')}
                 </h2>
 
                 <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">
                   {t(
                     language,
-                    'Manage meter readings, water bills, tenant payments and accounts requiring attention.',
-                    'Sehemu hii inasimamia usomaji wa mita, ankara za maji, malipo ya wapangaji na akaunti zinazohitaji hatua.'
+                    'Manage occupancies, tenancies, rent periods, payments, expenses, reminders and permanent reports.',
+                    'Simamia matumizi ya nyumba, upangishaji, vipindi vya kodi, malipo, matumizi, vikumbusho na ripoti za kudumu.'
                   )}
                 </p>
               </div>
 
-              <span className="rounded-full bg-cyan-100 px-3 py-1 text-xs font-bold text-cyan-800">
+              <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-bold text-blue-800">
                 {t(language, 'Owner only', 'Mmiliki pekee')}
               </span>
             </div>
           </div>
         )}
+
+
+        {activeTab === 'houses' && (
+          <div className="grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
+            <aside className="h-fit rounded-3xl border border-slate-200 bg-white p-3 shadow-sm">
+              <div className="space-y-2">
+                {rentSections.map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setActiveRentSection(value)}
+                    className={`w-full rounded-2xl px-4 py-3 text-left text-sm font-bold transition ${
+                      activeRentSection === value
+                        ? 'bg-blue-700 text-white shadow-md'
+                        : 'bg-slate-50 text-slate-600 hover:bg-blue-50 hover:text-blue-800'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </aside>
+
+            <div className="min-w-0 space-y-4">
+              {activeRentSection === 'summary' && (
+                <div className="space-y-4">
+
+                  <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                    <div className="rounded-3xl border border-blue-200 bg-blue-50 p-5">
+                      <p className="text-sm font-bold uppercase text-blue-700">
+                        {t(
+                          language,
+                          'Active Rent Accounts',
+                          'Akaunti za Kodi Zinazotumika'
+                        )}
+                      </p>
+                      <p className="mt-3 text-3xl font-black text-blue-950">
+                        {activeRentAccounts.length}
+                      </p>
+                    </div>
+
+                    <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5">
+                      <p className="text-sm font-bold uppercase text-emerald-700">
+                        {t(
+                          language,
+                          'Rent Collected',
+                          'Kodi Iliyokusanywa'
+                        )}
+                      </p>
+                      <p className="mt-3 text-3xl font-black text-emerald-950">
+                        TZS {currency(totalRentCollected)}
+                      </p>
+                    </div>
+
+                    <div className="rounded-3xl border border-amber-200 bg-amber-50 p-5">
+                      <p className="text-sm font-bold uppercase text-amber-700">
+                        {t(
+                          language,
+                          'Outstanding Rent',
+                          'Kodi Inayodaiwa'
+                        )}
+                      </p>
+                      <p className="mt-3 text-3xl font-black text-amber-950">
+                        TZS {currency(totalRentOutstanding)}
+                      </p>
+                    </div>
+
+                    <div className="rounded-3xl border border-violet-200 bg-violet-50 p-5">
+                      <p className="text-sm font-bold uppercase text-violet-700">
+                        {t(
+                          language,
+                          'Rent Fund Balance',
+                          'Salio la Mfuko wa Kodi'
+                        )}
+                      </p>
+                      <p className="mt-3 text-3xl font-black text-violet-950">
+                        TZS {currency(netRentFundBalance)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                    <div className="min-h-36 rounded-3xl border border-blue-200 bg-blue-50 p-5">
+                      <p className="text-sm font-bold uppercase leading-6 text-blue-700">
+                        {t(
+                          language,
+                          'Rent Due Within 30 Days',
+                          'Kodi Inayokaribia Ndani ya Siku 30'
+                        )}
+                      </p>
+
+                      <p className="mt-3 text-3xl font-black text-blue-950">
+                        {rentDueSoonAccounts.length}
+                      </p>
+
+                      <p className="mt-2 text-xs text-blue-600">
+                        {t(
+                          language,
+                          'Accounts requiring early reminder',
+                          'Akaunti zinazohitaji kukumbushwa mapema'
+                        )}
+                      </p>
+                    </div>
+
+                    <div className="min-h-36 rounded-3xl border border-red-200 bg-red-50 p-5">
+                      <p className="text-sm font-bold uppercase leading-6 text-red-700">
+                        {t(
+                          language,
+                          'Overdue Rent Accounts',
+                          'Akaunti za Kodi Zilizochelewa'
+                        )}
+                      </p>
+
+                      <p className="mt-3 text-3xl font-black text-red-950">
+                        {rentOverdueAccounts.length}
+                      </p>
+
+                      <p className="mt-2 text-xs text-red-600">
+                        {t(
+                          language,
+                          'Accounts requiring immediate action',
+                          'Akaunti zinazohitaji hatua ya haraka'
+                        )}
+                      </p>
+                    </div>
+
+                    <div className="min-h-36 rounded-3xl border border-cyan-200 bg-cyan-50 p-5">
+                      <p className="text-sm font-bold uppercase leading-6 text-cyan-700">
+                        {t(
+                          language,
+                          'Owner or Family Occupied',
+                          'Nyumba za Mmiliki au Familia'
+                        )}
+                      </p>
+
+                      <p className="mt-3 text-3xl font-black text-cyan-950">
+                        {ownerOccupiedHouses.length}
+                      </p>
+
+                      <p className="mt-2 text-xs text-cyan-600">
+                        {t(
+                          language,
+                          'No rent is currently expected',
+                          'Kwa sasa hazitarajiwi kulipa kodi'
+                        )}
+                      </p>
+                    </div>
+
+                    <div className="min-h-36 rounded-3xl border border-slate-300 bg-slate-100 p-5">
+                      <p className="text-sm font-bold uppercase leading-6 text-slate-700">
+                        {t(
+                          language,
+                          'Vacant Houses',
+                          'Nyumba Tupu'
+                        )}
+                      </p>
+
+                      <p className="mt-3 text-3xl font-black text-slate-950">
+                        {vacantRentalHouses.length}
+                      </p>
+
+                      <p className="mt-2 text-xs text-slate-600">
+                        {t(
+                          language,
+                          'Available for a new tenant',
+                          'Ziko tayari kwa mpangaji mpya'
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {activeRentSection === 'registration' && (
+                <div className="space-y-5">
+                  <div className="overflow-hidden rounded-3xl border border-blue-200 bg-white shadow-sm">
+                    <div className="border-b border-blue-100 bg-blue-50 px-6 py-5">
+                      <h3 className="text-xl font-bold text-blue-950">
+                        {t(
+                          language,
+                          'Register House Occupancy or Tenant',
+                          'Sajili Matumizi ya Nyumba au Mpangaji'
+                        )}
+                      </h3>
+
+                      <p className="mt-1 text-sm text-blue-700">
+                        {t(
+                          language,
+                          'Use this section when registering a paying tenant, an owner or family occupant, or a vacant house.',
+                          'Tumia sehemu hii kusajili mpangaji anayelipa kodi, nyumba inayotumiwa na mmiliki au familia, au nyumba tupu.'
+                        )}
+                      </p>
+                    </div>
+
+                    <div className="grid gap-4 p-6 md:grid-cols-2">
+                      <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5">
+                        <h4 className="text-lg font-bold text-emerald-950">
+                          {t(
+                            language,
+                            'Record Existing Tenant Payment',
+                            'Sajili Malipo ya Kodi'
+                          )}
+                        </h4>
+
+                        <p className="mt-2 text-sm leading-6 text-emerald-700">
+                          {t(
+                            language,
+                            'Select an existing tenant and enter only the amount received. All rent dates and periods will be calculated automatically.',
+                            'Chagua mpangaji aliyepo na uweke kiasi kilichopokelewa tu. Tarehe na vipindi vyote vya kodi vitahesabiwa moja kwa moja.'
+                          )}
+                        </p>
+
+                        <Button
+                          type="button"
+                          className="mt-5 bg-emerald-700 px-6 py-3"
+                          onClick={openRentalPaymentForm}
+                        >
+                          {t(
+                            language,
+                            'Record Rent Payment',
+                            'Sajili Malipo ya Kodi'
+                          )}
+                        </Button>
+                      </div>
+
+                      <div className="rounded-3xl border border-blue-200 bg-blue-50 p-5">
+                        <h4 className="text-lg font-bold text-blue-950">
+                          {t(
+                            language,
+                            'Register New Tenant',
+                            'Sajili Mpangaji Mpya'
+                          )}
+                        </h4>
+
+                        <p className="mt-2 text-sm leading-6 text-blue-700">
+                          {t(
+                            language,
+                            'Replace the previous occupant with a new tenant while preserving the permanent house and meter identity.',
+                            'Badilisha mpangaji wa zamani kwa mpangaji mpya bila kubadilisha utambulisho wa kudumu wa nyumba na mita.'
+                          )}
+                        </p>
+
+                        <Button
+                          type="button"
+                          className="mt-5 bg-blue-700 px-6 py-3"
+                          onClick={() =>
+                            setIsRentalRegistrationOpen(true)
+                          }
+                        >
+                          {t(
+                            language,
+                            'Open New Tenant Form',
+                            'Fungua Fomu ya Mpangaji Mpya'
+                          )}
+                        </Button>
+                      </div>
+
+                      <div className="rounded-3xl border border-violet-200 bg-violet-50 p-5">
+                        <h4 className="text-lg font-bold text-violet-950">
+                          {t(
+                            language,
+                            'Edit Existing Tenant Details',
+                            'Hariri Taarifa za Mpangaji'
+                          )}
+                        </h4>
+
+                        <p className="mt-2 text-sm leading-6 text-violet-700">
+                          {t(
+                            language,
+                            'Edit the tenant name, phone, occupation and emergency contact without changing the house, permanent meter or rent history.',
+                            'Hariri jina, simu, kazi na mtu wa dharura bila kubadilisha nyumba, mita ya kudumu au historia ya kodi.'
+                          )}
+                        </p>
+
+                        <Button
+                          type="button"
+                          className="mt-5 bg-violet-700 px-6 py-3"
+                          onClick={openRentalTenantEditForm}
+                        >
+                          {t(
+                            language,
+                            'Open Tenant Details',
+                            'Fungua Taarifa za Mpangaji'
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeRentSection === 'attention' && (
+                <div className="space-y-5">
+                  <div className="rounded-3xl border border-red-200 bg-white shadow-sm">
+                    <div className="border-b border-red-100 bg-red-50 px-6 py-5">
+                      <h3 className="text-xl font-bold text-red-900">
+                        {t(
+                          language,
+                          'Overdue Rent',
+                          'Kodi Iliyochelewa'
+                        )}
+                      </h3>
+
+                      <p className="mt-1 text-sm text-red-700">
+                        {t(
+                          language,
+                          `${rentOverdueAccounts.length} account(s) require immediate follow-up.`,
+                          `Akaunti ${rentOverdueAccounts.length} zinahitaji kufuatiliwa mara moja.`
+                        )}
+                      </p>
+                    </div>
+
+                    <div className="divide-y divide-slate-100">
+                      {rentOverdueAccounts.length === 0 ? (
+                        <p className="p-6 text-sm text-slate-500">
+                          {t(
+                            language,
+                            'There is currently no overdue rent.',
+                            'Kwa sasa hakuna kodi iliyochelewa.'
+                          )}
+                        </p>
+                      ) : (
+                        rentOverdueAccounts.map((account) => {
+                          const overdueDays = Math.abs(
+                            daysBetween(
+                              todayISO(),
+                              account.nextPaymentDate
+                            ) || 0
+                          );
+
+                          return (
+                            <div
+                              key={account.id}
+                              className="grid gap-4 p-5 md:grid-cols-[1.3fr_1fr_1fr_auto]"
+                            >
+                              <div>
+                                <p className="font-bold text-slate-900">
+                                  {account.house?.houseNumber || '-'}
+                                  {' — '}
+                                  {account.tenant?.tenantName ||
+                                    account.tenant?.name ||
+                                    account.house?.tenantName ||
+                                    '-'}
+                                </p>
+                                <p className="mt-1 text-xs text-slate-500">
+                                  {t(
+                                    language,
+                                    'Monthly rent',
+                                    'Kodi kwa mwezi'
+                                  )}
+                                  : TZS{' '}
+                                  {currency(
+                                    account.monthlyRentAmount || 0
+                                  )}
+                                </p>
+                              </div>
+
+                              <div>
+                                <p className="text-xs text-slate-500">
+                                  {t(
+                                    language,
+                                    'Paid through',
+                                    'Imelipwa hadi'
+                                  )}
+                                </p>
+                                <p className="font-semibold">
+                                  {account.paidThroughDate || '-'}
+                                </p>
+                              </div>
+
+                              <div>
+                                <p className="text-xs text-slate-500">
+                                  {t(
+                                    language,
+                                    'Payment was due',
+                                    'Malipo yalitakiwa'
+                                  )}
+                                </p>
+                                <p className="font-semibold">
+                                  {account.nextPaymentDate || '-'}
+                                </p>
+                              </div>
+
+                              <div className="self-center rounded-full bg-red-100 px-4 py-2 text-sm font-bold text-red-700">
+                                {t(
+                                  language,
+                                  `${overdueDays} days overdue`,
+                                  `Imechelewa siku ${overdueDays}`
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="rounded-3xl border border-amber-200 bg-white shadow-sm">
+                    <div className="border-b border-amber-100 bg-amber-50 px-6 py-5">
+                      <h3 className="text-xl font-bold text-amber-900">
+                        {t(
+                          language,
+                          'Rent Due Within 30 Days',
+                          'Kodi Inayofika Ndani ya Siku 30'
+                        )}
+                      </h3>
+
+                      <p className="mt-1 text-sm text-amber-700">
+                        {t(
+                          language,
+                          `${rentDueSoonAccounts.length} account(s) are approaching their payment date.`,
+                          `Akaunti ${rentDueSoonAccounts.length} zinakaribia tarehe ya malipo.`
+                        )}
+                      </p>
+                    </div>
+
+                    <div className="divide-y divide-slate-100">
+                      {rentDueSoonAccounts.length === 0 ? (
+                        <p className="p-6 text-sm text-slate-500">
+                          {t(
+                            language,
+                            'No rent is due within the next 30 days.',
+                            'Hakuna kodi inayofika ndani ya siku 30 zijazo.'
+                          )}
+                        </p>
+                      ) : (
+                        rentDueSoonAccounts.map((account) => {
+                          const remainingDays =
+                            daysBetween(
+                              todayISO(),
+                              account.nextPaymentDate
+                            ) || 0;
+
+                          return (
+                            <div
+                              key={account.id}
+                              className="grid gap-4 p-5 md:grid-cols-[1.3fr_1fr_1fr_auto]"
+                            >
+                              <div>
+                                <p className="font-bold text-slate-900">
+                                  {account.house?.houseNumber || '-'}
+                                  {' — '}
+                                  {account.tenant?.tenantName ||
+                                    account.tenant?.name ||
+                                    account.house?.tenantName ||
+                                    '-'}
+                                </p>
+                                <p className="mt-1 text-xs text-slate-500">
+                                  {t(
+                                    language,
+                                    'Monthly rent',
+                                    'Kodi kwa mwezi'
+                                  )}
+                                  : TZS{' '}
+                                  {currency(
+                                    account.monthlyRentAmount || 0
+                                  )}
+                                </p>
+                              </div>
+
+                              <div>
+                                <p className="text-xs text-slate-500">
+                                  {t(
+                                    language,
+                                    'Paid through',
+                                    'Imelipwa hadi'
+                                  )}
+                                </p>
+                                <p className="font-semibold">
+                                  {account.paidThroughDate || '-'}
+                                </p>
+                              </div>
+
+                              <div>
+                                <p className="text-xs text-slate-500">
+                                  {t(
+                                    language,
+                                    'Next payment',
+                                    'Malipo yanayofuata'
+                                  )}
+                                </p>
+                                <p className="font-semibold">
+                                  {account.nextPaymentDate || '-'}
+                                </p>
+                              </div>
+
+                              <div className="self-center rounded-full bg-amber-100 px-4 py-2 text-sm font-bold text-amber-700">
+                                {remainingDays === 0
+                                  ? t(
+                                      language,
+                                      'Due today',
+                                      'Inafika leo'
+                                    )
+                                  : t(
+                                      language,
+                                      `${remainingDays} days remaining`,
+                                      `Zimebaki siku ${remainingDays}`
+                                    )}
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeRentSection === 'invoices' && (
+                <div className="overflow-hidden rounded-3xl border border-blue-200 bg-white shadow-sm">
+                  <div className="border-b border-blue-100 bg-blue-50 px-6 py-5">
+                    <h3 className="text-xl font-bold text-blue-950">
+                      {t(
+                        language,
+                        'Permanent Rent Invoices',
+                        'Ankara za Kudumu za Kodi'
+                      )}
+                    </h3>
+
+                    <p className="mt-1 text-sm text-blue-700">
+                      {t(
+                        language,
+                        'Invoices are created automatically from confirmed rent periods and payments.',
+                        'Ankara zinatengenezwa moja kwa moja kutokana na vipindi na malipo ya kodi yaliyothibitishwa.'
+                      )}
+                    </p>
+                  </div>
+
+                  <div className="grid gap-4 border-b border-slate-100 p-5 sm:grid-cols-3">
+                    <PreviewValue
+                      label={t(
+                        language,
+                        'Total Invoiced',
+                        'Jumla ya Ankara'
+                      )}
+                      value={`TZS ${currency(
+                        totalRentInvoiced
+                      )}`}
+                    />
+
+                    <PreviewValue
+                      label={t(
+                        language,
+                        'Amount Paid',
+                        'Kiasi Kilicholipwa'
+                      )}
+                      value={`TZS ${currency(
+                        activeRentInvoices.reduce(
+                          (total, invoice) =>
+                            total +
+                            Number(invoice.amountPaid || 0),
+                          0
+                        )
+                      )}`}
+                    />
+
+                    <PreviewValue
+                      label={t(
+                        language,
+                        'Outstanding Balance',
+                        'Salio Linalodaiwa'
+                      )}
+                      value={`TZS ${currency(
+                        totalRentOutstanding
+                      )}`}
+                    />
+                  </div>
+
+                  <div className="divide-y divide-slate-100">
+                    {activeRentInvoices.length === 0 ? (
+                      <p className="p-6 text-sm text-slate-500">
+                        {t(
+                          language,
+                          'No permanent rent invoice has been recorded yet.',
+                          'Bado hakuna ankara ya kudumu ya kodi iliyorekodiwa.'
+                        )}
+                      </p>
+                    ) : (
+                      [...activeRentInvoices]
+                        .sort(
+                          (first, second) =>
+                            new Date(
+                              second.created_at ||
+                                second.issueDate ||
+                                0
+                            ) -
+                            new Date(
+                              first.created_at ||
+                                first.issueDate ||
+                                0
+                            )
+                        )
+                        .map((invoice) => {
+                          const invoiceHouse =
+                            getRentalHouse(invoice.houseId);
+                          const invoiceTenant =
+                            getRentalTenant(invoice.tenantId);
+                          const invoiceBalance = Number(
+                            invoice.balance || 0
+                          );
+                          const invoiceStatus =
+                            invoice.status ||
+                            (invoiceBalance <= 0
+                              ? 'Paid'
+                              : Number(invoice.amountPaid || 0) > 0
+                                ? 'Partially Paid'
+                                : 'Unpaid');
+
+                          return (
+                            <div
+                              key={invoice.id}
+                              className="space-y-4 p-5"
+                            >
+                              <div className="flex flex-wrap items-start justify-between gap-4">
+                                <div>
+                                  <p className="text-lg font-bold text-slate-900">
+                                    {invoiceHouse?.houseNumber ||
+                                      '-'}
+                                    {' — '}
+                                    {invoiceTenant?.tenantName ||
+                                      invoiceTenant?.name ||
+                                      invoiceHouse?.tenantName ||
+                                      '-'}
+                                  </p>
+
+                                  <p className="mt-1 text-xs text-slate-500">
+                                    {t(
+                                      language,
+                                      'Invoice number',
+                                      'Namba ya ankara'
+                                    )}
+                                    :{' '}
+                                    {invoice.invoiceNumber ||
+                                      invoice.id}
+                                  </p>
+                                </div>
+
+                                <span
+                                  className={`rounded-full px-4 py-2 text-sm font-bold ${
+                                    invoiceBalance <= 0
+                                      ? 'bg-emerald-100 text-emerald-700'
+                                      : Number(
+                                            invoice.amountPaid || 0
+                                          ) > 0
+                                        ? 'bg-amber-100 text-amber-700'
+                                        : 'bg-red-100 text-red-700'
+                                  }`}
+                                >
+                                  {invoiceStatus}
+                                </span>
+                              </div>
+
+                              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+                                <PreviewValue
+                                  label={t(
+                                    language,
+                                    'Period Start',
+                                    'Mwanzo wa Kipindi'
+                                  )}
+                                  value={
+                                    invoice.periodStart || '-'
+                                  }
+                                />
+
+                                <PreviewValue
+                                  label={t(
+                                    language,
+                                    'Period End',
+                                    'Mwisho wa Kipindi'
+                                  )}
+                                  value={invoice.periodEnd || '-'}
+                                />
+
+                                <PreviewValue
+                                  label={t(
+                                    language,
+                                    'Due Date',
+                                    'Tarehe ya Malipo'
+                                  )}
+                                  value={invoice.dueDate || '-'}
+                                />
+
+                                <PreviewValue
+                                  label={t(
+                                    language,
+                                    'Invoice Amount',
+                                    'Kiasi cha Ankara'
+                                  )}
+                                  value={`TZS ${currency(
+                                    invoice.invoiceAmount || 0
+                                  )}`}
+                                />
+
+                                <PreviewValue
+                                  label={t(
+                                    language,
+                                    'Amount Paid',
+                                    'Kilicholipwa'
+                                  )}
+                                  value={`TZS ${currency(
+                                    invoice.amountPaid || 0
+                                  )}`}
+                                />
+
+                                <PreviewValue
+                                  label={t(
+                                    language,
+                                    'Balance',
+                                    'Salio'
+                                  )}
+                                  value={`TZS ${currency(
+                                    invoice.balance || 0
+                                  )}`}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {activeRentSection === 'payments' && (
+                <div className="space-y-5">
+                  <div className="flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-emerald-200 bg-emerald-50 p-5">
+                    <div>
+                      <h3 className="text-xl font-bold text-emerald-950">
+                        {t(
+                          language,
+                          'Rent Invoices and Payments',
+                          'Ankara na Malipo ya Kodi'
+                        )}
+                      </h3>
+
+                      <p className="mt-1 text-sm text-emerald-700">
+                        {t(
+                          language,
+                          'Record rent received and review the permanent payment history.',
+                          'Sajili kodi iliyopokelewa na uangalie historia ya kudumu ya malipo.'
+                        )}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap gap-3">
+                      <Button
+                        type="button"
+                        className="bg-emerald-700 px-6 py-3"
+                        onClick={openRentalPaymentForm}
+                      >
+                        {t(
+                          language,
+                          'Record Rent Payment',
+                          'Sajili Malipo ya Kodi'
+                        )}
+                      </Button>
+
+                      <Button
+                        type="button"
+                        className="bg-amber-600 px-6 py-3"
+                        onClick={() =>
+                          openRentalPaymentCorrectionForm()
+                        }
+                      >
+                        {t(
+                          language,
+                          'Correct Rent Payment',
+                          'Sahihisha Malipo ya Kodi'
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <PreviewValue
+                      label={t(
+                        language,
+                        'Total Rent Received',
+                        'Jumla ya Kodi Iliyopokelewa'
+                      )}
+                      value={`TZS ${currency(
+                        totalRentCollected
+                      )}`}
+                    />
+
+                    <PreviewValue
+                      label={t(
+                        language,
+                        'Allocated to Invoices',
+                        'Iliyogawiwa Kwenye Ankara'
+                      )}
+                      value={`TZS ${currency(
+                        activeRentalPayments.reduce(
+                          (total, payment) =>
+                            total +
+                            Number(
+                              payment.allocatedAmount || 0
+                            ),
+                          0
+                        )
+                      )}`}
+                    />
+
+                    <PreviewValue
+                      label={t(
+                        language,
+                        'Remaining Rent Credit',
+                        'Salio la Kodi Lililobaki'
+                      )}
+                      value={`TZS ${currency(
+                        totalRentCredit
+                      )}`}
+                    />
+                  </div>
+
+                  <div className="overflow-hidden rounded-3xl border border-emerald-200 bg-white shadow-sm">
+                    <div className="border-b border-emerald-100 bg-emerald-50 px-6 py-5">
+                      <h3 className="text-xl font-bold text-emerald-950">
+                        {t(
+                          language,
+                          'Permanent Rent Payment Receipts',
+                          'Risiti za Kudumu za Malipo ya Kodi'
+                        )}
+                      </h3>
+
+                      <p className="mt-1 text-sm text-emerald-700">
+                        {t(
+                          language,
+                          'Every confirmed payment remains in this history together with its invoice allocation.',
+                          'Kila malipo yaliyothibitishwa yanabaki katika historia hii pamoja na mgawanyo wake kwenye ankara.'
+                        )}
+                      </p>
+                    </div>
+
+                    <div className="space-y-4 p-5">
+                      {activeRentalPayments.length === 0 ? (
+                        <p className="text-sm text-slate-500">
+                          {t(
+                            language,
+                            'No permanent rent payment has been recorded yet.',
+                            'Bado hakuna malipo ya kudumu ya kodi yaliyorekodiwa.'
+                          )}
+                        </p>
+                      ) : (
+                        [...activeRentalPayments]
+                          .sort(
+                            (first, second) =>
+                              new Date(
+                                second.created_at ||
+                                  second.paymentDate ||
+                                  0
+                              ) -
+                              new Date(
+                                first.created_at ||
+                                  first.paymentDate ||
+                                  0
+                              )
+                          )
+                          .map((payment) => {
+                            const paymentHouse =
+                              getRentalHouse(payment.houseId);
+                            const paymentTenant =
+                              getRentalTenant(
+                                payment.tenantId
+                              );
+
+                            const paymentAllocations =
+                              rentPaymentAllocations.filter(
+                                (allocation) =>
+                                  allocation.status ===
+                                    'Active' &&
+                                  String(
+                                    allocation.paymentId
+                                  ) === String(payment.id)
+                              );
+
+                            return (
+                              <div
+                                key={payment.id}
+                                className="overflow-hidden rounded-2xl border border-slate-200"
+                              >
+                                <div className="flex flex-wrap items-start justify-between gap-4 bg-slate-900 px-5 py-4 text-white">
+                                  <div>
+                                    <p className="text-xs font-semibold uppercase text-slate-300">
+                                      {t(
+                                        language,
+                                        'Rent Payment Receipt',
+                                        'Risiti ya Malipo ya Kodi'
+                                      )}
+                                    </p>
+
+                                    <p className="mt-1 text-lg font-bold">
+                                      {paymentHouse?.houseNumber ||
+                                        '-'}
+                                      {' — '}
+                                      {paymentTenant?.tenantName ||
+                                        paymentTenant?.name ||
+                                        paymentHouse?.tenantName ||
+                                        '-'}
+                                    </p>
+
+                                    <p className="mt-1 text-xs text-slate-300">
+                                      {payment.receiptNumber ||
+                                        payment.id}
+                                    </p>
+                                  </div>
+
+                                  <div className="text-right">
+                                    <p className="text-xs text-slate-300">
+                                      {t(
+                                        language,
+                                        'Amount Received',
+                                        'Fedha Iliyopokelewa'
+                                      )}
+                                    </p>
+                                    <p className="text-2xl font-bold text-emerald-300">
+                                      TZS{' '}
+                                      {currency(
+                                        payment.amountReceived ||
+                                          0
+                                      )}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <div className="grid gap-3 p-5 sm:grid-cols-2 xl:grid-cols-5">
+                                  <PreviewValue
+                                    label={t(
+                                      language,
+                                      'Payment Date',
+                                      'Tarehe ya Malipo'
+                                    )}
+                                    value={
+                                      payment.paymentDate || '-'
+                                    }
+                                  />
+
+                                  <PreviewValue
+                                    label={t(
+                                      language,
+                                      'Recorded At',
+                                      'Muda wa Kurekodi'
+                                    )}
+                                    value={
+                                      payment.created_at
+                                        ? new Date(
+                                            payment.created_at
+                                          ).toLocaleString()
+                                        : '-'
+                                    }
+                                  />
+
+                                  <PreviewValue
+                                    label={t(
+                                      language,
+                                      'Payment Method',
+                                      'Njia ya Malipo'
+                                    )}
+                                    value={
+                                      payment.paymentMethod ||
+                                      '-'
+                                    }
+                                  />
+
+                                  <PreviewValue
+                                    label={t(
+                                      language,
+                                      'Allocated',
+                                      'Iliyogawiwa'
+                                    )}
+                                    value={`TZS ${currency(
+                                      payment.allocatedAmount ||
+                                        0
+                                    )}`}
+                                  />
+
+                                  <PreviewValue
+                                    label={t(
+                                      language,
+                                      'Credit Remaining',
+                                      'Salio Lililobaki'
+                                    )}
+                                    value={`TZS ${currency(
+                                      payment.creditAmount || 0
+                                    )}`}
+                                  />
+                                </div>
+
+                                {paymentAllocations.length > 0 && (
+                                  <div className="border-t border-slate-200 bg-slate-50 px-5 py-4">
+                                    <p className="mb-3 text-xs font-bold uppercase text-slate-500">
+                                      {t(
+                                        language,
+                                        'Invoices Paid by This Receipt',
+                                        'Ankara Zilizolipwa na Risiti Hii'
+                                      )}
+                                    </p>
+
+                                    <div className="space-y-2">
+                                      {paymentAllocations.map(
+                                        (allocation) => {
+                                          const linkedInvoice =
+                                            rentInvoices.find(
+                                              (invoice) =>
+                                                String(
+                                                  invoice.id
+                                                ) ===
+                                                String(
+                                                  allocation.invoiceId
+                                                )
+                                            );
+
+                                          return (
+                                            <div
+                                              key={allocation.id}
+                                              className="flex flex-wrap justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3"
+                                            >
+                                              <span className="font-semibold text-slate-700">
+                                                {linkedInvoice?.invoiceNumber ||
+                                                  allocation.invoiceId}
+                                              </span>
+
+                                              <span className="font-bold text-emerald-700">
+                                                TZS{' '}
+                                                {currency(
+                                                  allocation.amount ||
+                                                    0
+                                                )}
+                                              </span>
+                                            </div>
+                                          );
+                                        }
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeRentSection === 'rentFund' && (
+                <div className="space-y-5">
+                  <div className="flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-orange-200 bg-orange-50 p-5">
+                    <div>
+                      <h3 className="text-xl font-bold text-orange-950">
+                        {t(
+                          language,
+                          'Rent Fund and Property Expenses',
+                          'Mfuko wa Kodi na Matumizi ya Nyumba'
+                        )}
+                      </h3>
+
+                      <p className="mt-1 text-sm text-orange-700">
+                        {t(
+                          language,
+                          'Record repairs and other property expenses paid from rent collections.',
+                          'Sajili matengenezo na matumizi mengine ya nyumba yaliyolipwa kutoka kwenye makusanyo ya kodi.'
+                        )}
+                      </p>
+                    </div>
+
+                    <Button
+                      type="button"
+                      className="bg-orange-600 px-6 py-3"
+                      onClick={() =>
+                        setIsRentalExpenseOpen(true)
+                      }
+                    >
+                      {t(
+                        language,
+                        'Record Rent Expense',
+                        'Sajili Matumizi ya Kodi'
+                      )}
+                    </Button>
+                  </div>
+
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <div className="rounded-3xl border border-blue-200 bg-blue-50 p-6">
+                      <p className="text-sm font-bold uppercase text-blue-700">
+                        {t(
+                          language,
+                          'Rent Collected',
+                          'Kodi Iliyokusanywa'
+                        )}
+                      </p>
+                      <p className="mt-3 text-3xl font-bold text-blue-950">
+                        TZS {currency(totalRentCollected)}
+                      </p>
+                    </div>
+
+                    <div className="rounded-3xl border border-orange-200 bg-orange-50 p-6">
+                      <p className="text-sm font-bold uppercase text-orange-700">
+                        {t(
+                          language,
+                          'Rental Expenses Paid',
+                          'Matumizi ya Kodi Yaliyolipwa'
+                        )}
+                      </p>
+                      <p className="mt-3 text-3xl font-bold text-orange-950">
+                        TZS {currency(totalRentalExpensesPaid)}
+                      </p>
+                    </div>
+
+                    <div
+                      className={`rounded-3xl border p-6 ${
+                        netRentFundBalance >= 0
+                          ? 'border-emerald-200 bg-emerald-50'
+                          : 'border-red-200 bg-red-50'
+                      }`}
+                    >
+                      <p
+                        className={`text-sm font-bold uppercase ${
+                          netRentFundBalance >= 0
+                            ? 'text-emerald-700'
+                            : 'text-red-700'
+                        }`}
+                      >
+                        {t(
+                          language,
+                          'Current Rent Fund Balance',
+                          'Salio la Sasa la Mfuko wa Kodi'
+                        )}
+                      </p>
+                      <p
+                        className={`mt-3 text-3xl font-bold ${
+                          netRentFundBalance >= 0
+                            ? 'text-emerald-950'
+                            : 'text-red-950'
+                        }`}
+                      >
+                        TZS {currency(netRentFundBalance)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-5 xl:grid-cols-2">
+                    <div className="overflow-hidden rounded-3xl border border-blue-200 bg-white shadow-sm">
+                      <div className="border-b border-blue-100 bg-blue-50 px-6 py-5">
+                        <h3 className="text-xl font-bold text-blue-950">
+                          {t(
+                            language,
+                            'Money Received from Tenants',
+                            'Fedha Zilizokusanywa Kutoka kwa Wapangaji'
+                          )}
+                        </h3>
+                      </div>
+
+                      <div className="divide-y divide-slate-100">
+                        {activeRentalPayments.length === 0 ? (
+                          <p className="p-6 text-sm text-slate-500">
+                            {t(
+                              language,
+                              'No rent collection has been recorded yet.',
+                              'Bado hakuna makusanyo ya kodi yaliyorekodiwa.'
+                            )}
+                          </p>
+                        ) : (
+                          [...activeRentalPayments]
+                            .sort(
+                              (first, second) =>
+                                new Date(
+                                  second.created_at ||
+                                    second.paymentDate ||
+                                    0
+                                ) -
+                                new Date(
+                                  first.created_at ||
+                                    first.paymentDate ||
+                                    0
+                                )
+                            )
+                            .map((payment) => {
+                              const paymentHouse =
+                                getRentalHouse(
+                                  payment.houseId
+                                );
+                              const paymentTenant =
+                                getRentalTenant(
+                                  payment.tenantId
+                                );
+
+                              return (
+                                <div
+                                  key={payment.id}
+                                  className="flex flex-wrap items-center justify-between gap-4 p-5"
+                                >
+                                  <div>
+                                    <p className="font-bold text-slate-900">
+                                      {paymentTenant?.tenantName ||
+                                        paymentTenant?.name ||
+                                        paymentHouse?.tenantName ||
+                                        '-'}
+                                    </p>
+                                    <p className="mt-1 text-xs text-slate-500">
+                                      {paymentHouse?.houseNumber ||
+                                        '-'}
+                                      {' • '}
+                                      {payment.paymentDate || '-'}
+                                    </p>
+                                  </div>
+
+                                  <p className="font-bold text-blue-800">
+                                    TZS{' '}
+                                    {currency(
+                                      payment.amountReceived ||
+                                        0
+                                    )}
+                                  </p>
+                                </div>
+                              );
+                            })
+                        )}
+
+                        <div className="flex justify-between bg-blue-50 p-5 text-lg font-bold text-blue-950">
+                          <span>
+                            {t(
+                              language,
+                              'Total Received',
+                              'Jumla Iliyopokelewa'
+                            )}
+                          </span>
+                          <span>
+                            TZS {currency(totalRentCollected)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="overflow-hidden rounded-3xl border border-orange-200 bg-white shadow-sm">
+                      <div className="border-b border-orange-100 bg-orange-50 px-6 py-5">
+                        <h3 className="text-xl font-bold text-orange-950">
+                          {t(
+                            language,
+                            'Rental Expenses',
+                            'Matumizi ya Kodi'
+                          )}
+                        </h3>
+                      </div>
+
+                      <div className="divide-y divide-slate-100">
+                        {activeRentalExpenses.length === 0 ? (
+                          <p className="p-6 text-sm text-slate-500">
+                            {t(
+                              language,
+                              'No rental expense has been recorded yet.',
+                              'Bado hakuna matumizi ya kodi yaliyorekodiwa.'
+                            )}
+                          </p>
+                        ) : (
+                          [...activeRentalExpenses]
+                            .sort(
+                              (first, second) =>
+                                new Date(
+                                  second.created_at ||
+                                    second.expenseDate ||
+                                    0
+                                ) -
+                                new Date(
+                                  first.created_at ||
+                                    first.expenseDate ||
+                                    0
+                                )
+                            )
+                            .map((expense) => {
+                              const expenseHouse =
+                                getRentalHouse(
+                                  expense.houseId
+                                );
+
+                              return (
+                                <div
+                                  key={expense.id}
+                                  className="flex flex-wrap items-center justify-between gap-4 p-5"
+                                >
+                                  <div>
+                                    <p className="font-bold text-slate-900">
+                                      {expense.expenseType}
+                                    </p>
+                                    <p className="mt-1 text-xs text-slate-500">
+                                      {expenseHouse?.houseNumber ||
+                                        t(
+                                          language,
+                                          'General expense',
+                                          'Matumizi ya jumla'
+                                        )}
+                                      {' • '}
+                                      {expense.expenseDate || '-'}
+                                    </p>
+
+                                    {expense.description && (
+                                      <p className="mt-2 text-sm text-slate-600">
+                                        {expense.description}
+                                      </p>
+                                    )}
+                                  </div>
+
+                                  <p className="font-bold text-orange-800">
+                                    TZS{' '}
+                                    {currency(
+                                      expense.amount || 0
+                                    )}
+                                  </p>
+                                </div>
+                              );
+                            })
+                        )}
+
+                        <div className="flex justify-between bg-orange-50 p-5 text-lg font-bold text-orange-950">
+                          <span>
+                            {t(
+                              language,
+                              'Total Expenses',
+                              'Jumla ya Matumizi'
+                            )}
+                          </span>
+                          <span>
+                            TZS{' '}
+                            {currency(
+                              totalRentalExpensesPaid
+                            )}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div
+                    className={`rounded-3xl border p-6 ${
+                      netRentFundBalance >= 0
+                        ? 'border-emerald-200 bg-emerald-50'
+                        : 'border-red-200 bg-red-50'
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                      <div>
+                        <p className="text-lg font-bold text-slate-900">
+                          {t(
+                            language,
+                            'Balance Carried Forward',
+                            'Salio Linalohamishwa Mbele'
+                          )}
+                        </p>
+                        <p className="mt-1 text-sm text-slate-600">
+                          {t(
+                            language,
+                            'This balance remains available for future rental expenses and is not reset at the end of the month.',
+                            'Salio hili linabaki kwa matumizi ya baadaye ya nyumba na halifutwi mwisho wa mwezi.'
+                          )}
+                        </p>
+                      </div>
+
+                      <p
+                        className={`text-3xl font-bold ${
+                          netRentFundBalance >= 0
+                            ? 'text-emerald-800'
+                            : 'text-red-800'
+                        }`}
+                      >
+                        TZS {currency(netRentFundBalance)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeRentSection === 'alerts' && (() => {
+                const missingPaymentDateAccounts =
+                  activeRentAccounts.filter(
+                    (account) =>
+                      !account.paidThroughDate ||
+                      !account.nextPaymentDate
+                  );
+
+                const missingPhoneAccounts =
+                  activeRentAccounts.filter(
+                    (account) =>
+                      account.smsRemindersEnabled === true &&
+                      !String(
+                        account.tenant?.phoneNumber || ''
+                      ).trim()
+                  );
+
+                const smsDisabledAccounts =
+                  activeRentAccounts.filter(
+                    (account) =>
+                      account.smsRemindersEnabled !== true
+                  );
+
+                const totalAccountWarnings =
+                  rentOverdueAccounts.length +
+                  missingPaymentDateAccounts.length +
+                  missingPhoneAccounts.length +
+                  smsDisabledAccounts.length;
+
+                const accountName = (account) =>
+                  account.tenant?.fullName ||
+                  account.tenant?.tenantName ||
+                  account.tenant?.name ||
+                  account.house?.tenantName ||
+                  '-';
+
+                return (
+                  <div className="space-y-5">
+                    <div
+                      className={`rounded-3xl border p-6 ${
+                        totalAccountWarnings === 0
+                          ? 'border-emerald-200 bg-emerald-50'
+                          : 'border-amber-200 bg-amber-50'
+                      }`}
+                    >
+                      <p
+                        className={`text-sm font-bold uppercase ${
+                          totalAccountWarnings === 0
+                            ? 'text-emerald-700'
+                            : 'text-amber-700'
+                        }`}
+                      >
+                        {t(
+                          language,
+                          'Rental Account Warnings',
+                          'Tahadhari za Akaunti za Kodi'
+                        )}
+                      </p>
+
+                      <p
+                        className={`mt-3 text-4xl font-bold ${
+                          totalAccountWarnings === 0
+                            ? 'text-emerald-950'
+                            : 'text-amber-950'
+                        }`}
+                      >
+                        {totalAccountWarnings}
+                      </p>
+
+                      <p className="mt-2 text-sm text-slate-600">
+                        {totalAccountWarnings === 0
+                          ? t(
+                              language,
+                              'All active rental accounts have complete information and require no action.',
+                              'Akaunti zote za kodi zina taarifa kamili na hazihitaji hatua.'
+                            )
+                          : t(
+                              language,
+                              'Review the genuine account issues listed below.',
+                              'Pitia matatizo halisi ya akaunti yaliyoorodheshwa hapa chini.'
+                            )}
+                      </p>
+                    </div>
+
+                    <div className="grid gap-5 xl:grid-cols-2">
+                      <div className="overflow-hidden rounded-3xl border border-red-200 bg-white">
+                        <div className="border-b border-red-100 bg-red-50 px-5 py-4">
+                          <h3 className="font-bold text-red-900">
+                            {t(
+                              language,
+                              'Overdue Rent',
+                              'Kodi Iliyochelewa'
+                            )}
+                          </h3>
+                          <p className="mt-1 text-sm text-red-700">
+                            {rentOverdueAccounts.length}{' '}
+                            {t(
+                              language,
+                              'account(s)',
+                              'akaunti'
+                            )}
+                          </p>
+                        </div>
+
+                        <div className="divide-y divide-slate-100">
+                          {rentOverdueAccounts.length === 0 ? (
+                            <p className="p-5 text-sm text-slate-500">
+                              {t(
+                                language,
+                                'No overdue account.',
+                                'Hakuna akaunti iliyochelewa.'
+                              )}
+                            </p>
+                          ) : (
+                            rentOverdueAccounts.map((account) => (
+                              <div
+                                key={account.id}
+                                className="flex justify-between gap-4 p-5"
+                              >
+                                <div>
+                                  <p className="font-bold">
+                                    {account.house?.houseNumber ||
+                                      '-'}
+                                    {' — '}
+                                    {accountName(account)}
+                                  </p>
+                                  <p className="mt-1 text-xs text-slate-500">
+                                    {t(
+                                      language,
+                                      'Due date',
+                                      'Tarehe ya malipo'
+                                    )}
+                                    :{' '}
+                                    {account.nextPaymentDate ||
+                                      '-'}
+                                  </p>
+                                </div>
+
+                                <span className="h-fit rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-700">
+                                  {t(
+                                    language,
+                                    'Follow up',
+                                    'Fuatilia'
+                                  )}
+                                </span>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="overflow-hidden rounded-3xl border border-orange-200 bg-white">
+                        <div className="border-b border-orange-100 bg-orange-50 px-5 py-4">
+                          <h3 className="font-bold text-orange-900">
+                            {t(
+                              language,
+                              'Missing Rent Dates',
+                              'Tarehe za Kodi Hazijakamilika'
+                            )}
+                          </h3>
+                          <p className="mt-1 text-sm text-orange-700">
+                            {missingPaymentDateAccounts.length}{' '}
+                            {t(
+                              language,
+                              'account(s)',
+                              'akaunti'
+                            )}
+                          </p>
+                        </div>
+
+                        <div className="divide-y divide-slate-100">
+                          {missingPaymentDateAccounts.length ===
+                          0 ? (
+                            <p className="p-5 text-sm text-slate-500">
+                              {t(
+                                language,
+                                'All active accounts have complete rent dates.',
+                                'Akaunti zote zina tarehe kamili za kodi.'
+                              )}
+                            </p>
+                          ) : (
+                            missingPaymentDateAccounts.map(
+                              (account) => (
+                                <div
+                                  key={account.id}
+                                  className="p-5"
+                                >
+                                  <p className="font-bold">
+                                    {account.house?.houseNumber ||
+                                      '-'}
+                                    {' — '}
+                                    {accountName(account)}
+                                  </p>
+                                  <p className="mt-1 text-xs text-orange-700">
+                                    {t(
+                                      language,
+                                      'Confirm the paid-through date and next payment date.',
+                                      'Thibitisha tarehe iliyolipwa hadi na tarehe inayofuata ya malipo.'
+                                    )}
+                                  </p>
+                                </div>
+                              )
+                            )
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="overflow-hidden rounded-3xl border border-purple-200 bg-white">
+                        <div className="border-b border-purple-100 bg-purple-50 px-5 py-4">
+                          <h3 className="font-bold text-purple-900">
+                            {t(
+                              language,
+                              'SMS Enabled but Telephone Missing',
+                              'SMS Imeruhusiwa Lakini Namba ya Simu Haipo'
+                            )}
+                          </h3>
+                          <p className="mt-1 text-sm text-purple-700">
+                            {missingPhoneAccounts.length}{' '}
+                            {t(
+                              language,
+                              'account(s)',
+                              'akaunti'
+                            )}
+                          </p>
+                        </div>
+
+                        <div className="divide-y divide-slate-100">
+                          {missingPhoneAccounts.length === 0 ? (
+                            <p className="p-5 text-sm text-slate-500">
+                              {t(
+                                language,
+                                'No telephone number is missing.',
+                                'Hakuna namba ya simu inayokosekana.'
+                              )}
+                            </p>
+                          ) : (
+                            missingPhoneAccounts.map((account) => (
+                              <div
+                                key={account.id}
+                                className="p-5"
+                              >
+                                <p className="font-bold">
+                                  {account.house?.houseNumber ||
+                                    '-'}
+                                  {' — '}
+                                  {accountName(account)}
+                                </p>
+                                <p className="mt-1 text-xs text-purple-700">
+                                  {t(
+                                    language,
+                                    'Add the tenant telephone number before activating automatic SMS.',
+                                    'Weka namba ya simu ya mpangaji kabla ya kutumia SMS za moja kwa moja.'
+                                  )}
+                                </p>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="overflow-hidden rounded-3xl border border-slate-300 bg-white">
+                        <div className="border-b border-slate-200 bg-slate-100 px-5 py-4">
+                          <h3 className="font-bold text-slate-900">
+                            {t(
+                              language,
+                              'SMS Reminders Disabled',
+                              'Vikumbusho vya SMS Vimezimwa'
+                            )}
+                          </h3>
+                          <p className="mt-1 text-sm text-slate-600">
+                            {smsDisabledAccounts.length}{' '}
+                            {t(
+                              language,
+                              'account(s)',
+                              'akaunti'
+                            )}
+                          </p>
+                        </div>
+
+                        <div className="divide-y divide-slate-100">
+                          {smsDisabledAccounts.length === 0 ? (
+                            <p className="p-5 text-sm text-slate-500">
+                              {t(
+                                language,
+                                'SMS reminders are enabled for all active tenants.',
+                                'Vikumbusho vya SMS vimeruhusiwa kwa wapangaji wote.'
+                              )}
+                            </p>
+                          ) : (
+                            smsDisabledAccounts.map((account) => (
+                              <div
+                                key={account.id}
+                                className="p-5"
+                              >
+                                <p className="font-bold">
+                                  {account.house?.houseNumber ||
+                                    '-'}
+                                  {' — '}
+                                  {accountName(account)}
+                                </p>
+                                <p className="mt-1 text-xs text-slate-500">
+                                  {t(
+                                    language,
+                                    'Enable reminders only after confirming the telephone number and consent.',
+                                    'Washa vikumbusho baada ya kuthibitisha namba ya simu na ridhaa.'
+                                  )}
+                                </p>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {activeRentSection ===
+                'smsReminders' && (() => {
+                const pendingReminders =
+                  rentSmsReminders.filter(
+                    (reminder) =>
+                      reminder.status === 'Pending'
+                  );
+
+                const remindersReadyToday =
+                  pendingReminders.filter(
+                    (reminder) =>
+                      reminder.scheduledDate &&
+                      reminder.scheduledDate <= todayISO()
+                  );
+
+                const futureReminders =
+                  pendingReminders.filter(
+                    (reminder) =>
+                      reminder.scheduledDate &&
+                      reminder.scheduledDate > todayISO()
+                  );
+
+                const sentReminders =
+                  rentSmsReminders.filter((reminder) =>
+                    ['Sent', 'Delivered'].includes(
+                      reminder.status
+                    )
+                  );
+
+                const failedReminders =
+                  rentSmsReminders.filter(
+                    (reminder) =>
+                      reminder.status === 'Failed'
+                  );
+
+                const visibleReminders = [
+                  ...rentSmsReminders,
+                ].sort(
+                  (first, second) =>
+                    new Date(
+                      first.scheduledDate ||
+                        first.created_at ||
+                        0
+                    ) -
+                    new Date(
+                      second.scheduledDate ||
+                        second.created_at ||
+                        0
+                    )
+                );
+
+                const reminderStatusClass = (reminder) => {
+                  if (
+                    ['Sent', 'Delivered'].includes(
+                      reminder.status
+                    )
+                  ) {
+                    return 'bg-emerald-100 text-emerald-700';
+                  }
+
+                  if (reminder.status === 'Failed') {
+                    return 'bg-red-100 text-red-700';
+                  }
+
+                  if (reminder.status === 'Cancelled') {
+                    return 'bg-slate-200 text-slate-600';
+                  }
+
+                  if (
+                    reminder.scheduledDate &&
+                    reminder.scheduledDate <= todayISO()
+                  ) {
+                    return 'bg-amber-100 text-amber-700';
+                  }
+
+                  return 'bg-blue-100 text-blue-700';
+                };
+
+                const reminderStatusLabel = (reminder) => {
+                  if (reminder.status === 'Delivered') {
+                    return t(
+                      language,
+                      'Delivered',
+                      'Imefika'
+                    );
+                  }
+
+                  if (reminder.status === 'Sent') {
+                    return t(
+                      language,
+                      'Sent',
+                      'Imetumwa'
+                    );
+                  }
+
+                  if (reminder.status === 'Failed') {
+                    return t(
+                      language,
+                      'Failed',
+                      'Imeshindikana'
+                    );
+                  }
+
+                  if (reminder.status === 'Cancelled') {
+                    return t(
+                      language,
+                      'Cancelled',
+                      'Imefutwa'
+                    );
+                  }
+
+                  if (
+                    reminder.scheduledDate &&
+                    reminder.scheduledDate <= todayISO()
+                  ) {
+                    return t(
+                      language,
+                      'Ready to Send',
+                      'Iko Tayari Kutumwa'
+                    );
+                  }
+
+                  return t(
+                    language,
+                    'Scheduled',
+                    'Imepangwa'
+                  );
+                };
+
+                return (
+                  <div className="space-y-5">
+                    <div className="overflow-hidden rounded-3xl border border-blue-200 bg-white shadow-sm">
+                      <div className="border-b border-blue-100 bg-blue-50 px-6 py-5">
+                        <h3 className="text-xl font-bold text-blue-950">
+                          Ujumbe Utakaotumwa
+                        </h3>
+
+                        <p className="mt-1 text-sm text-blue-700">
+                          Hii ndiyo mifano ya ujumbe ambao mfumo
+                          utaandaa kwa kutumia jina, nyumba na tarehe
+                          halisi za kila mpangaji.
+                        </p>
+                      </div>
+
+                      <div className="grid gap-4 p-5 md:grid-cols-2">
+                        <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+                          <p className="font-bold text-blue-900">
+                            Mwezi mmoja kabla
+                          </p>
+
+                          <p className="mt-2 text-sm leading-6 text-slate-700">
+                            Mpendwa [Jina], tunakukumbusha kuwa kodi
+                            ya nyumba [Nyumba] itaisha tarehe
+                            [Tarehe]. Tafadhali jiandae kulipa mapema
+                            ili kuepuka usumbufu. Asante.
+                          </p>
+                        </div>
+
+                        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                          <p className="font-bold text-amber-900">
+                            Wiki mbili kabla
+                          </p>
+
+                          <p className="mt-2 text-sm leading-6 text-slate-700">
+                            Mpendwa [Jina], zimebaki siku 14 kodi ya
+                            nyumba [Nyumba] kuisha. Kodi ililipwa
+                            tarehe [Tarehe ya Malipo] kwa miezi
+                            [Idadi ya Miezi] na itaisha tarehe
+                            [Tarehe]. Asante.
+                          </p>
+                        </div>
+
+                        <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4">
+                          <p className="font-bold text-orange-900">
+                            Wiki moja kabla
+                          </p>
+
+                          <p className="mt-2 text-sm leading-6 text-slate-700">
+                            Mpendwa [Jina], zimebaki siku 7 kodi ya
+                            nyumba [Nyumba] kuisha. Kodi ililipwa
+                            tarehe [Tarehe ya Malipo] kwa miezi
+                            [Idadi ya Miezi] na itaisha tarehe
+                            [Tarehe]. Asante.
+                          </p>
+                        </div>
+
+                        <div className="rounded-2xl border border-red-200 bg-red-50 p-4">
+                          <p className="font-bold text-red-900">
+                            Siku moja kabla
+                          </p>
+
+                          <p className="mt-2 text-sm leading-6 text-slate-700">
+                            Mpendwa [Jina], tunakukumbusha kuwa kodi
+                            ya nyumba [Nyumba] itaisha kesho, tarehe
+                            [Tarehe]. Tafadhali hakikisha malipo
+                            yanayofuata yanafanyika kwa wakati.
+                            Asante.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                      <PreviewValue
+                        label={t(
+                          language,
+                          'Ready Today',
+                          'Tayari Kutumwa Leo'
+                        )}
+                        value={remindersReadyToday.length}
+                      />
+
+                      <PreviewValue
+                        label={t(
+                          language,
+                          'Scheduled Ahead',
+                          'Zilizopangwa Mbele'
+                        )}
+                        value={futureReminders.length}
+                      />
+
+                      <PreviewValue
+                        label={t(
+                          language,
+                          'Sent or Delivered',
+                          'Zilizotumwa au Kufika'
+                        )}
+                        value={sentReminders.length}
+                      />
+
+                      <PreviewValue
+                        label={t(
+                          language,
+                          'Failed',
+                          'Zilizoshindikana'
+                        )}
+                        value={failedReminders.length}
+                      />
+                    </div>
+
+                    <div className="overflow-hidden rounded-3xl border border-purple-200 bg-white shadow-sm">
+                      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-purple-100 bg-purple-50 px-6 py-5">
+                        <div>
+                          <h3 className="text-xl font-bold text-purple-950">
+                            {t(
+                              language,
+                              'Rent SMS Reminder Queue',
+                              'Foleni ya Vikumbusho vya Kodi kwa SMS'
+                            )}
+                          </h3>
+
+                          <p className="mt-1 text-sm text-purple-700">
+                            {t(
+                              language,
+                              'Each rent date has four protected reminder stages. Old reminders are cancelled automatically when a new payment changes the due date.',
+                              'Kila tarehe ya kodi ina hatua nne za vikumbusho zilizolindwa. Vikumbusho vya zamani vinafutwa moja kwa moja malipo mapya yanapobadilisha tarehe.'
+                            )}
+                          </p>
+                        </div>
+
+                        <Button
+                          type="button"
+                          className="bg-purple-700"
+                          onClick={sendDueRentSmsReminders}
+                        >
+                          {t(
+                            language,
+                            'Send Reminders Due Today',
+                            'Tuma Vikumbusho vya Leo'
+                          )}
+                        </Button>
+                      </div>
+
+                      <div className="space-y-4 p-5">
+                        {visibleReminders.length === 0 ? (
+                          <p className="text-sm text-slate-500">
+                            {t(
+                              language,
+                              'No SMS reminder has been prepared yet. Reminders will appear after registering an eligible tenant with a telephone number and rent expiry date.',
+                              'Bado hakuna kikumbusho cha SMS kilichoandaliwa. Vikumbusho vitaonekana baada ya kusajili mpangaji mwenye namba ya simu na tarehe ya kodi kuisha.'
+                            )}
+                          </p>
+                        ) : (
+                          visibleReminders.map((reminder) => {
+                            const reminderHouse =
+                              getRentalHouse(
+                                reminder.houseId
+                              );
+                            const reminderTenant =
+                              getRentalTenant(
+                                reminder.tenantId
+                              );
+
+                            return (
+                              <div
+                                key={reminder.id}
+                                className="rounded-2xl border border-slate-200 p-5"
+                              >
+                                <div className="flex flex-wrap items-start justify-between gap-4">
+                                  <div>
+                                    <p className="font-bold text-slate-900">
+                                      {reminderHouse?.houseNumber ||
+                                        '-'}
+                                      {' — '}
+                                      {reminderTenant?.fullName ||
+                                        reminderTenant?.tenantName ||
+                                        reminderHouse?.tenantName ||
+                                        '-'}
+                                    </p>
+
+                                    <p className="mt-1 text-sm text-slate-600">
+                                      {reminder.phoneNumber}
+                                    </p>
+                                  </div>
+
+                                  <span
+                                    className={`rounded-full px-4 py-2 text-xs font-bold ${reminderStatusClass(
+                                      reminder
+                                    )}`}
+                                  >
+                                    {reminderStatusLabel(
+                                      reminder
+                                    )}
+                                  </span>
+                                </div>
+
+                                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                                  <PreviewValue
+                                    label={t(
+                                      language,
+                                      'Reminder Stage',
+                                      'Hatua ya Kikumbusho'
+                                    )}
+                                    value={
+                                      reminder.reminderStage ||
+                                      '-'
+                                    }
+                                  />
+
+                                  <PreviewValue
+                                    label={t(
+                                      language,
+                                      'Scheduled Date',
+                                      'Tarehe Iliyopangwa'
+                                    )}
+                                    value={
+                                      reminder.scheduledDate ||
+                                      '-'
+                                    }
+                                  />
+
+                                  <PreviewValue
+                                    label={t(
+                                      language,
+                                      'Rent Due Date',
+                                      'Tarehe ya Kodi Kuisha'
+                                    )}
+                                    value={
+                                      reminder.dueDate || '-'
+                                    }
+                                  />
+
+                                  <PreviewValue
+                                    label={t(
+                                      language,
+                                      'Delivery Channel',
+                                      'Njia ya Kutuma'
+                                    )}
+                                    value={
+                                      reminder.preferredChannel ||
+                                      'SMSGate'
+                                    }
+                                  />
+                                </div>
+
+                                <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                                  <p className="text-xs font-bold uppercase text-slate-500">
+                                    {t(
+                                      language,
+                                      'Prepared Message',
+                                      'Ujumbe Ulioandaliwa'
+                                    )}
+                                  </p>
+                                  <p className="mt-2 text-sm leading-6 text-slate-800">
+                                    {reminder.message}
+                                  </p>
+                                </div>
+
+                                {reminder.failureReason && (
+                                  <p className="mt-3 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">
+                                    {reminder.failureReason}
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {activeRentSection === 'rentReports' && (
+                <div className="space-y-5">
+                  <div className="rounded-3xl border border-indigo-200 bg-white p-5 shadow-sm">
+                    <h3 className="text-xl font-bold text-indigo-950">
+                      {t(
+                        language,
+                        'Rental Reports',
+                        'Ripoti za Kodi'
+                      )}
+                    </h3>
+
+                    <p className="mt-1 text-sm text-indigo-700">
+                      {t(
+                        language,
+                        'Select one report below to display its details.',
+                        'Chagua ripoti moja hapa chini ili kuona maelezo yake.'
+                      )}
+                    </p>
+
+                    <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                      {[
+                        [
+                          'rentRegister',
+                          t(
+                            language,
+                            'Rent Register',
+                            'Rejesta ya Kodi'
+                          ),
+                        ],
+                        [
+                          'rentInvoices',
+                          t(
+                            language,
+                            'Rent Invoices',
+                            'Ankara za Kodi'
+                          ),
+                        ],
+                        [
+                          'rentPayments',
+                          t(
+                            language,
+                            'Payment History',
+                            'Historia ya Malipo'
+                          ),
+                        ],
+                        [
+                          'rentExpenses',
+                          t(
+                            language,
+                            'Rental Expenses',
+                            'Matumizi ya Kodi'
+                          ),
+                        ],
+                        [
+                          'rentFund',
+                          t(
+                            language,
+                            'Rent Fund Report',
+                            'Ripoti ya Mfuko wa Kodi'
+                          ),
+                        ],
+                        [
+                          'occupancyHistory',
+                          t(
+                            language,
+                            'Occupancy History',
+                            'Historia ya Matumizi ya Nyumba'
+                          ),
+                        ],
+                        [
+                          'smsHistory',
+                          t(
+                            language,
+                            'SMS History',
+                            'Historia ya SMS'
+                          ),
+                        ],
+                      ].map(([reportValue, reportLabel]) => (
+                        <button
+                          key={reportValue}
+                          type="button"
+                          onClick={() =>
+                            setActiveRentReport(reportValue)
+                          }
+                          className={`rounded-2xl border px-4 py-4 text-left font-bold transition ${
+                            activeRentReport === reportValue
+                              ? 'border-indigo-700 bg-indigo-700 text-white shadow-md'
+                              : 'border-indigo-200 bg-indigo-50 text-indigo-900 hover:bg-indigo-100'
+                          }`}
+                        >
+                          {reportLabel}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {!activeRentReport && (
+                    <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
+                      <p className="text-sm text-slate-500">
+                        {t(
+                          language,
+                          'No report is open. Select one of the report choices above.',
+                          'Hakuna ripoti iliyofunguliwa. Chagua moja ya ripoti zilizo hapo juu.'
+                        )}
+                      </p>
+                    </div>
+                  )}
+
+                  {activeRentReport === 'rentRegister' && (
+                    <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+                      <div className="border-b border-slate-200 bg-slate-900 px-6 py-5 text-white">
+                        <h3 className="text-xl font-bold">
+                          {t(
+                            language,
+                            'Permanent Rent Register',
+                            'Rejesta ya Kudumu ya Kodi'
+                          )}
+                        </h3>
+
+                        <p className="mt-1 text-sm text-slate-300">
+                          {t(
+                            language,
+                            `${activeRentAccounts.length} active rent-paying account(s).`,
+                            `Akaunti ${activeRentAccounts.length} za wapangaji wanaolipa kodi.`
+                          )}
+                        </p>
+                      </div>
+
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full text-left text-sm">
+                          <thead className="bg-slate-100 text-slate-700">
+                            <tr>
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'House',
+                                  'Nyumba'
+                                )}
+                              </th>
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'Tenant',
+                                  'Mpangaji'
+                                )}
+                              </th>
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'Telephone',
+                                  'Namba ya Simu'
+                                )}
+                              </th>
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'Start Date',
+                                  'Tarehe ya Kuanza'
+                                )}
+                              </th>
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'Monthly Rent',
+                                  'Kodi kwa Mwezi'
+                                )}
+                              </th>
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'Paid Through',
+                                  'Imelipwa Hadi'
+                                )}
+                              </th>
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'Next Payment',
+                                  'Malipo Yanayofuata'
+                                )}
+                              </th>
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'Credit',
+                                  'Salio'
+                                )}
+                              </th>
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'SMS',
+                                  'SMS'
+                                )}
+                              </th>
+
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'Action',
+                                  'Hatua'
+                                )}
+                              </th>
+                            </tr>
+                          </thead>
+
+                          <tbody className="divide-y divide-slate-100">
+                            {activeRentAccounts.length === 0 ? (
+                              <tr>
+                                <td
+                                  colSpan={10}
+                                  className="px-5 py-8 text-center text-slate-500"
+                                >
+                                  {t(
+                                    language,
+                                    'No active rent-paying account has been registered yet.',
+                                    'Bado hakuna akaunti ya mpangaji anayelipa kodi iliyosajiliwa.'
+                                  )}
+                                </td>
+                              </tr>
+                            ) : (
+                              activeRentAccounts.map(
+                                (account) => (
+                                  <tr key={account.id}>
+                                    <td className="whitespace-nowrap px-5 py-4 font-bold text-slate-900">
+                                      {account.house
+                                        ?.houseNumber || '-'}
+                                    </td>
+
+                                    <td className="whitespace-nowrap px-5 py-4 font-semibold">
+                                      {account.tenant?.fullName ||
+                                        account.tenant
+                                          ?.tenantName ||
+                                        account.house
+                                          ?.tenantName ||
+                                        '-'}
+                                    </td>
+
+                                    <td className="whitespace-nowrap px-5 py-4">
+                                      {account.tenant
+                                        ?.phoneNumber || '-'}
+                                    </td>
+
+                                    <td className="whitespace-nowrap px-5 py-4">
+                                      {account.startDate || '-'}
+                                    </td>
+
+                                    <td className="whitespace-nowrap px-5 py-4 font-bold">
+                                      TZS{' '}
+                                      {currency(
+                                        account.monthlyRentAmount ||
+                                          0
+                                      )}
+                                    </td>
+
+                                    <td className="whitespace-nowrap px-5 py-4">
+                                      {account.paidThroughDate ||
+                                        '-'}
+                                    </td>
+
+                                    <td className="whitespace-nowrap px-5 py-4">
+                                      {account.nextPaymentDate ||
+                                        '-'}
+                                    </td>
+
+                                    <td className="whitespace-nowrap px-5 py-4 font-bold text-blue-700">
+                                      TZS{' '}
+                                      {currency(
+                                        account.creditBalance ||
+                                          0
+                                      )}
+                                    </td>
+
+                                    <td className="whitespace-nowrap px-5 py-4">
+                                      <span
+                                        className={`rounded-full px-3 py-1 text-xs font-bold ${
+                                          account.smsRemindersEnabled
+                                            ? 'bg-emerald-100 text-emerald-700'
+                                            : 'bg-slate-200 text-slate-600'
+                                        }`}
+                                      >
+                                        {account.smsRemindersEnabled
+                                          ? t(
+                                              language,
+                                              'Enabled',
+                                              'Imewashwa'
+                                            )
+                                          : t(
+                                              language,
+                                              'Disabled',
+                                              'Imezimwa'
+                                            )}
+                                      </span>
+                                    </td>
+
+                                    <td className="whitespace-nowrap px-5 py-4">
+                                      {activeRentalPayments.some(
+                                        (payment) =>
+                                          String(
+                                            payment.tenancyId
+                                          ) ===
+                                          String(account.id)
+                                      ) ||
+                                      activeRentInvoices.some(
+                                        (invoice) =>
+                                          String(
+                                            invoice.tenancyId
+                                          ) ===
+                                          String(account.id)
+                                      ) ? (
+                                        <span className="rounded-full bg-slate-200 px-3 py-2 text-xs font-bold text-slate-600">
+                                          {t(
+                                            language,
+                                            'Financial records locked',
+                                            'Rekodi za fedha zimefungwa'
+                                          )}
+                                        </span>
+                                      ) : (
+                                        <Button
+                                          type="button"
+                                          className="bg-amber-600"
+                                          onClick={() =>
+                                            openRentalCorrectionForm(
+                                              account
+                                            )
+                                          }
+                                        >
+                                          {t(
+                                            language,
+                                            'Edit Initial Details',
+                                            'Hariri Taarifa za Mwanzo'
+                                          )}
+                                        </Button>
+                                      )}
+                                    </td>
+                                  </tr>
+                                )
+                              )
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {activeRentReport === 'rentInvoices' && (
+                    <div className="overflow-hidden rounded-3xl border border-blue-200 bg-white shadow-sm">
+                      <div className="border-b border-blue-100 bg-blue-50 px-6 py-5">
+                        <h3 className="text-xl font-bold text-blue-950">
+                          {t(
+                            language,
+                            'Rent Invoice Report',
+                            'Ripoti ya Ankara za Kodi'
+                          )}
+                        </h3>
+
+                        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                          <PreviewValue
+                            label={t(
+                              language,
+                              'Total Invoiced',
+                              'Jumla ya Ankara'
+                            )}
+                            value={`TZS ${currency(
+                              totalRentInvoiced
+                            )}`}
+                          />
+
+                          <PreviewValue
+                            label={t(
+                              language,
+                              'Total Paid',
+                              'Jumla Iliyolipwa'
+                            )}
+                            value={`TZS ${currency(
+                              activeRentInvoices.reduce(
+                                (total, invoice) =>
+                                  total +
+                                  Number(
+                                    invoice.amountPaid || 0
+                                  ),
+                                0
+                              )
+                            )}`}
+                          />
+
+                          <PreviewValue
+                            label={t(
+                              language,
+                              'Outstanding Balance',
+                              'Salio Linalodaiwa'
+                            )}
+                            value={`TZS ${currency(
+                              totalRentOutstanding
+                            )}`}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full text-left text-sm">
+                          <thead className="bg-slate-100 text-slate-700">
+                            <tr>
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'Invoice',
+                                  'Ankara'
+                                )}
+                              </th>
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'House / Tenant',
+                                  'Nyumba / Mpangaji'
+                                )}
+                              </th>
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'Billing Period',
+                                  'Kipindi cha Ankara'
+                                )}
+                              </th>
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'Issue Date',
+                                  'Tarehe ya Ankara'
+                                )}
+                              </th>
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'Due Date',
+                                  'Tarehe ya Malipo'
+                                )}
+                              </th>
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'Amount',
+                                  'Kiasi'
+                                )}
+                              </th>
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'Paid',
+                                  'Imelipwa'
+                                )}
+                              </th>
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'Balance',
+                                  'Salio'
+                                )}
+                              </th>
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'Status',
+                                  'Hali'
+                                )}
+                              </th>
+                            </tr>
+                          </thead>
+
+                          <tbody className="divide-y divide-slate-100">
+                            {activeRentInvoices.length === 0 ? (
+                              <tr>
+                                <td
+                                  colSpan={9}
+                                  className="px-5 py-8 text-center text-slate-500"
+                                >
+                                  {t(
+                                    language,
+                                    'No permanent rent invoice has been recorded yet.',
+                                    'Bado hakuna ankara ya kudumu ya kodi iliyorekodiwa.'
+                                  )}
+                                </td>
+                              </tr>
+                            ) : (
+                              [...activeRentInvoices]
+                                .sort(
+                                  (first, second) =>
+                                    new Date(
+                                      second.issueDate ||
+                                        second.created_at ||
+                                        0
+                                    ) -
+                                    new Date(
+                                      first.issueDate ||
+                                        first.created_at ||
+                                        0
+                                    )
+                                )
+                                .map((invoice) => {
+                                  const invoiceHouse =
+                                    getRentalHouse(
+                                      invoice.houseId
+                                    );
+                                  const invoiceTenant =
+                                    getRentalTenant(
+                                      invoice.tenantId
+                                    );
+                                  const invoiceBalance =
+                                    Number(
+                                      invoice.balance || 0
+                                    );
+
+                                  return (
+                                    <tr key={invoice.id}>
+                                      <td className="whitespace-nowrap px-5 py-4 font-semibold">
+                                        {invoice.invoiceNumber ||
+                                          invoice.id}
+                                      </td>
+
+                                      <td className="whitespace-nowrap px-5 py-4">
+                                        <p className="font-bold">
+                                          {invoiceHouse
+                                            ?.houseNumber || '-'}
+                                        </p>
+                                        <p className="text-xs text-slate-500">
+                                          {invoiceTenant
+                                            ?.fullName ||
+                                            invoiceTenant
+                                              ?.tenantName ||
+                                            invoiceHouse
+                                              ?.tenantName ||
+                                            '-'}
+                                        </p>
+                                      </td>
+
+                                      <td className="whitespace-nowrap px-5 py-4">
+                                        {invoice.periodStart ||
+                                          '-'}
+                                        {' — '}
+                                        {invoice.periodEnd || '-'}
+                                      </td>
+
+                                      <td className="whitespace-nowrap px-5 py-4">
+                                        {invoice.issueDate || '-'}
+                                      </td>
+
+                                      <td className="whitespace-nowrap px-5 py-4">
+                                        {invoice.dueDate || '-'}
+                                      </td>
+
+                                      <td className="whitespace-nowrap px-5 py-4 font-bold">
+                                        TZS{' '}
+                                        {currency(
+                                          invoice.invoiceAmount ||
+                                            0
+                                        )}
+                                      </td>
+
+                                      <td className="whitespace-nowrap px-5 py-4 font-bold text-emerald-700">
+                                        TZS{' '}
+                                        {currency(
+                                          invoice.amountPaid || 0
+                                        )}
+                                      </td>
+
+                                      <td className="whitespace-nowrap px-5 py-4 font-bold text-red-700">
+                                        TZS{' '}
+                                        {currency(
+                                          invoice.balance || 0
+                                        )}
+                                      </td>
+
+                                      <td className="whitespace-nowrap px-5 py-4">
+                                        <span
+                                          className={`rounded-full px-3 py-1 text-xs font-bold ${
+                                            invoiceBalance <= 0
+                                              ? 'bg-emerald-100 text-emerald-700'
+                                              : Number(
+                                                    invoice.amountPaid ||
+                                                      0
+                                                  ) > 0
+                                                ? 'bg-amber-100 text-amber-700'
+                                                : 'bg-red-100 text-red-700'
+                                          }`}
+                                        >
+                                          {invoice.status ||
+                                            (invoiceBalance <= 0
+                                              ? 'Paid'
+                                              : 'Unpaid')}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  );
+                                })
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {activeRentReport === 'rentPayments' && (
+                    <div className="overflow-hidden rounded-3xl border border-emerald-200 bg-white shadow-sm">
+                      <div className="border-b border-emerald-100 bg-emerald-50 px-6 py-5">
+                        <h3 className="text-xl font-bold text-emerald-950">
+                          {t(
+                            language,
+                            'Permanent Rent Payment History',
+                            'Historia ya Kudumu ya Malipo ya Kodi'
+                          )}
+                        </h3>
+
+                        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                          <PreviewValue
+                            label={t(
+                              language,
+                              'Total Received',
+                              'Jumla Iliyopokelewa'
+                            )}
+                            value={`TZS ${currency(
+                              totalRentCollected
+                            )}`}
+                          />
+
+                          <PreviewValue
+                            label={t(
+                              language,
+                              'Allocated to Invoices',
+                              'Iliyogawiwa Kwenye Ankara'
+                            )}
+                            value={`TZS ${currency(
+                              activeRentalPayments.reduce(
+                                (total, payment) =>
+                                  total +
+                                  Number(
+                                    payment.allocatedAmount ||
+                                      0
+                                  ),
+                                0
+                              )
+                            )}`}
+                          />
+
+                          <PreviewValue
+                            label={t(
+                              language,
+                              'Remaining Credit',
+                              'Salio Lililobaki'
+                            )}
+                            value={`TZS ${currency(
+                              totalRentCredit
+                            )}`}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full text-left text-sm">
+                          <thead className="bg-slate-100 text-slate-700">
+                            <tr>
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'Receipt',
+                                  'Risiti'
+                                )}
+                              </th>
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'House / Tenant',
+                                  'Nyumba / Mpangaji'
+                                )}
+                              </th>
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'Payment Date',
+                                  'Tarehe ya Malipo'
+                                )}
+                              </th>
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'Exact Recording Time',
+                                  'Muda Kamili wa Kurekodi'
+                                )}
+                              </th>
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'Method',
+                                  'Njia'
+                                )}
+                              </th>
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'Received',
+                                  'Iliyopokelewa'
+                                )}
+                              </th>
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'Allocated',
+                                  'Iliyogawiwa'
+                                )}
+                              </th>
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'Credit',
+                                  'Salio'
+                                )}
+                              </th>
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'Status',
+                                  'Hali'
+                                )}
+                              </th>
+                            </tr>
+                          </thead>
+
+                          <tbody className="divide-y divide-slate-100">
+                            {rentalPayments.length === 0 ? (
+                              <tr>
+                                <td
+                                  colSpan={9}
+                                  className="px-5 py-8 text-center text-slate-500"
+                                >
+                                  {t(
+                                    language,
+                                    'No permanent rent payment has been recorded yet.',
+                                    'Bado hakuna malipo ya kudumu ya kodi yaliyorekodiwa.'
+                                  )}
+                                </td>
+                              </tr>
+                            ) : (
+                              [...rentalPayments]
+                                .sort(
+                                  (first, second) =>
+                                    new Date(
+                                      second.created_at ||
+                                        second.paymentDate ||
+                                        0
+                                    ) -
+                                    new Date(
+                                      first.created_at ||
+                                        first.paymentDate ||
+                                        0
+                                    )
+                                )
+                                .map((payment) => {
+                                  const paymentHouse =
+                                    getRentalHouse(
+                                      payment.houseId
+                                    );
+                                  const paymentTenant =
+                                    getRentalTenant(
+                                      payment.tenantId
+                                    );
+
+                                  return (
+                                    <tr key={payment.id}>
+                                      <td className="whitespace-nowrap px-5 py-4 font-semibold">
+                                        {payment.receiptNumber ||
+                                          payment.id}
+                                      </td>
+
+                                      <td className="whitespace-nowrap px-5 py-4">
+                                        <p className="font-bold">
+                                          {paymentHouse
+                                            ?.houseNumber || '-'}
+                                        </p>
+                                        <p className="text-xs text-slate-500">
+                                          {paymentTenant
+                                            ?.fullName ||
+                                            paymentTenant
+                                              ?.tenantName ||
+                                            paymentHouse
+                                              ?.tenantName ||
+                                            '-'}
+                                        </p>
+                                      </td>
+
+                                      <td className="whitespace-nowrap px-5 py-4">
+                                        {payment.paymentDate ||
+                                          '-'}
+                                      </td>
+
+                                      <td className="whitespace-nowrap px-5 py-4">
+                                        {payment.created_at
+                                          ? new Date(
+                                              payment.created_at
+                                            ).toLocaleString()
+                                          : '-'}
+                                      </td>
+
+                                      <td className="whitespace-nowrap px-5 py-4">
+                                        {payment.paymentMethod ||
+                                          '-'}
+                                      </td>
+
+                                      <td className="whitespace-nowrap px-5 py-4 font-bold text-emerald-800">
+                                        TZS{' '}
+                                        {currency(
+                                          payment.amountReceived ||
+                                            0
+                                        )}
+                                      </td>
+
+                                      <td className="whitespace-nowrap px-5 py-4 font-bold text-blue-800">
+                                        TZS{' '}
+                                        {currency(
+                                          payment.allocatedAmount ||
+                                            0
+                                        )}
+                                      </td>
+
+                                      <td className="whitespace-nowrap px-5 py-4 font-bold text-purple-800">
+                                        TZS{' '}
+                                        {currency(
+                                          payment.creditAmount ||
+                                            0
+                                        )}
+                                      </td>
+
+                                      <td className="px-5 py-4">
+                                        <span
+                                          className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${
+                                            payment.status ===
+                                            'Active'
+                                              ? 'bg-emerald-100 text-emerald-800'
+                                              : 'bg-amber-100 text-amber-800'
+                                          }`}
+                                        >
+                                          {payment.status ===
+                                          'Active'
+                                            ? t(
+                                                language,
+                                                'Active',
+                                                'Halali'
+                                              )
+                                            : t(
+                                                language,
+                                                'Corrected',
+                                                'Yamesahihishwa'
+                                              )}
+                                        </span>
+
+                                        {payment.reversalReason && (
+                                          <p className="mt-2 max-w-56 whitespace-normal text-xs text-slate-500">
+                                            {
+                                              payment.reversalReason
+                                            }
+                                          </p>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  );
+                                })
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {activeRentReport === 'rentExpenses' && (
+                    <div className="overflow-hidden rounded-3xl border border-orange-200 bg-white shadow-sm">
+                      <div className="border-b border-orange-100 bg-orange-50 px-6 py-5">
+                        <h3 className="text-xl font-bold text-orange-950">
+                          {t(
+                            language,
+                            'Permanent Rental Expense Report',
+                            'Ripoti ya Kudumu ya Matumizi ya Kodi'
+                          )}
+                        </h3>
+
+                        <div className="mt-4">
+                          <PreviewValue
+                            label={t(
+                              language,
+                              'Total Rental Expenses Paid',
+                              'Jumla ya Matumizi ya Kodi Yaliyolipwa'
+                            )}
+                            value={`TZS ${currency(
+                              totalRentalExpensesPaid
+                            )}`}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full text-left text-sm">
+                          <thead className="bg-slate-100 text-slate-700">
+                            <tr>
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'Expense Date',
+                                  'Tarehe ya Matumizi'
+                                )}
+                              </th>
+
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'Expense Type',
+                                  'Aina ya Matumizi'
+                                )}
+                              </th>
+
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'House',
+                                  'Nyumba'
+                                )}
+                              </th>
+
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'Description',
+                                  'Maelezo'
+                                )}
+                              </th>
+
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'Paid To',
+                                  'Aliyelipwa'
+                                )}
+                              </th>
+
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'Reference',
+                                  'Kumbukumbu'
+                                )}
+                              </th>
+
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'Status',
+                                  'Hali'
+                                )}
+                              </th>
+
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'Amount',
+                                  'Kiasi'
+                                )}
+                              </th>
+                            </tr>
+                          </thead>
+
+                          <tbody className="divide-y divide-slate-100">
+                            {activeRentalExpenses.length === 0 ? (
+                              <tr>
+                                <td
+                                  colSpan={8}
+                                  className="px-5 py-8 text-center text-slate-500"
+                                >
+                                  {t(
+                                    language,
+                                    'No permanent rental expense has been recorded yet.',
+                                    'Bado hakuna matumizi ya kudumu ya kodi yaliyorekodiwa.'
+                                  )}
+                                </td>
+                              </tr>
+                            ) : (
+                              [...activeRentalExpenses]
+                                .sort(
+                                  (first, second) =>
+                                    new Date(
+                                      second.created_at ||
+                                        second.expenseDate ||
+                                        0
+                                    ) -
+                                    new Date(
+                                      first.created_at ||
+                                        first.expenseDate ||
+                                        0
+                                    )
+                                )
+                                .map((expense) => {
+                                  const expenseHouse =
+                                    getRentalHouse(
+                                      expense.houseId
+                                    );
+
+                                  return (
+                                    <tr key={expense.id}>
+                                      <td className="whitespace-nowrap px-5 py-4">
+                                        {expense.expenseDate || '-'}
+                                      </td>
+
+                                      <td className="whitespace-nowrap px-5 py-4 font-semibold">
+                                        {expense.expenseType || '-'}
+                                      </td>
+
+                                      <td className="whitespace-nowrap px-5 py-4 font-bold">
+                                        {expenseHouse?.houseNumber ||
+                                          t(
+                                            language,
+                                            'General expense',
+                                            'Matumizi ya jumla'
+                                          )}
+                                      </td>
+
+                                      <td className="min-w-[220px] px-5 py-4">
+                                        {expense.description || '-'}
+                                      </td>
+
+                                      <td className="whitespace-nowrap px-5 py-4">
+                                        {expense.payee || '-'}
+                                      </td>
+
+                                      <td className="whitespace-nowrap px-5 py-4">
+                                        {expense.referenceNumber ||
+                                          '-'}
+                                      </td>
+
+                                      <td className="whitespace-nowrap px-5 py-4">
+                                        <span
+                                          className={`rounded-full px-3 py-1 text-xs font-bold ${
+                                            expense.status ===
+                                            'Reversed'
+                                              ? 'bg-red-100 text-red-700'
+                                              : 'bg-emerald-100 text-emerald-700'
+                                          }`}
+                                        >
+                                          {expense.status ||
+                                            t(
+                                              language,
+                                              'Paid',
+                                              'Imelipwa'
+                                            )}
+                                        </span>
+                                      </td>
+
+                                      <td className="whitespace-nowrap px-5 py-4 font-bold text-orange-800">
+                                        TZS{' '}
+                                        {currency(
+                                          expense.amount || 0
+                                        )}
+                                      </td>
+                                    </tr>
+                                  );
+                                })
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {activeRentReport === 'rentFund' && (() => {
+                    const rentFundTransactions = [
+                      ...activeRentalPayments.map((payment) => {
+                        const paymentHouse =
+                          getRentalHouse(payment.houseId);
+                        const paymentTenant =
+                          getRentalTenant(payment.tenantId);
+
+                        return {
+                          id: `payment-${payment.id}`,
+                          transactionDate:
+                            payment.paymentDate ||
+                            payment.created_at,
+                          createdAt:
+                            payment.created_at ||
+                            payment.paymentDate,
+                          transactionType: 'income',
+                          reference:
+                            payment.receiptNumber ||
+                            payment.id,
+                          description: `${
+                            paymentHouse?.houseNumber || '-'
+                          } — ${
+                            paymentTenant?.fullName ||
+                            paymentTenant?.tenantName ||
+                            paymentHouse?.tenantName ||
+                            '-'
+                          }`,
+                          amount: Number(
+                            payment.amountReceived || 0
+                          ),
+                        };
+                      }),
+
+                      ...activeRentalExpenses.map((expense) => {
+                        const expenseHouse =
+                          getRentalHouse(expense.houseId);
+
+                        return {
+                          id: `expense-${expense.id}`,
+                          transactionDate:
+                            expense.expenseDate ||
+                            expense.created_at,
+                          createdAt:
+                            expense.created_at ||
+                            expense.expenseDate,
+                          transactionType: 'expense',
+                          reference:
+                            expense.referenceNumber ||
+                            expense.id,
+                          description: `${
+                            expense.expenseType || '-'
+                          } — ${
+                            expenseHouse?.houseNumber ||
+                            t(
+                              language,
+                              'General expense',
+                              'Matumizi ya jumla'
+                            )
+                          }`,
+                          amount: Number(
+                            expense.amount || 0
+                          ),
+                        };
+                      }),
+                    ]
+                      .sort(
+                        (first, second) =>
+                          new Date(first.createdAt || 0) -
+                          new Date(second.createdAt || 0)
+                      )
+                      .reduce(
+                        (transactions, transaction) => {
+                          const previousBalance =
+                            transactions.length > 0
+                              ? transactions[
+                                  transactions.length - 1
+                                ].runningBalance
+                              : 0;
+
+                          const runningBalance =
+                            transaction.transactionType ===
+                            'income'
+                              ? previousBalance +
+                                transaction.amount
+                              : previousBalance -
+                                transaction.amount;
+
+                          return [
+                            ...transactions,
+                            {
+                              ...transaction,
+                              runningBalance,
+                            },
+                          ];
+                        },
+                        []
+                      );
+
+                    return (
+                      <div className="overflow-hidden rounded-3xl border border-purple-200 bg-white shadow-sm">
+                        <div className="border-b border-purple-100 bg-purple-50 px-6 py-5">
+                          <h3 className="text-xl font-bold text-purple-950">
+                            {t(
+                              language,
+                              'Permanent Rent Fund Report',
+                              'Ripoti ya Kudumu ya Mfuko wa Kodi'
+                            )}
+                          </h3>
+
+                          <p className="mt-1 text-sm text-purple-700">
+                            {t(
+                              language,
+                              'All rent received, rental expenses and the balance carried forward.',
+                              'Kodi yote iliyopokelewa, matumizi ya nyumba na salio linalohamishwa mbele.'
+                            )}
+                          </p>
+
+                          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                            <PreviewValue
+                              label={t(
+                                language,
+                                'Total Rent Received',
+                                'Jumla ya Kodi Iliyopokelewa'
+                              )}
+                              value={`TZS ${currency(
+                                totalRentCollected
+                              )}`}
+                            />
+
+                            <PreviewValue
+                              label={t(
+                                language,
+                                'Total Expenses Paid',
+                                'Jumla ya Matumizi Yaliyolipwa'
+                              )}
+                              value={`TZS ${currency(
+                                totalRentalExpensesPaid
+                              )}`}
+                            />
+
+                            <PreviewValue
+                              label={t(
+                                language,
+                                'Balance Carried Forward',
+                                'Salio Linalohamishwa Mbele'
+                              )}
+                              value={`TZS ${currency(
+                                netRentFundBalance
+                              )}`}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="overflow-x-auto">
+                          <table className="min-w-full text-left text-sm">
+                            <thead className="bg-slate-100 text-slate-700">
+                              <tr>
+                                <th className="px-5 py-4">
+                                  {t(
+                                    language,
+                                    'Date',
+                                    'Tarehe'
+                                  )}
+                                </th>
+
+                                <th className="px-5 py-4">
+                                  {t(
+                                    language,
+                                    'Transaction',
+                                    'Muamala'
+                                  )}
+                                </th>
+
+                                <th className="px-5 py-4">
+                                  {t(
+                                    language,
+                                    'Description',
+                                    'Maelezo'
+                                  )}
+                                </th>
+
+                                <th className="px-5 py-4">
+                                  {t(
+                                    language,
+                                    'Reference',
+                                    'Kumbukumbu'
+                                  )}
+                                </th>
+
+                                <th className="px-5 py-4">
+                                  {t(
+                                    language,
+                                    'Money In',
+                                    'Fedha Iliyoingia'
+                                  )}
+                                </th>
+
+                                <th className="px-5 py-4">
+                                  {t(
+                                    language,
+                                    'Money Out',
+                                    'Fedha Iliyotoka'
+                                  )}
+                                </th>
+
+                                <th className="px-5 py-4">
+                                  {t(
+                                    language,
+                                    'Running Balance',
+                                    'Salio Baada ya Muamala'
+                                  )}
+                                </th>
+                              </tr>
+                            </thead>
+
+                            <tbody className="divide-y divide-slate-100">
+                              {rentFundTransactions.length === 0 ? (
+                                <tr>
+                                  <td
+                                    colSpan={7}
+                                    className="px-5 py-8 text-center text-slate-500"
+                                  >
+                                    {t(
+                                      language,
+                                      'No rent fund transaction has been recorded yet.',
+                                      'Bado hakuna muamala wa mfuko wa kodi uliorekodiwa.'
+                                    )}
+                                  </td>
+                                </tr>
+                              ) : (
+                                rentFundTransactions.map(
+                                  (transaction) => (
+                                    <tr key={transaction.id}>
+                                      <td className="whitespace-nowrap px-5 py-4">
+                                        {transaction.transactionDate ||
+                                          '-'}
+                                      </td>
+
+                                      <td className="whitespace-nowrap px-5 py-4">
+                                        <span
+                                          className={`rounded-full px-3 py-1 text-xs font-bold ${
+                                            transaction.transactionType ===
+                                            'income'
+                                              ? 'bg-emerald-100 text-emerald-700'
+                                              : 'bg-orange-100 text-orange-700'
+                                          }`}
+                                        >
+                                          {transaction.transactionType ===
+                                          'income'
+                                            ? t(
+                                                language,
+                                                'Rent Received',
+                                                'Kodi Iliyopokelewa'
+                                              )
+                                            : t(
+                                                language,
+                                                'Expense Paid',
+                                                'Matumizi Yaliyolipwa'
+                                              )}
+                                        </span>
+                                      </td>
+
+                                      <td className="min-w-[220px] px-5 py-4 font-semibold">
+                                        {transaction.description}
+                                      </td>
+
+                                      <td className="whitespace-nowrap px-5 py-4">
+                                        {transaction.reference}
+                                      </td>
+
+                                      <td className="whitespace-nowrap px-5 py-4 font-bold text-emerald-700">
+                                        {transaction.transactionType ===
+                                        'income'
+                                          ? `TZS ${currency(
+                                              transaction.amount
+                                            )}`
+                                          : '-'}
+                                      </td>
+
+                                      <td className="whitespace-nowrap px-5 py-4 font-bold text-orange-700">
+                                        {transaction.transactionType ===
+                                        'expense'
+                                          ? `TZS ${currency(
+                                              transaction.amount
+                                            )}`
+                                          : '-'}
+                                      </td>
+
+                                      <td
+                                        className={`whitespace-nowrap px-5 py-4 font-bold ${
+                                          transaction.runningBalance >=
+                                          0
+                                            ? 'text-blue-800'
+                                            : 'text-red-700'
+                                        }`}
+                                      >
+                                        TZS{' '}
+                                        {currency(
+                                          transaction.runningBalance
+                                        )}
+                                      </td>
+                                    </tr>
+                                  )
+                                )
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {activeRentReport ===
+                    'occupancyHistory' && (
+                    <div className="overflow-hidden rounded-3xl border border-cyan-200 bg-white shadow-sm">
+                      <div className="border-b border-cyan-100 bg-cyan-50 px-6 py-5">
+                        <h3 className="text-xl font-bold text-cyan-950">
+                          {t(
+                            language,
+                            'Permanent House Occupancy History',
+                            'Historia ya Kudumu ya Matumizi ya Nyumba'
+                          )}
+                        </h3>
+
+                        <p className="mt-1 text-sm text-cyan-700">
+                          {t(
+                            language,
+                            `${propertyOccupancies.length} occupancy record(s), including current and previous occupants.`,
+                            `Rekodi ${propertyOccupancies.length} za matumizi ya nyumba, zikijumuisha matumizi ya sasa na yaliyopita.`
+                          )}
+                        </p>
+                      </div>
+
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full text-left text-sm">
+                          <thead className="bg-slate-100 text-slate-700">
+                            <tr>
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'House',
+                                  'Nyumba'
+                                )}
+                              </th>
+
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'Occupant',
+                                  'Mtumiaji wa Nyumba'
+                                )}
+                              </th>
+
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'Occupancy Type',
+                                  'Aina ya Matumizi'
+                                )}
+                              </th>
+
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'Start Date',
+                                  'Tarehe ya Kuanza'
+                                )}
+                              </th>
+
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'End Date',
+                                  'Tarehe ya Kumaliza'
+                                )}
+                              </th>
+
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'Status',
+                                  'Hali'
+                                )}
+                              </th>
+
+                              <th className="px-5 py-4">
+                                {t(
+                                  language,
+                                  'Notes',
+                                  'Maelezo'
+                                )}
+                              </th>
+                            </tr>
+                          </thead>
+
+                          <tbody className="divide-y divide-slate-100">
+                            {propertyOccupancies.length === 0 ? (
+                              <tr>
+                                <td
+                                  colSpan={7}
+                                  className="px-5 py-8 text-center text-slate-500"
+                                >
+                                  {t(
+                                    language,
+                                    'No permanent house occupancy record has been created yet.',
+                                    'Bado hakuna rekodi ya kudumu ya matumizi ya nyumba iliyotengenezwa.'
+                                  )}
+                                </td>
+                              </tr>
+                            ) : (
+                              [...propertyOccupancies]
+                                .sort(
+                                  (first, second) =>
+                                    new Date(
+                                      second.startDate ||
+                                        second.created_at ||
+                                        0
+                                    ) -
+                                    new Date(
+                                      first.startDate ||
+                                        first.created_at ||
+                                        0
+                                    )
+                                )
+                                .map((occupancy) => {
+                                  const occupancyHouse =
+                                    getRentalHouse(
+                                      occupancy.houseId
+                                    );
+
+                                  const occupancyTenant =
+                                    getRentalTenant(
+                                      occupancy.tenantId
+                                    );
+
+                                  const occupantName =
+                                    occupancy.occupantName ||
+                                    occupancyTenant?.fullName ||
+                                    occupancyTenant
+                                      ?.tenantName ||
+                                    occupancyHouse
+                                      ?.tenantName ||
+                                    (occupancy.occupancyType ===
+                                    'Vacant'
+                                      ? t(
+                                          language,
+                                          'No occupant',
+                                          'Hakuna mpangaji'
+                                        )
+                                      : '-');
+
+                                  return (
+                                    <tr key={occupancy.id}>
+                                      <td className="whitespace-nowrap px-5 py-4 font-bold text-slate-900">
+                                        {occupancyHouse
+                                          ?.houseNumber || '-'}
+                                      </td>
+
+                                      <td className="whitespace-nowrap px-5 py-4 font-semibold">
+                                        {occupantName}
+                                      </td>
+
+                                      <td className="whitespace-nowrap px-5 py-4">
+                                        {occupancy.occupancyType ||
+                                          '-'}
+                                      </td>
+
+                                      <td className="whitespace-nowrap px-5 py-4">
+                                        {occupancy.startDate ||
+                                          '-'}
+                                      </td>
+
+                                      <td className="whitespace-nowrap px-5 py-4">
+                                        {occupancy.endDate ||
+                                          (occupancy.active === true
+                                            ? t(
+                                                language,
+                                                'Still active',
+                                                'Bado inatumika'
+                                              )
+                                            : '-')}
+                                      </td>
+
+                                      <td className="whitespace-nowrap px-5 py-4">
+                                        <span
+                                          className={`rounded-full px-3 py-1 text-xs font-bold ${
+                                            occupancy.active === true
+                                              ? 'bg-emerald-100 text-emerald-700'
+                                              : 'bg-slate-200 text-slate-600'
+                                          }`}
+                                        >
+                                          {occupancy.active === true
+                                            ? t(
+                                                language,
+                                                'Current',
+                                                'Ya Sasa'
+                                              )
+                                            : t(
+                                                language,
+                                                'Previous',
+                                                'Iliyopita'
+                                              )}
+                                        </span>
+                                      </td>
+
+                                      <td className="min-w-[220px] px-5 py-4">
+                                        {occupancy.notes || '-'}
+                                      </td>
+                                    </tr>
+                                  );
+                                })
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {activeRentReport === 'smsHistory' && (() => {
+                    const sentSmsCount =
+                      rentSmsReminders.filter(
+                        (reminder) =>
+                          reminder.status === 'Sent' ||
+                          reminder.status === 'Delivered'
+                      ).length;
+
+                    const failedSmsCount =
+                      rentSmsReminders.filter(
+                        (reminder) =>
+                          reminder.status === 'Failed'
+                      ).length;
+
+                    const pendingSmsCount =
+                      rentSmsReminders.filter(
+                        (reminder) =>
+                          reminder.status === 'Pending' ||
+                          reminder.status === 'Processing'
+                      ).length;
+
+                    return (
+                      <div className="overflow-hidden rounded-3xl border border-violet-200 bg-white shadow-sm">
+                        <div className="border-b border-violet-100 bg-violet-50 px-6 py-5">
+                          <h3 className="text-xl font-bold text-violet-950">
+                            {t(
+                              language,
+                              'Permanent Rent SMS History',
+                              'Historia ya Kudumu ya SMS za Kodi'
+                            )}
+                          </h3>
+
+                          <p className="mt-1 text-sm text-violet-700">
+                            {t(
+                              language,
+                              'Prepared reminders and every recorded delivery attempt are preserved here.',
+                              'Vikumbusho vilivyoandaliwa na kila jaribio la kutuma vinahifadhiwa hapa.'
+                            )}
+                          </p>
+
+                          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                            <PreviewValue
+                              label={t(
+                                language,
+                                'All Reminders',
+                                'Vikumbusho Vyote'
+                              )}
+                              value={rentSmsReminders.length}
+                            />
+
+                            <PreviewValue
+                              label={t(
+                                language,
+                                'Sent or Delivered',
+                                'Zilizotumwa au Kufika'
+                              )}
+                              value={sentSmsCount}
+                            />
+
+                            <PreviewValue
+                              label={t(
+                                language,
+                                'Pending',
+                                'Zinazosubiri'
+                              )}
+                              value={pendingSmsCount}
+                            />
+
+                            <PreviewValue
+                              label={t(
+                                language,
+                                'Failed',
+                                'Zilizoshindikana'
+                              )}
+                              value={failedSmsCount}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="space-y-4 p-5">
+                          {rentSmsReminders.length === 0 ? (
+                            <p className="py-8 text-center text-sm text-slate-500">
+                              {t(
+                                language,
+                                'No permanent SMS reminder record has been created yet.',
+                                'Bado hakuna rekodi ya kudumu ya kikumbusho cha SMS iliyotengenezwa.'
+                              )}
+                            </p>
+                          ) : (
+                            [...rentSmsReminders]
+                              .sort(
+                                (first, second) =>
+                                  new Date(
+                                    second.sentAt ||
+                                      second.attemptedAt ||
+                                      second.scheduledDate ||
+                                      second.created_at ||
+                                      0
+                                  ) -
+                                  new Date(
+                                    first.sentAt ||
+                                      first.attemptedAt ||
+                                      first.scheduledDate ||
+                                      first.created_at ||
+                                      0
+                                  )
+                              )
+                              .map((reminder) => {
+                                const reminderHouse =
+                                  getRentalHouse(
+                                    reminder.houseId
+                                  );
+
+                                const reminderTenant =
+                                  getRentalTenant(
+                                    reminder.tenantId
+                                  );
+
+                                const reminderAttempts =
+                                  rentSmsAttempts
+                                    .filter(
+                                      (attempt) =>
+                                        String(
+                                          attempt.reminderId
+                                        ) ===
+                                        String(reminder.id)
+                                    )
+                                    .sort(
+                                      (first, second) =>
+                                        new Date(
+                                          second.attemptedAt ||
+                                            0
+                                        ) -
+                                        new Date(
+                                          first.attemptedAt ||
+                                            0
+                                        )
+                                    );
+
+                                const latestAttempt =
+                                  reminderAttempts[0];
+
+                                const statusClass =
+                                  reminder.status ===
+                                    'Delivered' ||
+                                  reminder.status === 'Sent'
+                                    ? 'bg-emerald-100 text-emerald-700'
+                                    : reminder.status ===
+                                        'Failed'
+                                      ? 'bg-red-100 text-red-700'
+                                      : reminder.status ===
+                                          'Cancelled'
+                                        ? 'bg-slate-200 text-slate-600'
+                                        : 'bg-amber-100 text-amber-700';
+
+                                return (
+                                  <div
+                                    key={reminder.id}
+                                    className="overflow-hidden rounded-2xl border border-slate-200"
+                                  >
+                                    <div className="flex flex-wrap items-start justify-between gap-4 bg-slate-50 p-5">
+                                      <div>
+                                        <p className="font-bold text-slate-900">
+                                          {reminderHouse
+                                            ?.houseNumber || '-'}
+                                          {' — '}
+                                          {reminderTenant
+                                            ?.fullName ||
+                                            reminderTenant
+                                              ?.tenantName ||
+                                            reminderHouse
+                                              ?.tenantName ||
+                                            '-'}
+                                        </p>
+
+                                        <p className="mt-1 text-sm text-slate-600">
+                                          {reminder.phoneNumber ||
+                                            '-'}
+                                        </p>
+                                      </div>
+
+                                      <span
+                                        className={`rounded-full px-4 py-2 text-xs font-bold ${statusClass}`}
+                                      >
+                                        {reminder.status ||
+                                          'Pending'}
+                                      </span>
+                                    </div>
+
+                                    <div className="grid gap-px bg-slate-200 sm:grid-cols-2 xl:grid-cols-4">
+                                      <div className="bg-white p-4">
+                                        <p className="text-xs font-bold uppercase text-slate-500">
+                                          {t(
+                                            language,
+                                            'Reminder Stage',
+                                            'Hatua ya Kikumbusho'
+                                          )}
+                                        </p>
+                                        <p className="mt-2 font-semibold">
+                                          {reminder.reminderStage ||
+                                            '-'}
+                                        </p>
+                                      </div>
+
+                                      <div className="bg-white p-4">
+                                        <p className="text-xs font-bold uppercase text-slate-500">
+                                          {t(
+                                            language,
+                                            'Scheduled Date',
+                                            'Tarehe Iliyopangwa'
+                                          )}
+                                        </p>
+                                        <p className="mt-2 font-semibold">
+                                          {reminder.scheduledDate ||
+                                            '-'}
+                                        </p>
+                                      </div>
+
+                                      <div className="bg-white p-4">
+                                        <p className="text-xs font-bold uppercase text-slate-500">
+                                          {t(
+                                            language,
+                                            'Rent Due Date',
+                                            'Tarehe ya Kodi Kuisha'
+                                          )}
+                                        </p>
+                                        <p className="mt-2 font-semibold">
+                                          {reminder.dueDate || '-'}
+                                        </p>
+                                      </div>
+
+                                      <div className="bg-white p-4">
+                                        <p className="text-xs font-bold uppercase text-slate-500">
+                                          {t(
+                                            language,
+                                            'Sent or Delivered At',
+                                            'Ilitumwa au Kufika'
+                                          )}
+                                        </p>
+                                        <p className="mt-2 font-semibold">
+                                          {reminder.deliveredAt
+                                            ? new Date(
+                                                reminder.deliveredAt
+                                              ).toLocaleString()
+                                            : reminder.sentAt
+                                              ? new Date(
+                                                  reminder.sentAt
+                                                ).toLocaleString()
+                                              : '-'}
+                                        </p>
+                                      </div>
+                                    </div>
+
+                                    <div className="p-5">
+                                      <p className="text-xs font-bold uppercase text-slate-500">
+                                        {t(
+                                          language,
+                                          'Message',
+                                          'Ujumbe'
+                                        )}
+                                      </p>
+
+                                      <p className="mt-2 text-sm leading-6 text-slate-800">
+                                        {reminder.message || '-'}
+                                      </p>
+
+                                      <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                                        <div className="flex flex-wrap items-center justify-between gap-3">
+                                          <p className="font-bold text-slate-900">
+                                            {t(
+                                              language,
+                                              'Delivery Attempts',
+                                              'Majaribio ya Kutuma'
+                                            )}
+                                          </p>
+
+                                          <span className="rounded-full bg-violet-100 px-3 py-1 text-xs font-bold text-violet-700">
+                                            {reminderAttempts.length}
+                                          </span>
+                                        </div>
+
+                                        {latestAttempt ? (
+                                          <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
+                                            <div>
+                                              <p className="text-xs text-slate-500">
+                                                {t(
+                                                  language,
+                                                  'Latest Attempt',
+                                                  'Jaribio la Mwisho'
+                                                )}
+                                              </p>
+                                              <p className="mt-1 font-semibold">
+                                                {latestAttempt.attemptedAt
+                                                  ? new Date(
+                                                      latestAttempt.attemptedAt
+                                                    ).toLocaleString()
+                                                  : '-'}
+                                              </p>
+                                            </div>
+
+                                            <div>
+                                              <p className="text-xs text-slate-500">
+                                                {t(
+                                                  language,
+                                                  'Channel',
+                                                  'Njia'
+                                                )}
+                                              </p>
+                                              <p className="mt-1 font-semibold">
+                                                {latestAttempt.channel ||
+                                                  reminder.preferredChannel ||
+                                                  'SMSGate'}
+                                              </p>
+                                            </div>
+
+                                            <div>
+                                              <p className="text-xs text-slate-500">
+                                                {t(
+                                                  language,
+                                                  'Attempt Status',
+                                                  'Hali ya Jaribio'
+                                                )}
+                                              </p>
+                                              <p className="mt-1 font-semibold">
+                                                {latestAttempt.status ||
+                                                  '-'}
+                                              </p>
+                                            </div>
+
+                                            <div>
+                                              <p className="text-xs text-slate-500">
+                                                {t(
+                                                  language,
+                                                  'Provider Reference',
+                                                  'Kumbukumbu ya Mtumaji'
+                                                )}
+                                              </p>
+                                              <p className="mt-1 break-all font-semibold">
+                                                {latestAttempt.providerReference ||
+                                                  '-'}
+                                              </p>
+                                            </div>
+                                          </div>
+                                        ) : (
+                                          <p className="mt-3 text-sm text-slate-500">
+                                            {t(
+                                              language,
+                                              'No sending attempt has been made yet.',
+                                              'Bado hakuna jaribio la kutuma lililofanyika.'
+                                            )}
+                                          </p>
+                                        )}
+
+                                        {(latestAttempt?.errorMessage ||
+                                          reminder.failureReason) && (
+                                          <p className="mt-3 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">
+                                            {latestAttempt?.errorMessage ||
+                                              reminder.failureReason}
+                                          </p>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+                {isRentalCorrectionOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
+            <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
+              <div className="border-b border-amber-100 bg-amber-50 px-6 py-5">
+                <h3 className="text-2xl font-bold text-amber-950">
+                  {t(
+                    language,
+                    'Edit Initial Rental Details',
+                    'Hariri Taarifa za Mwanzo za Kodi'
+                  )}
+                </h3>
+
+                <p className="mt-1 text-sm text-amber-700">
+                  {t(
+                    language,
+                    'This correction is allowed only before invoices or payments exist. The previous values will remain permanently recorded.',
+                    'Marekebisho haya yanaruhusiwa tu kabla ya kuwepo ankara au malipo. Taarifa za awali zitabaki zimehifadhiwa moja kwa moja.'
+                  )}
+                </p>
+              </div>
+
+              <div className="space-y-4 p-6">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Input
+                    label={t(
+                      language,
+                      'Tenant Name',
+                      'Jina la Mpangaji'
+                    )}
+                    value={
+                      rentalCorrectionForm.tenantName
+                    }
+                    onChange={(e) =>
+                      setRentalCorrectionForm(
+                        (previous) => ({
+                          ...previous,
+                          tenantName: e.target.value,
+                        })
+                      )
+                    }
+                  />
+
+                  <Input
+                    label={t(
+                      language,
+                      'Telephone Number',
+                      'Namba ya Simu'
+                    )}
+                    type="tel"
+                    placeholder="07XXXXXXXX"
+                    value={
+                      rentalCorrectionForm.phoneNumber
+                    }
+                    onChange={(e) =>
+                      setRentalCorrectionForm(
+                        (previous) => ({
+                          ...previous,
+                          phoneNumber: e.target.value,
+                        })
+                      )
+                    }
+                  />
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Input
+                    label={t(
+                      language,
+                      'Tenancy Start Date',
+                      'Tarehe ya Kuanza Kodi'
+                    )}
+                    type="date"
+                    value={
+                      rentalCorrectionForm.startDate
+                    }
+                    onChange={(e) =>
+                      setRentalCorrectionForm(
+                        (previous) => ({
+                          ...previous,
+                          startDate: e.target.value,
+                        })
+                      )
+                    }
+                  />
+
+                  <Input
+                    label={t(
+                      language,
+                      'Monthly Rent',
+                      'Kodi kwa Mwezi'
+                    )}
+                    type="number"
+                    min="1"
+                    value={
+                      rentalCorrectionForm.monthlyRentAmount
+                    }
+                    onChange={(e) =>
+                      setRentalCorrectionForm(
+                        (previous) => ({
+                          ...previous,
+                          monthlyRentAmount:
+                            e.target.value,
+                        })
+                      )
+                    }
+                  />
+                </div>
+
+                <Input
+                  label={t(
+                    language,
+                    'Rent Already Paid Through',
+                    'Kodi Iliyopo Imelipwa Hadi'
+                  )}
+                  type="date"
+                  value={
+                    rentalCorrectionForm.paidThroughDate
+                  }
+                  onChange={(e) =>
+                    setRentalCorrectionForm(
+                      (previous) => ({
+                        ...previous,
+                        paidThroughDate: e.target.value,
+                      })
+                    )
+                  }
+                />
+
+                <label className="flex items-center gap-3 rounded-2xl border border-blue-200 bg-blue-50 p-4">
+                  <input
+                    type="checkbox"
+                    checked={
+                      rentalCorrectionForm.smsRemindersEnabled
+                    }
+                    onChange={(e) =>
+                      setRentalCorrectionForm(
+                        (previous) => ({
+                          ...previous,
+                          smsRemindersEnabled:
+                            e.target.checked,
+                        })
+                      )
+                    }
+                  />
+
+                  <span className="text-sm font-medium text-blue-900">
+                    {t(
+                      language,
+                      'Send automatic rent reminders by SMS',
+                      'Tuma vikumbusho vya kodi kwa SMS'
+                    )}
+                  </span>
+                </label>
+
+                <Textarea
+                  label={t(
+                    language,
+                    'Reason for Correction',
+                    'Sababu ya Marekebisho'
+                  )}
+                  rows={3}
+                  placeholder={t(
+                    language,
+                    'Explain what was entered incorrectly.',
+                    'Eleza taarifa iliyokuwa imeingizwa kimakosa.'
+                  )}
+                  value={rentalCorrectionForm.reason}
+                  onChange={(e) =>
+                    setRentalCorrectionForm(
+                      (previous) => ({
+                        ...previous,
+                        reason: e.target.value,
+                      })
+                    )
+                  }
+                />
+
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                  {t(
+                    language,
+                    'After saving, the corrected dates and monthly rent will control all future automatic rental calculations.',
+                    'Baada ya kuhifadhi, tarehe na kodi iliyorekebishwa ndiyo itakayotumika kwenye mahesabu yote ya kodi yanayofuata.'
+                  )}
+                </div>
+
+                <div className="flex justify-end gap-3 border-t pt-4">
+                  <Button
+                    type="button"
+                    className="bg-slate-500"
+                    disabled={isSavingRentalCorrection}
+                    onClick={() => {
+                      setRentalCorrectionForm({
+                        ...emptyRentalCorrectionForm,
+                      });
+                      setIsRentalCorrectionOpen(false);
+                    }}
+                  >
+                    {t(
+                      language,
+                      'Cancel',
+                      'Ghairi'
+                    )}
+                  </Button>
+
+                  <Button
+                    type="button"
+                    className="bg-amber-600"
+                    disabled={isSavingRentalCorrection}
+                    onClick={saveRentalCorrection}
+                  >
+                    {isSavingRentalCorrection
+                      ? t(
+                          language,
+                          'Saving Correction...',
+                          'Inahifadhi Marekebisho...'
+                        )
+                      : t(
+                          language,
+                          'Save Correction',
+                          'Hifadhi Marekebisho'
+                        )}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        {isRentalTenantEditOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
+            <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
+              <div className="border-b border-violet-100 bg-violet-50 px-6 py-5">
+                <h3 className="text-2xl font-bold text-violet-950">
+                  {t(
+                    language,
+                    'Edit Existing Tenant Details',
+                    'Hariri Taarifa za Mpangaji'
+                  )}
+                </h3>
+
+                <p className="mt-1 text-sm text-violet-700">
+                  {t(
+                    language,
+                    'Personal details can be edited. The house, permanent meter and rent history remain locked.',
+                    'Taarifa binafsi zinaweza kuhaririwa. Nyumba, mita ya kudumu na historia ya kodi vitabaki vimefungwa.'
+                  )}
+                </p>
+              </div>
+
+              <div className="space-y-5 p-6">
+                <Select
+                  label={t(
+                    language,
+                    'Select Existing Tenant',
+                    'Chagua Mpangaji Aliyepo'
+                  )}
+                  value={rentalTenantEditForm.tenantId}
+                  onChange={(e) =>
+                    handleRentalTenantEditSelection(
+                      e.target.value
+                    )
+                  }
+                >
+                  <option value="">
+                    {t(
+                      language,
+                      'Select tenant',
+                      'Chagua mpangaji'
+                    )}
+                  </option>
+
+                  {activeRentAccounts.map((account) => {
+                    const accountMeter = waterMeters.find(
+                      (meter) =>
+                        String(meter.houseNumber || '') ===
+                          String(
+                            account.house?.houseNumber || ''
+                          ) &&
+                        meter.active !== false
+                    );
+
+                    return (
+                      <option
+                        key={account.id}
+                        value={account.tenantId}
+                      >
+                        {account.house?.houseNumber || '-'}
+                        {' — '}
+                        {accountMeter?.meterNumber || '-'}
+                        {' — '}
+                        {account.tenant?.fullName ||
+                          account.house?.tenantName ||
+                          '-'}
+                      </option>
+                    );
+                  })}
+                </Select>
+
+                {rentalTenantEditForm.tenantId && (
+                  <>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <PreviewValue
+                        label={t(
+                          language,
+                          'Locked House',
+                          'Nyumba Iliyofungwa'
+                        )}
+                        value={
+                          selectedRentalTenantEditAccount
+                            ?.house?.houseNumber || '-'
+                        }
+                      />
+
+                      <PreviewValue
+                        label={t(
+                          language,
+                          'Locked Permanent Meter',
+                          'Mita ya Kudumu Iliyofungwa'
+                        )}
+                        value={
+                          selectedRentalTenantEditMeter
+                            ?.meterNumber || '-'
+                        }
+                      />
+                    </div>
+
+                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-800">
+                      {t(
+                        language,
+                        'Only the details below will change. The selected house and permanent meter cannot be changed here.',
+                        'Taarifa zilizo hapa chini pekee ndizo zitabadilika. Nyumba na mita ya kudumu zilizochaguliwa haziwezi kubadilishwa hapa.'
+                      )}
+                    </div>
+
+                    <Input
+                      label={t(
+                        language,
+                        'Tenant Name',
+                        'Jina la Mpangaji'
+                      )}
+                      value={rentalTenantEditForm.fullName}
+                      onChange={(e) =>
+                        setRentalTenantEditForm(
+                          (previous) => ({
+                            ...previous,
+                            fullName: formatPersonName(
+                              e.target.value
+                            ),
+                          })
+                        )
+                      }
+                    />
+
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <Input
+                        label={t(
+                          language,
+                          'Phone Number',
+                          'Namba ya Simu'
+                        )}
+                        placeholder="07XXXXXXXX"
+                        value={
+                          rentalTenantEditForm.phoneNumber
+                        }
+                        onChange={(e) =>
+                          setRentalTenantEditForm(
+                            (previous) => ({
+                              ...previous,
+                              phoneNumber: e.target.value,
+                            })
+                          )
+                        }
+                      />
+
+                      <Input
+                        label={t(
+                          language,
+                          'Occupation',
+                          'Kazi ya Mpangaji'
+                        )}
+                        value={
+                          rentalTenantEditForm.occupation
+                        }
+                        onChange={(e) =>
+                          setRentalTenantEditForm(
+                            (previous) => ({
+                              ...previous,
+                              occupation: e.target.value,
+                            })
+                          )
+                        }
+                      />
+
+                      <Input
+                        label={t(
+                          language,
+                          'Emergency Contact Name',
+                          'Jina la Mtu wa Dharura'
+                        )}
+                        value={
+                          rentalTenantEditForm
+                            .emergencyContactName
+                        }
+                        onChange={(e) =>
+                          setRentalTenantEditForm(
+                            (previous) => ({
+                              ...previous,
+                              emergencyContactName:
+                                formatPersonName(
+                                  e.target.value
+                                ),
+                            })
+                          )
+                        }
+                      />
+
+                      <Input
+                        label={t(
+                          language,
+                          'Emergency Contact Phone',
+                          'Namba ya Simu ya Dharura'
+                        )}
+                        placeholder="07XXXXXXXX"
+                        value={
+                          rentalTenantEditForm
+                            .emergencyContactPhone
+                        }
+                        onChange={(e) =>
+                          setRentalTenantEditForm(
+                            (previous) => ({
+                              ...previous,
+                              emergencyContactPhone:
+                                e.target.value,
+                            })
+                          )
+                        }
+                      />
+                    </div>
+
+                    <label className="flex items-center gap-3 rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm font-semibold text-violet-900">
+                      <input
+                        type="checkbox"
+                        checked={
+                          rentalTenantEditForm.smsConsent
+                        }
+                        onChange={(e) =>
+                          setRentalTenantEditForm(
+                            (previous) => ({
+                              ...previous,
+                              smsConsent: e.target.checked,
+                            })
+                          )
+                        }
+                      />
+
+                      {t(
+                        language,
+                        'Send automatic rent reminders by SMS',
+                        'Tuma vikumbusho vya kodi kwa SMS'
+                      )}
+                    </label>
+
+                    <label className="block">
+                      <span className="mb-2 block text-sm font-medium text-slate-700">
+                        {t(
+                          language,
+                          'Notes',
+                          'Maelezo'
+                        )}
+                      </span>
+
+                      <textarea
+                        className="min-h-28 w-full rounded-2xl border border-slate-300 px-4 py-3 outline-none focus:border-violet-500"
+                        value={rentalTenantEditForm.notes}
+                        onChange={(e) =>
+                          setRentalTenantEditForm(
+                            (previous) => ({
+                              ...previous,
+                              notes: e.target.value,
+                            })
+                          )
+                        }
+                      />
+                    </label>
+                  </>
+                )}
+
+                <div className="flex justify-end gap-3 border-t border-slate-200 pt-5">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => {
+                      setRentalTenantEditForm({
+                        ...emptyRentalTenantEditForm,
+                      });
+                      setIsRentalTenantEditOpen(false);
+                    }}
+                  >
+                    {t(language, 'Cancel', 'Ghairi')}
+                  </Button>
+
+                  <Button
+                    type="button"
+                    className="bg-violet-700"
+                    disabled={
+                      isSavingRentalTenantEdit ||
+                      !rentalTenantEditForm.tenantId
+                    }
+                    onClick={saveRentalTenantDetails}
+                  >
+                    {isSavingRentalTenantEdit
+                      ? t(
+                          language,
+                          'Saving...',
+                          'Inahifadhi...'
+                        )
+                      : t(
+                          language,
+                          'Save Tenant Details',
+                          'Hifadhi Taarifa za Mpangaji'
+                        )}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {isRentalRegistrationOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
+            <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
+              <div className="border-b border-blue-100 bg-blue-50 px-6 py-5">
+                <h3 className="text-2xl font-bold text-blue-950">
+                  {t(
+                    language,
+                    'Register House Occupancy',
+                    'Sajili Matumizi ya Nyumba'
+                  )}
+                </h3>
+
+                <p className="mt-1 text-sm text-blue-700">
+                  {t(
+                    language,
+                    'Select whether the house is rented, owner occupied or vacant.',
+                    'Chagua kama nyumba ina mpangaji, inatumiwa na mmiliki au iko tupu.'
+                  )}
+                </p>
+              </div>
+
+              <div className="space-y-4 p-6">
+                <Select
+                  label={t(language, 'House', 'Nyumba')}
+                  value={rentalRegistrationForm.houseId}
+                  onChange={(e) => {
+                    const selectedHouseId =
+                      e.target.value;
+
+                    const selectedHouse = houses.find(
+                      (house) =>
+                        String(house.id) ===
+                        String(selectedHouseId)
+                    );
+
+                    const currentOccupancy =
+                      propertyOccupancies.find(
+                        (occupancy) =>
+                          String(
+                            occupancy.houseId
+                          ) ===
+                            String(selectedHouseId) &&
+                          occupancy.active === true
+                      );
+
+                    const suggestedOccupancyType =
+                      currentOccupancy?.occupancyType ||
+                      (selectedHouse?.houseStatus ===
+                      'Vacant'
+                        ? 'Vacant'
+                        : selectedHouse?.tenantName
+                          ? 'Rent Paying Tenant'
+                          : 'Vacant');
+
+                    const suggestedMonthlyRent =
+                      Number(
+                        selectedHouse?.monthlyRentAmount ||
+                          0
+                      ) > 0
+                        ? Number(
+                            selectedHouse.monthlyRentAmount
+                          )
+                        : String(
+                              selectedHouse?.houseNumber ||
+                                ''
+                            ).startsWith('UP-')
+                          ? 180000
+                          : 200000;
+
+                    setRentalRegistrationForm(
+                      (previous) => ({
+                        ...previous,
+                        houseId: selectedHouseId,
+                        occupancyType:
+                          suggestedOccupancyType,
+                        tenantName:
+                          selectedHouse?.tenantName ||
+                          '',
+                        paymentDate: todayISO(),
+                        startDate: addDaysISO(
+                          todayISO(),
+                          1
+                        ),
+                        monthlyRentAmount:
+                          suggestedOccupancyType ===
+                          'Rent Paying Tenant'
+                            ? String(
+                                suggestedMonthlyRent
+                              )
+                            : '',
+                        amountReceived: '',
+                        paidThroughDate: '',
+                        smsRemindersEnabled:
+                          suggestedOccupancyType ===
+                          'Rent Paying Tenant',
+                      })
+                    );
+                  }}
+                >
+                  <option value="">
+                    {t(
+                      language,
+                      'Select house',
+                      'Chagua nyumba'
+                    )}
+                  </option>
+
+                  {houses.map((house) => {
+                    const permanentHouseMeter =
+                      waterMeters.find(
+                        (meter) =>
+                          String(
+                            meter.houseNumber || ''
+                          ) ===
+                            String(
+                              house.houseNumber || ''
+                            ) &&
+                          meter.active !== false
+                      );
+
+                    return (
+                      <option
+                        key={house.id}
+                        value={house.id}
+                      >
+                        {house.houseNumber}
+                        {' — '}
+                        {permanentHouseMeter?.meterNumber ||
+                          t(
+                            language,
+                            'No meter',
+                            'Hakuna mita'
+                          )}
+                        {' — '}
+                        {house.tenantName ||
+                          t(
+                            language,
+                            'No tenant',
+                            'Hakuna mpangaji'
+                          )}
+                      </option>
+                    );
+                  })}
+                </Select>
+
+                <Select
+                  label={t(
+                    language,
+                    'Current Use of the House',
+                    'Matumizi ya Sasa ya Nyumba'
+                  )}
+                  value={
+                    rentalRegistrationForm.occupancyType
+                  }
+                  onChange={(e) =>
+                    setRentalRegistrationForm((previous) => ({
+                      ...previous,
+                      occupancyType: e.target.value,
+                      monthlyRentAmount:
+                        e.target.value ===
+                        'Rent Paying Tenant'
+                          ? previous.monthlyRentAmount
+                          : '',
+                      paidThroughDate:
+                        e.target.value ===
+                        'Rent Paying Tenant'
+                          ? previous.paidThroughDate
+                          : '',
+                      smsRemindersEnabled:
+                        e.target.value ===
+                        'Rent Paying Tenant',
+                    }))
+                  }
+                >
+                  <option value="Rent Paying Tenant">
+                    {t(
+                      language,
+                      'Rent-paying tenant',
+                      'Ina mpangaji anayelipa kodi'
+                    )}
+                  </option>
+                  <option value="Owner or Family">
+                    {t(
+                      language,
+                      'Owner or family occupied',
+                      'Inatumiwa na mmiliki au familia'
+                    )}
+                  </option>
+                  <option value="Vacant">
+                    {t(language, 'Vacant', 'Tupu')}
+                  </option>
+                </Select>
+
+                {rentalRegistrationForm.occupancyType !==
+                  'Vacant' && (
+                  <Input
+                    label={
+                      rentalRegistrationForm.occupancyType ===
+                      'Rent Paying Tenant'
+                        ? t(
+                            language,
+                            'Tenant Name',
+                            'Jina la Mpangaji'
+                          )
+                        : t(
+                            language,
+                            'Current Occupant',
+                            'Jina la Anayeishi'
+                          )
+                    }
+                    value={
+                      rentalRegistrationForm.tenantName
+                    }
+                    onChange={(e) =>
+                      setRentalRegistrationForm(
+                        (previous) => ({
+                          ...previous,
+                          tenantName: formatPersonName(
+                            e.target.value
+                          ),
+                        })
+                      )
+                    }
+                  />
+                )}
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  {rentalRegistrationForm.occupancyType ===
+                    'Rent Paying Tenant' && (
+                    <Input
+                      label={t(
+                        language,
+                        'Rent Payment Date',
+                        'Tarehe ya Malipo ya Kodi'
+                      )}
+                      type="date"
+                      value={
+                        rentalRegistrationForm.paymentDate
+                      }
+                      onChange={(e) =>
+                        setRentalRegistrationForm(
+                          (previous) => ({
+                            ...previous,
+                            paymentDate:
+                              e.target.value,
+                            startDate: addDaysISO(
+                              e.target.value,
+                              1
+                            ),
+                          })
+                        )
+                      }
+                    />
+                  )}
+
+                  <Input
+                    label={t(
+                      language,
+                      'Occupancy Start Date',
+                      'Tarehe ya Kuanza Kutumia Nyumba'
+                    )}
+                    type="date"
+                    value={
+                      rentalRegistrationForm.startDate
+                    }
+                    onChange={(e) =>
+                      setRentalRegistrationForm(
+                        (previous) => ({
+                          ...previous,
+                          startDate: e.target.value,
+                        })
+                      )
+                    }
+                  />
+                </div>
+
+                {rentalRegistrationForm.occupancyType ===
+                  'Rent Paying Tenant' && (
+                  <>
+                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                      <Input
+                        label={t(
+                          language,
+                          'Telephone Number',
+                          'Namba ya Simu'
+                        )}
+                        type="tel"
+                        placeholder="07XXXXXXXX"
+                        value={
+                          rentalRegistrationForm.phoneNumber
+                        }
+                        onChange={(e) =>
+                          setRentalRegistrationForm(
+                            (previous) => ({
+                              ...previous,
+                              phoneNumber: e.target.value,
+                            })
+                          )
+                        }
+                      />
+
+                      <Input
+                        label={t(
+                          language,
+                          'Monthly Rent',
+                          'Kodi kwa Mwezi'
+                        )}
+                        type="text"
+                        inputMode="numeric"
+                        value={formatAmountInput(
+                          rentalRegistrationForm.monthlyRentAmount
+                        )}
+                        onChange={(e) =>
+                          setRentalRegistrationForm(
+                            (previous) => ({
+                              ...previous,
+                              monthlyRentAmount:
+                                cleanAmountInput(
+                                  e.target.value
+                                ),
+                              paidThroughDate: '',
+                            })
+                          )
+                        }
+                      />
+
+                      <Input
+                        label={t(
+                          language,
+                          'Amount Received',
+                          'Kiasi Kilichopokelewa'
+                        )}
+                        type="text"
+                        inputMode="numeric"
+                        placeholder="0"
+                        value={formatAmountInput(
+                          rentalRegistrationForm.amountReceived
+                        )}
+                        onChange={(e) =>
+                          setRentalRegistrationForm(
+                            (previous) => ({
+                              ...previous,
+                              amountReceived:
+                                cleanAmountInput(
+                                  e.target.value
+                                ),
+                              paidThroughDate: '',
+                            })
+                          )
+                        }
+                      />
+                    </div>
+
+                    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                      <PreviewValue
+                        label={t(
+                          language,
+                          'Complete Months Covered',
+                          'Miezi Kamili Iliyolipiwa'
+                        )}
+                        value={newTenantFullMonths}
+                      />
+
+                      <PreviewValue
+                        label={t(
+                          language,
+                          'Rent Paid Through',
+                          'Kodi Imelipwa Hadi'
+                        )}
+                        value={
+                          newTenantPaidThroughDate || '-'
+                        }
+                      />
+
+                      <PreviewValue
+                        label={t(
+                          language,
+                          'Next Payment Date',
+                          'Tarehe ya Malipo Yanayofuata'
+                        )}
+                        value={
+                          newTenantNextPaymentDate || '-'
+                        }
+                      />
+
+                      <PreviewValue
+                        label={t(
+                          language,
+                          'Remaining Credit',
+                          'Salio Lililobaki'
+                        )}
+                        value={`TZS ${currency(
+                          newTenantRemainingCredit
+                        )}`}
+                      />
+                    </div>
+                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                      <Input
+                        label={t(
+                          language,
+                          'Tenant Occupation',
+                          'Kazi ya Mpangaji'
+                        )}
+                        placeholder={t(
+                          language,
+                          'Occupation or business',
+                          'Kazi au biashara'
+                        )}
+                        value={
+                          rentalRegistrationForm.occupation
+                        }
+                        onChange={(e) =>
+                          setRentalRegistrationForm(
+                            (previous) => ({
+                              ...previous,
+                              occupation: e.target.value,
+                            })
+                          )
+                        }
+                      />
+
+                      <Input
+                        label={t(
+                          language,
+                          'Emergency Contact Name',
+                          'Jina la Mtu wa Dharura'
+                        )}
+                        placeholder={t(
+                          language,
+                          'Immediate contact person',
+                          'Mtu wa karibu wa kuwasiliana naye'
+                        )}
+                        value={
+                          rentalRegistrationForm.emergencyContactName
+                        }
+                        onChange={(e) =>
+                          setRentalRegistrationForm(
+                            (previous) => ({
+                              ...previous,
+                              emergencyContactName:
+                                formatPersonName(
+                                  e.target.value
+                                ),
+                            })
+                          )
+                        }
+                      />
+
+                      <Input
+                        label={t(
+                          language,
+                          'Emergency Contact Phone',
+                          'Namba ya Simu ya Mtu wa Dharura'
+                        )}
+                        type="tel"
+                        placeholder="07XXXXXXXX"
+                        value={
+                          rentalRegistrationForm.emergencyContactPhone
+                        }
+                        onChange={(e) =>
+                          setRentalRegistrationForm(
+                            (previous) => ({
+                              ...previous,
+                              emergencyContactPhone:
+                                e.target.value,
+                            })
+                          )
+                        }
+                      />
+                    </div>
+
+                    <label className="flex items-center gap-3 rounded-2xl border border-blue-200 bg-blue-50 p-4">
+                      <input
+                        type="checkbox"
+                        checked={
+                          rentalRegistrationForm.smsRemindersEnabled
+                        }
+                        onChange={(e) =>
+                          setRentalRegistrationForm(
+                            (previous) => ({
+                              ...previous,
+                              smsRemindersEnabled:
+                                e.target.checked,
+                            })
+                          )
+                        }
+                      />
+
+                      <span className="text-sm font-medium text-blue-900">
+                        {t(
+                          language,
+                          'Send automatic rent reminders by SMS',
+                          'Tuma vikumbusho vya kodi kwa SMS'
+                        )}
+                      </span>
+                    </label>
+                  </>
+                )}
+
+                <Textarea
+                  label={t(
+                    language,
+                    'Notes',
+                    'Maelezo'
+                  )}
+                  rows={3}
+                  value={rentalRegistrationForm.notes}
+                  onChange={(e) =>
+                    setRentalRegistrationForm((previous) => ({
+                      ...previous,
+                      notes: e.target.value,
+                    }))
+                  }
+                />
+
+                <div className="flex justify-end gap-3 border-t pt-4">
+                  <Button
+                    type="button"
+                    className="bg-slate-500"
+                    disabled={isSavingRentalRegistration}
+                    onClick={() => {
+                      setRentalRegistrationForm({
+                        ...emptyRentalRegistrationForm,
+                      });
+                      setIsRentalRegistrationOpen(false);
+                    }}
+                  >
+                    {t(language, 'Cancel', 'Ghairi')}
+                  </Button>
+
+                  <Button
+                    type="button"
+                    className="bg-blue-700"
+                    disabled={isSavingRentalRegistration}
+                    onClick={saveRentalRegistration}
+                  >
+                    {isSavingRentalRegistration
+                      ? t(
+                          language,
+                          'Saving...',
+                          'Inahifadhi...'
+                        )
+                      : t(
+                          language,
+                          'Save Occupancy',
+                          'Hifadhi Matumizi ya Nyumba'
+                        )}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        {isRentalPaymentCorrectionOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
+            <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
+              <div className="border-b border-amber-100 bg-amber-50 px-6 py-5">
+                <h3 className="text-2xl font-bold text-amber-950">
+                  {t(
+                    language,
+                    'Correct Rent Payment',
+                    'Sahihisha Malipo ya Kodi'
+                  )}
+                </h3>
+
+                <p className="mt-1 text-sm text-amber-700">
+                  {t(
+                    language,
+                    'Correct an amount or payment date without deleting the original record. The account will be recalculated automatically.',
+                    'Sahihisha kiasi au tarehe ya malipo bila kufuta rekodi ya zamani. Akaunti itahesabiwa upya moja kwa moja.'
+                  )}
+                </p>
+              </div>
+
+              <div className="space-y-5 p-6">
+                <Select
+                  label={t(
+                    language,
+                    'Select Payment to Correct',
+                    'Chagua Malipo ya Kusahihisha'
+                  )}
+                  value={
+                    rentalPaymentCorrectionForm.paymentId
+                  }
+                  onChange={(e) =>
+                    handleRentalPaymentCorrectionSelection(
+                      e.target.value
+                    )
+                  }
+                >
+                  <option value="">
+                    {t(
+                      language,
+                      'Select payment',
+                      'Chagua malipo'
+                    )}
+                  </option>
+
+                  {activeRentalPayments
+                    .slice()
+                    .sort(
+                      (a, b) =>
+                        String(b.paymentDate || '').localeCompare(
+                          String(a.paymentDate || '')
+                        ) ||
+                        String(b.created_at || '').localeCompare(
+                          String(a.created_at || '')
+                        )
+                    )
+                    .map((payment) => {
+                      const account =
+                        activeRentAccounts.find(
+                          (item) =>
+                            String(item.id) ===
+                            String(payment.tenancyId)
+                        );
+
+                      return (
+                        <option
+                          key={payment.id}
+                          value={payment.id}
+                        >
+                          {payment.paymentDate || '-'}
+                          {' — '}
+                          {account?.house?.houseNumber || '-'}
+                          {' — '}
+                          {account?.tenant?.fullName ||
+                            account?.house?.tenantName ||
+                            '-'}
+                          {' — TZS '}
+                          {currency(
+                            payment.amountReceived || 0
+                          )}
+                          {' — '}
+                          {payment.receiptNumber || '-'}
+                        </option>
+                      );
+                    })}
+                </Select>
+
+                {selectedRentalPaymentCorrection && (
+                  <>
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                      <h4 className="font-bold text-slate-900">
+                        {t(
+                          language,
+                          'Original Permanent Record',
+                          'Rekodi ya Kudumu ya Zamani'
+                        )}
+                      </h4>
+
+                      <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                        <PreviewValue
+                          label={t(
+                            language,
+                            'House',
+                            'Nyumba'
+                          )}
+                          value={
+                            selectedRentalPaymentCorrectionAccount
+                              ?.house?.houseNumber || '-'
+                          }
+                        />
+
+                        <PreviewValue
+                          label={t(
+                            language,
+                            'Tenant',
+                            'Mpangaji'
+                          )}
+                          value={
+                            selectedRentalPaymentCorrectionAccount
+                              ?.tenant?.fullName ||
+                            selectedRentalPaymentCorrectionAccount
+                              ?.house?.tenantName ||
+                            '-'
+                          }
+                        />
+
+                        <PreviewValue
+                          label={t(
+                            language,
+                            'Original Date',
+                            'Tarehe ya Zamani'
+                          )}
+                          value={
+                            selectedRentalPaymentCorrection
+                              .paymentDate || '-'
+                          }
+                        />
+
+                        <PreviewValue
+                          label={t(
+                            language,
+                            'Original Amount',
+                            'Kiasi cha Zamani'
+                          )}
+                          value={`TZS ${currency(
+                            selectedRentalPaymentCorrection
+                              .amountReceived || 0
+                          )}`}
+                        />
+                      </div>
+
+                      <p className="mt-4 text-xs text-slate-500">
+                        {t(
+                          language,
+                          `Receipt: ${
+                            selectedRentalPaymentCorrection
+                              .receiptNumber || '-'
+                          }`,
+                          `Risiti: ${
+                            selectedRentalPaymentCorrection
+                              .receiptNumber || '-'
+                          }`
+                        )}
+                      </p>
+                    </div>
+
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <Input
+                        label={t(
+                          language,
+                          'Corrected Amount',
+                          'Kiasi Sahihi'
+                        )}
+                        type="text"
+                        inputMode="numeric"
+                        value={formatAmountInput(
+                          rentalPaymentCorrectionForm
+                            .correctedAmount
+                        )}
+                        onChange={(e) =>
+                          setRentalPaymentCorrectionForm(
+                            (previous) => ({
+                              ...previous,
+                              correctedAmount:
+                                cleanAmountInput(
+                                  e.target.value
+                                ),
+                            })
+                          )
+                        }
+                      />
+
+                      <Input
+                        label={t(
+                          language,
+                          'Corrected Payment Date',
+                          'Tarehe Sahihi ya Malipo'
+                        )}
+                        type="date"
+                        value={
+                          rentalPaymentCorrectionForm
+                            .correctedPaymentDate
+                        }
+                        onChange={(e) =>
+                          setRentalPaymentCorrectionForm(
+                            (previous) => ({
+                              ...previous,
+                              correctedPaymentDate:
+                                e.target.value,
+                            })
+                          )
+                        }
+                      />
+                    </div>
+
+                    <label className="block">
+                      <span className="mb-2 block text-sm font-medium text-slate-700">
+                        {t(
+                          language,
+                          'Reason for Correction',
+                          'Sababu ya Marekebisho'
+                        )}
+                      </span>
+
+                      <textarea
+                        className="min-h-28 w-full rounded-2xl border border-slate-300 px-4 py-3 outline-none focus:border-amber-500"
+                        placeholder={t(
+                          language,
+                          'Explain what was entered incorrectly.',
+                          'Eleza kilichoingizwa kimakosa.'
+                        )}
+                        value={
+                          rentalPaymentCorrectionForm.reason
+                        }
+                        onChange={(e) =>
+                          setRentalPaymentCorrectionForm(
+                            (previous) => ({
+                              ...previous,
+                              reason: e.target.value,
+                            })
+                          )
+                        }
+                      />
+                    </label>
+
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+                      {t(
+                        language,
+                        'The original payment will remain permanently visible as corrected. A new receipt will be created and the rent account will be recalculated.',
+                        'Malipo ya zamani yataendelea kuonekana kwa kudumu kama yaliyosahihishwa. Risiti mpya itatengenezwa na akaunti ya kodi itahesabiwa upya.'
+                      )}
+                    </div>
+                  </>
+                )}
+
+                <div className="flex justify-end gap-3 border-t border-slate-200 pt-5">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => {
+                      setRentalPaymentCorrectionForm({
+                        ...emptyRentalPaymentCorrectionForm,
+                      });
+                      setIsRentalPaymentCorrectionOpen(false);
+                    }}
+                  >
+                    {t(language, 'Cancel', 'Ghairi')}
+                  </Button>
+
+                  <Button
+                    type="button"
+                    className="bg-amber-600"
+                    disabled={
+                      isSavingRentalPaymentCorrection ||
+                      !selectedRentalPaymentCorrection
+                    }
+                    onClick={
+                      saveRentalPaymentCorrection
+                    }
+                  >
+                    {isSavingRentalPaymentCorrection
+                      ? t(
+                          language,
+                          'Correcting...',
+                          'Inasahihisha...'
+                        )
+                      : t(
+                          language,
+                          'Save Correction',
+                          'Hifadhi Marekebisho'
+                        )}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {isRentalPaymentOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
+            <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
+              <div className="border-b border-emerald-100 bg-emerald-50 px-6 py-5">
+                <h3 className="text-2xl font-bold text-emerald-950">
+                  {t(
+                    language,
+                    'Record Rent Payment',
+                    'Sajili Malipo ya Kodi'
+                  )}
+                </h3>
+
+                <p className="mt-1 text-sm text-emerald-700">
+                  {t(
+                    language,
+                    'Select the existing tenant and enter the amount received. The rent period will update automatically.',
+                    'Chagua mpangaji aliyepo na uweke kiasi kilichopokelewa. Kipindi cha kodi kitasasishwa moja kwa moja.'
+                  )}
+                </p>
+              </div>
+
+              <div className="space-y-5 p-6">
+                <Select
+                  label={t(
+                    language,
+                    'House and Tenant',
+                    'Nyumba na Mpangaji'
+                  )}
+                  value={rentalPaymentForm.tenancyId}
+                  onChange={(e) =>
+                    setRentalPaymentForm((previous) => ({
+                      ...previous,
+                      tenancyId: e.target.value,
+                    }))
+                  }
+                >
+                  <option value="">
+                    {t(
+                      language,
+                      'Select house and tenant',
+                      'Chagua nyumba na mpangaji'
+                    )}
+                  </option>
+
+                  {activeRentAccounts.map((account) => {
+                    const accountMeter = waterMeters.find(
+                      (meter) =>
+                        String(
+                          meter.houseNumber || ''
+                        ) ===
+                          String(
+                            account.house?.houseNumber ||
+                              ''
+                          ) &&
+                        meter.active !== false
+                    );
+
+                    return (
+                      <option
+                        key={account.id}
+                        value={account.id}
+                      >
+                        {account.house?.houseNumber || '-'}
+                        {' — '}
+                        {accountMeter?.meterNumber ||
+                          t(
+                            language,
+                            'No meter',
+                            'Hakuna mita'
+                          )}
+                        {' — '}
+                        {account.tenant?.fullName ||
+                          account.tenant?.tenantName ||
+                          account.tenant?.name ||
+                          account.house?.tenantName ||
+                          '-'}
+                      </option>
+                    );
+                  })}
+                </Select>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Input
+                    label={t(
+                      language,
+                      'Amount Received',
+                      'Kiasi Kilichopokelewa'
+                    )}
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="0"
+                    value={formatAmountInput(
+                      rentalPaymentForm.amountReceived
+                    )}
+                    onChange={(e) =>
+                      setRentalPaymentForm((previous) => ({
+                        ...previous,
+                        amountReceived: cleanAmountInput(
+                          e.target.value
+                        ),
+                      }))
+                    }
+                  />
+
+                  <Input
+                    label={t(
+                      language,
+                      'Actual Payment Date',
+                      'Tarehe Halisi ya Malipo'
+                    )}
+                    type="date"
+                    value={rentalPaymentForm.paymentDate}
+                    onChange={(e) =>
+                      setRentalPaymentForm((previous) => ({
+                        ...previous,
+                        paymentDate: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+
+                {selectedRentPaymentAccount && (
+                  <div className="overflow-hidden rounded-2xl border border-blue-200 bg-white">
+                    <div className="border-b border-blue-100 bg-blue-50 px-4 py-3">
+                      <p className="font-bold text-blue-950">
+                        {t(
+                          language,
+                          'Confirm Selected Rent Account',
+                          'Thibitisha Akaunti ya Kodi Iliyochaguliwa'
+                        )}
+                      </p>
+                    </div>
+
+                    <div className="grid gap-px bg-slate-200 sm:grid-cols-2 xl:grid-cols-3">
+                      <PreviewValue
+                        label={t(
+                          language,
+                          'House',
+                          'Nyumba'
+                        )}
+                        value={
+                          selectedRentPaymentAccount.house
+                            ?.houseNumber || '-'
+                        }
+                      />
+
+                      <PreviewValue
+                        label={t(
+                          language,
+                          'Meter Number',
+                          'Namba ya Mita'
+                        )}
+                        value={
+                          selectedRentPaymentMeter
+                            ?.meterNumber ||
+                          t(
+                            language,
+                            'No meter',
+                            'Hakuna mita'
+                          )
+                        }
+                      />
+
+                      <PreviewValue
+                        label={t(
+                          language,
+                          'Tenant',
+                          'Mpangaji'
+                        )}
+                        value={
+                          selectedRentPaymentAccount.tenant
+                            ?.fullName ||
+                          selectedRentPaymentAccount.tenant
+                            ?.tenantName ||
+                          selectedRentPaymentAccount.house
+                            ?.tenantName ||
+                          '-'
+                        }
+                      />
+
+                      <PreviewValue
+                        label={t(
+                          language,
+                          'Monthly Rent',
+                          'Kodi kwa Mwezi'
+                        )}
+                        value={`TZS ${currency(
+                          selectedRentPaymentAccount.monthlyRentAmount ||
+                            0
+                        )}`}
+                      />
+
+                      <PreviewValue
+                        label={t(
+                          language,
+                          'Currently Paid Through',
+                          'Kwa Sasa Imelipwa Hadi'
+                        )}
+                        value={
+                          selectedRentPaymentAccount.paidThroughDate ||
+                          '-'
+                        }
+                      />
+
+                      <PreviewValue
+                        label={t(
+                          language,
+                          'Current Credit',
+                          'Salio la Sasa'
+                        )}
+                        value={`TZS ${currency(
+                          selectedRentPaymentAccount.creditBalance ||
+                            0
+                        )}`}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+                  {t(
+                    language,
+                    'The system will apply the money to unpaid rent first, calculate the complete months covered, preserve any remaining credit and set the next payment date automatically.',
+                    'Mfumo utatumia fedha kulipia kodi ambayo haijalipwa kwanza, utahesabu miezi kamili iliyolipiwa, utahifadhi salio lolote na kuweka tarehe inayofuata ya malipo moja kwa moja.'
+                  )}
+                </div>
+
+
+                <div className="flex justify-end gap-3 border-t pt-4">
+                  <Button
+                    type="button"
+                    className="bg-slate-500"
+                    disabled={isSavingRentalPayment}
+                    onClick={() => {
+                      setRentalPaymentForm({
+                        ...emptyRentalPaymentForm,
+                        paymentDate: todayISO(),
+                      });
+                      setIsRentalPaymentOpen(false);
+                    }}
+                  >
+                    {t(language, 'Cancel', 'Ghairi')}
+                  </Button>
+
+                  <Button
+                    type="button"
+                    className="bg-emerald-700"
+                    disabled={isSavingRentalPayment}
+                    onClick={saveRentalPayment}
+                  >
+                    {isSavingRentalPayment
+                      ? t(
+                          language,
+                          'Saving Payment...',
+                          'Inahifadhi Malipo...'
+                        )
+                      : t(
+                          language,
+                          'Save Rent Payment',
+                          'Hifadhi Malipo ya Kodi'
+                        )}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {isRentalExpenseOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
+            <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
+              <div className="border-b border-orange-100 bg-orange-50 px-6 py-5">
+                <h3 className="text-2xl font-bold text-orange-950">
+                  {t(
+                    language,
+                    'Record Rental Expense',
+                    'Sajili Matumizi ya Kodi'
+                  )}
+                </h3>
+
+                <p className="mt-1 text-sm text-orange-700">
+                  {t(
+                    language,
+                    'Record repairs, maintenance and other expenses relating to the rental houses.',
+                    'Sajili matengenezo na matumizi mengine yanayohusu nyumba za kupangisha.'
+                  )}
+                </p>
+              </div>
+
+              <div className="space-y-5 p-6">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Select
+                    label={t(
+                      language,
+                      'Expense Type',
+                      'Aina ya Matumizi'
+                    )}
+                    value={rentalExpenseForm.expenseType}
+                    onChange={(e) =>
+                      setRentalExpenseForm((previous) => ({
+                        ...previous,
+                        expenseType: e.target.value,
+                      }))
+                    }
+                  >
+                    <option value="Repair">
+                      {t(language, 'Repair', 'Matengenezo')}
+                    </option>
+                    <option value="Maintenance">
+                      {t(
+                        language,
+                        'Routine Maintenance',
+                        'Matunzo ya Kawaida'
+                      )}
+                    </option>
+                    <option value="Utility">
+                      {t(
+                        language,
+                        'Utility Expense',
+                        'Gharama za Huduma'
+                      )}
+                    </option>
+                    <option value="Tax or Levy">
+                      {t(
+                        language,
+                        'Tax or Levy',
+                        'Kodi au Tozo'
+                      )}
+                    </option>
+                    <option value="Security">
+                      {t(language, 'Security', 'Ulinzi')}
+                    </option>
+                    <option value="Other">
+                      {t(language, 'Other', 'Mengineyo')}
+                    </option>
+                  </Select>
+
+                  <Input
+                    label={t(
+                      language,
+                      'Amount Paid',
+                      'Kiasi Kilicholipwa'
+                    )}
+                    type="number"
+                    min="1"
+                    placeholder="0"
+                    value={rentalExpenseForm.amount}
+                    onChange={(e) =>
+                      setRentalExpenseForm((previous) => ({
+                        ...previous,
+                        amount: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Input
+                    label={t(
+                      language,
+                      'Expense Date',
+                      'Tarehe ya Matumizi'
+                    )}
+                    type="date"
+                    value={rentalExpenseForm.expenseDate}
+                    onChange={(e) =>
+                      setRentalExpenseForm((previous) => ({
+                        ...previous,
+                        expenseDate: e.target.value,
+                      }))
+                    }
+                  />
+
+                  <Select
+                    label={t(
+                      language,
+                      'Related House (Optional)',
+                      'Nyumba Inayohusika (Si Lazima)'
+                    )}
+                    value={rentalExpenseForm.houseId}
+                    onChange={(e) =>
+                      setRentalExpenseForm((previous) => ({
+                        ...previous,
+                        houseId: e.target.value,
+                      }))
+                    }
+                  >
+                    <option value="">
+                      {t(
+                        language,
+                        'General rental expense',
+                        'Matumizi ya jumla'
+                      )}
+                    </option>
+
+                    {houses.map((house) => (
+                      <option key={house.id} value={house.id}>
+                        {house.houseNumber}
+                        {house.tenantName
+                          ? ` — ${house.tenantName}`
+                          : ''}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+
+                <Textarea
+                  label={t(
+                    language,
+                    'Expense Description',
+                    'Maelezo ya Matumizi'
+                  )}
+                  rows={3}
+                  placeholder={t(
+                    language,
+                    'Briefly explain what was paid for',
+                    'Eleza kwa kifupi fedha imelipia nini'
+                  )}
+                  value={rentalExpenseForm.description}
+                  onChange={(e) =>
+                    setRentalExpenseForm((previous) => ({
+                      ...previous,
+                      description: e.target.value,
+                    }))
+                  }
+                />
+
+                <details className="rounded-2xl border border-slate-200 bg-slate-50">
+                  <summary className="cursor-pointer px-4 py-3 font-bold text-slate-700">
+                    {t(
+                      language,
+                      'Optional Expense Information',
+                      'Taarifa za Ziada za Matumizi'
+                    )}
+                  </summary>
+
+                  <div className="grid gap-4 border-t border-slate-200 p-4 md:grid-cols-2">
+                    <Input
+                      label={t(
+                        language,
+                        'Paid To',
+                        'Aliyelipwa'
+                      )}
+                      value={rentalExpenseForm.payee}
+                      onChange={(e) =>
+                        setRentalExpenseForm((previous) => ({
+                          ...previous,
+                          payee: e.target.value,
+                        }))
+                      }
+                    />
+
+                    <Input
+                      label={t(
+                        language,
+                        'Receipt or Reference Number',
+                        'Namba ya Risiti au Kumbukumbu'
+                      )}
+                      value={
+                        rentalExpenseForm.referenceNumber
+                      }
+                      onChange={(e) =>
+                        setRentalExpenseForm((previous) => ({
+                          ...previous,
+                          referenceNumber: e.target.value,
+                        }))
+                      }
+                    />
+                  </div>
+                </details>
+
+                <div className="flex justify-end gap-3 border-t pt-4">
+                  <Button
+                    type="button"
+                    className="bg-slate-500"
+                    disabled={isSavingRentalExpense}
+                    onClick={() => {
+                      setRentalExpenseForm({
+                        ...emptyRentalExpenseForm,
+                        expenseDate: todayISO(),
+                      });
+                      setIsRentalExpenseOpen(false);
+                    }}
+                  >
+                    {t(language, 'Cancel', 'Ghairi')}
+                  </Button>
+
+                  <Button
+                    type="button"
+                    className="bg-orange-600"
+                    disabled={isSavingRentalExpense}
+                    onClick={saveRentalExpense}
+                  >
+                    {isSavingRentalExpense
+                      ? t(
+                          language,
+                          'Saving Expense...',
+                          'Inahifadhi Matumizi...'
+                        )
+                      : t(
+                          language,
+                          'Save Expense',
+                          'Hifadhi Matumizi'
+                        )}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {activeTab === 'meters' && (
           <div className="grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
             <aside className="h-fit rounded-3xl border border-slate-200 bg-white p-3 shadow-sm">
