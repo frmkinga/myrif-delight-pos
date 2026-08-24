@@ -5691,19 +5691,28 @@ saleLock.current = false;
 
   const total = cart.reduce((a, c) => a + c.total, 0);
 
- const saleRecord = {
-  id: `sale-${Date.now()}`,
-  shop_id: shop.id,
-  items: cart,
-  total,
-  type: 'cash',
-  date: (() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  })(),
-  created_at: new Date().toISOString(),
-  confirmed: false,
-};
+  const saleCreatedAt = new Date();
+
+  const saleDateInTanzania = new Intl.DateTimeFormat(
+    'en-CA',
+    {
+      timeZone: 'Africa/Dar_es_Salaam',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }
+  ).format(saleCreatedAt);
+
+  const saleRecord = {
+    id: `sale-${saleCreatedAt.getTime()}`,
+    shop_id: shop.id,
+    items: cart,
+    total,
+    type: 'cash',
+    date: saleDateInTanzania,
+    created_at: saleCreatedAt.toISOString(),
+    confirmed: false,
+  };
 
 console.log('SALE DATE TEST', {
   date: saleRecord.date,
