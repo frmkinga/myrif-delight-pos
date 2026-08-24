@@ -117,7 +117,9 @@ const emptyRentalRegistrationForm = {
   notes: '',
 };
 const emptyRentalTenantEditForm = {
+  houseId: '',
   tenantId: '',
+  occupancyType: '',
   fullName: '',
   phoneNumber: '',
   occupation: '',
@@ -187,6 +189,58 @@ const emptyServiceChargeForm = {
   nextPaymentDate: '',
   paymentStatus: 'Paid',
   notes: '',
+};
+
+const emptyServiceChargePaymentForm = {
+  houseId: '',
+  amountReceived: '',
+  paymentDate: todayISO(),
+  paymentMethod: 'Cash',
+  referenceNumber: '',
+  notes: '',
+};
+
+const emptyServiceChargeExpenseForm = {
+  expenseDate: todayISO(),
+  expenseType: 'Cleaning',
+  description: '',
+  amount: '',
+  payee: '',
+  referenceNumber: '',
+  notes: '',
+};
+
+const emptyServiceChargeCorrectionForm = {
+  recordType: 'Invoice',
+  recordId: '',
+  actionType: 'Update',
+  correctedAmount: '',
+  correctedDate: todayISO(),
+  correctedDueDate: '',
+  paymentMethod: 'Cash',
+  referenceNumber: '',
+  expenseType: 'Cleaning',
+  description: '',
+  payee: '',
+  notes: '',
+  reason: '',
+};
+
+const getCurrentServiceChargeMonth = () =>
+  todayISO().slice(0, 7);
+
+const emptyServiceChargeHouseSettingForm = {
+  houseId: '',
+  enabled: true,
+  monthlyAmount: formatAmountInput(
+    String(DEFAULT_SERVICE_CHARGE)
+  ),
+  reason: '',
+};
+
+
+const emptyServiceChargeInvoicePreparationForm = {
+  chargeMonth: getCurrentServiceChargeMonth(),
 };
 const emptyWaterPaymentForm = {
   houseNumber: '',
@@ -285,7 +339,14 @@ export default function RentalPropertySectionPreview({ language = 'sw', setLangu
   const [activeRentSection, setActiveRentSection] = useState('summary');
   const [activeRentReport, setActiveRentReport] = useState('');
   const [activeWaterSection, setActiveWaterSection] = useState('summary');
-const [showWaterOptionalFields, setShowWaterOptionalFields] = useState(false);
+  const [
+    activeServiceChargeSection,
+    setActiveServiceChargeSection,
+  ] = useState('summary');
+  const [activeServiceChargeReport, setActiveServiceChargeReport] =
+    useState('');
+  const [showWaterOptionalFields, setShowWaterOptionalFields] =
+    useState(false);
 
   const allHouses = Array.isArray(data?.houses)
   ? data.houses
@@ -323,6 +384,265 @@ const waterPaymentAllocations = Array.isArray(
 const serviceCharges = Array.isArray(data?.serviceCharges)
   ? data.serviceCharges
   : [];
+
+const [
+  serviceChargePayments,
+  setServiceChargePayments,
+] = useState([]);
+
+const [
+  serviceChargePaymentAllocations,
+  setServiceChargePaymentAllocations,
+] = useState([]);
+
+const [
+  serviceChargeExpenses,
+  setServiceChargeExpenses,
+] = useState([]);
+
+const [
+  serviceChargeCorrections,
+  setServiceChargeCorrections,
+] = useState([]);
+
+const [
+  isLoadingServiceChargeRecords,
+  setIsLoadingServiceChargeRecords,
+] = useState(false);
+
+useEffect(() => {
+  let isServiceChargeLoadActive = true;
+
+  const loadPermanentServiceChargeRecords = async () => {
+    const currentServiceChargeShopId =
+      data?.currentUser?.shop_id ||
+      data?.currentUser?.shopId ||
+      'shop-1';
+
+    setIsLoadingServiceChargeRecords(true);
+
+    try {
+      const [
+        paymentsResult,
+        allocationsResult,
+        expensesResult,
+        correctionsResult,
+      ] = await Promise.all([
+        supabase
+          .from('serviceChargePayments')
+          .select('*')
+          .eq('shop_id', currentServiceChargeShopId)
+          .order('paymentDate', {
+            ascending: false,
+          })
+          .order('created_at', {
+            ascending: false,
+          }),
+
+        supabase
+          .from('serviceChargePaymentAllocations')
+          .select('*')
+          .eq('shop_id', currentServiceChargeShopId)
+          .order('created_at', {
+            ascending: false,
+          }),
+
+        supabase
+          .from('serviceChargeExpenses')
+          .select('*')
+          .eq('shop_id', currentServiceChargeShopId)
+          .order('expenseDate', {
+            ascending: false,
+          })
+          .order('created_at', {
+            ascending: false,
+          }),
+
+        supabase
+          .from('serviceChargeCorrections')
+          .select('*')
+          .eq('shop_id', currentServiceChargeShopId)
+          .order('created_at', {
+            ascending: false,
+          }),
+      ]);
+
+      const firstLoadError =
+        paymentsResult.error ||
+        allocationsResult.error ||
+        expensesResult.error ||
+        correctionsResult.error;
+
+      if (firstLoadError) {
+        throw firstLoadError;
+      }
+
+      if (!isServiceChargeLoadActive) {
+        return;
+      }
+
+      setServiceChargePayments(
+        paymentsResult.data || []
+      );
+
+      setServiceChargePaymentAllocations(
+        allocationsResult.data || []
+      );
+
+      setServiceChargeExpenses(
+        expensesResult.data || []
+      );
+
+      setServiceChargeCorrections(
+        correctionsResult.data || []
+      );
+    } catch (serviceChargeLoadError) {
+      console.error(
+        'Permanent Service Charge records failed to load:',
+        serviceChargeLoadError
+      );
+    } finally {
+      if (isServiceChargeLoadActive) {
+        setIsLoadingServiceChargeRecords(false);
+      }
+    }
+  };
+
+  loadPermanentServiceChargeRecords();
+
+  return () => {
+    isServiceChargeLoadActive = false;
+  };
+}, [data?.currentUser?.id]);
+
+const refreshServiceChargeBills = async () => {
+  const currentServiceChargeShopId =
+    data?.currentUser?.shop_id ||
+    data?.currentUser?.shopId ||
+    'shop-1';
+
+  const {
+    data: freshServiceChargeBills,
+    error: serviceChargeBillsRefreshError,
+  } = await supabase
+    .from('servicecharges')
+    .select('*')
+    .eq('shop_id', currentServiceChargeShopId)
+    .order('chargeMonth', {
+      ascending: false,
+    })
+    .order('created_at', {
+      ascending: false,
+    });
+
+  if (serviceChargeBillsRefreshError) {
+    console.error(
+      'Service Charge invoices failed to refresh:',
+      serviceChargeBillsRefreshError
+    );
+
+    throw serviceChargeBillsRefreshError;
+  }
+
+  saveData({
+    ...data,
+    serviceCharges: freshServiceChargeBills || [],
+  });
+
+  return freshServiceChargeBills || [];
+};
+
+const refreshPermanentServiceChargeRecords =
+  async () => {
+    const currentServiceChargeShopId =
+      data?.currentUser?.shop_id ||
+      data?.currentUser?.shopId ||
+      'shop-1';
+
+    setIsLoadingServiceChargeRecords(true);
+
+    try {
+      const [
+        paymentsResult,
+        allocationsResult,
+        expensesResult,
+        correctionsResult,
+      ] = await Promise.all([
+        supabase
+          .from('serviceChargePayments')
+          .select('*')
+          .eq('shop_id', currentServiceChargeShopId)
+          .order('paymentDate', {
+            ascending: false,
+          })
+          .order('created_at', {
+            ascending: false,
+          }),
+
+        supabase
+          .from('serviceChargePaymentAllocations')
+          .select('*')
+          .eq('shop_id', currentServiceChargeShopId)
+          .order('created_at', {
+            ascending: false,
+          }),
+
+        supabase
+          .from('serviceChargeExpenses')
+          .select('*')
+          .eq('shop_id', currentServiceChargeShopId)
+          .order('expenseDate', {
+            ascending: false,
+          })
+          .order('created_at', {
+            ascending: false,
+          }),
+
+        supabase
+          .from('serviceChargeCorrections')
+          .select('*')
+          .eq('shop_id', currentServiceChargeShopId)
+          .order('created_at', {
+            ascending: false,
+          }),
+      ]);
+
+      const refreshError =
+        paymentsResult.error ||
+        allocationsResult.error ||
+        expensesResult.error ||
+        correctionsResult.error;
+
+      if (refreshError) {
+        throw refreshError;
+      }
+
+      setServiceChargePayments(
+        paymentsResult.data || []
+      );
+
+      setServiceChargePaymentAllocations(
+        allocationsResult.data || []
+      );
+
+      setServiceChargeExpenses(
+        expensesResult.data || []
+      );
+
+      setServiceChargeCorrections(
+        correctionsResult.data || []
+      );
+    } catch (serviceChargeRefreshError) {
+      console.error(
+        'Permanent Service Charge records failed to refresh:',
+        serviceChargeRefreshError
+      );
+
+      throw serviceChargeRefreshError;
+    } finally {
+      setIsLoadingServiceChargeRecords(false);
+    }
+  };
 
 const rentPayments = Array.isArray(data?.rentPayments)
   ? data.rentPayments
@@ -367,6 +687,62 @@ const rentSmsReminders = Array.isArray(data?.rentSmsReminders)
 const rentSmsAttempts = Array.isArray(data?.rentSmsAttempts)
   ? data.rentSmsAttempts
   : [];
+
+  const utilitySmsReminders = Array.isArray(
+  data?.utilitySmsReminders
+)
+  ? data.utilitySmsReminders
+  : [];
+
+useEffect(() => {
+  let isUtilityReminderLoadActive = true;
+
+  const loadUtilitySmsReminders = async () => {
+    const currentUtilityShopId =
+      data?.currentUser?.shop_id ||
+      data?.currentUser?.shopId ||
+      'shop-1';
+
+    const {
+      data: freshUtilityReminders,
+      error: utilityReminderLoadError,
+    } = await supabase
+      .from('utilitySmsReminders')
+      .select('*')
+      .eq('shop_id', currentUtilityShopId)
+      .order('scheduledDate', {
+        ascending: false,
+      })
+      .order('created_at', {
+        ascending: false,
+      });
+
+    if (utilityReminderLoadError) {
+      console.error(
+        'Utility SMS reminders failed to load:',
+        utilityReminderLoadError
+      );
+      return;
+    }
+
+    if (!isUtilityReminderLoadActive) {
+      return;
+    }
+
+    saveData({
+      ...data,
+      utilitySmsReminders:
+        freshUtilityReminders || [],
+    });
+  };
+
+  loadUtilitySmsReminders();
+
+  return () => {
+    isUtilityReminderLoadActive = false;
+  };
+}, [data?.currentUser?.id]);
+
 
   const [
     rentalRegistrationForm,
@@ -478,6 +854,66 @@ const [isSavingWaterFundExpense, setIsSavingWaterFundExpense] =
 const [serviceChargeForm, setServiceChargeForm] = useState({
   ...emptyServiceChargeForm,
 });
+
+const [
+  serviceChargePaymentForm,
+  setServiceChargePaymentForm,
+] = useState({
+  ...emptyServiceChargePaymentForm,
+});
+
+const [
+  serviceChargeExpenseForm,
+  setServiceChargeExpenseForm,
+] = useState({
+  ...emptyServiceChargeExpenseForm,
+});
+
+const [
+  serviceChargeCorrectionForm,
+  setServiceChargeCorrectionForm,
+] = useState({
+  ...emptyServiceChargeCorrectionForm,
+});
+
+const [
+  serviceChargeHouseSettingForm,
+  setServiceChargeHouseSettingForm,
+] = useState({
+  ...emptyServiceChargeHouseSettingForm,
+});
+
+
+const [
+  serviceChargeInvoicePreparationForm,
+  setServiceChargeInvoicePreparationForm,
+] = useState({
+  ...emptyServiceChargeInvoicePreparationForm,
+});
+
+const [
+  isSavingServiceChargePayment,
+  setIsSavingServiceChargePayment,
+] = useState(false);
+
+const [
+  isSavingServiceChargeExpense,
+  setIsSavingServiceChargeExpense,
+] = useState(false);
+
+const [
+  isSavingServiceChargeCorrection,
+  setIsSavingServiceChargeCorrection,
+] = useState(false);
+const [
+  isSavingServiceChargeHouseSetting,
+  setIsSavingServiceChargeHouseSetting,
+] = useState(false);
+
+const [
+  isPreparingServiceChargeInvoices,
+  setIsPreparingServiceChargeInvoices,
+] = useState(false);
   const [isRentPaymentEntry, setIsRentPaymentEntry] = useState(false);
     useEffect(() => {
     const existingHistory = Array.isArray(data?.rentPayments) ? data.rentPayments : [];
@@ -594,25 +1030,82 @@ const selectedRentPaymentMeter =
       )
     : null;
 
-    const selectedRentalTenantEditAccount =
-  activeRentAccounts.find(
+    const rentalHouseAccounts = houses
+  .filter((house) => house.archived !== true)
+  .map((house) => {
+    const occupancy = propertyOccupancies.find(
+      (record) =>
+        String(record.houseId) === String(house.id) &&
+        record.active === true
+    );
+
+    const tenancy = activeRentalTenancies.find(
+      (record) =>
+        String(record.houseId) === String(house.id)
+    );
+
+    const tenantId =
+      occupancy?.tenantId ||
+      tenancy?.tenantId ||
+      '';
+
+    const tenant = rentalTenants.find(
+      (record) =>
+        String(record.id) === String(tenantId)
+    );
+
+    const meter = waterMeters.find(
+      (record) =>
+        String(record.houseNumber || '') ===
+          String(house.houseNumber || '') &&
+        record.active !== false
+    );
+
+    const occupancyType =
+      occupancy?.occupancyType ||
+      (String(house.houseStatus || '').toLowerCase() ===
+      'vacant'
+        ? 'Vacant'
+        : tenancy
+          ? 'Rent Paying Tenant'
+          : 'Owner or Family');
+
+    const statusLabel =
+      occupancyType === 'Rent Paying Tenant'
+        ? 'Mpangaji Anayelipa Kodi'
+        : occupancyType === 'Owner or Family'
+          ? 'Mmiliki au Familia'
+          : occupancyType === 'Vacant'
+            ? 'Tupu'
+            : occupancyType;
+
+    return {
+      id: house.id,
+      house,
+      occupancy,
+      tenancy,
+      tenant,
+      tenantId,
+      meter,
+      occupancyType,
+      statusLabel,
+    };
+  })
+  .sort((a, b) =>
+    String(a.house?.houseNumber || '').localeCompare(
+      String(b.house?.houseNumber || '')
+    )
+  );
+
+const selectedRentalTenantEditAccount =
+  rentalHouseAccounts.find(
     (account) =>
-      String(account.tenantId) ===
-      String(rentalTenantEditForm.tenantId)
+      String(account.house?.id) ===
+      String(rentalTenantEditForm.houseId)
   );
 
 const selectedRentalTenantEditMeter =
-  selectedRentalTenantEditAccount
-    ? waterMeters.find(
-        (meter) =>
-          String(meter.houseNumber || '') ===
-            String(
-              selectedRentalTenantEditAccount.house
-                ?.houseNumber || ''
-            ) &&
-          meter.active !== false
-      )
-    : null;
+  selectedRentalTenantEditAccount?.meter || null;
 
     const selectedRentalPaymentCorrection =
   rentalPayments.find(
@@ -824,6 +1317,246 @@ const selectedMeterTotalPayable =
   selectedMeterOutstandingBalance +
   Number(meterPreviewTotal || 0);
 
+const sendDueUtilitySmsReminders = async () => {
+  try {
+    const {
+      data: sendResult,
+      error: sendError,
+    } = await supabase.functions.invoke(
+      'send-utility-sms-reminders',
+      {
+        body: {
+          requestedAt: new Date().toISOString(),
+        },
+      }
+    );
+
+    if (sendError) {
+      throw sendError;
+    }
+
+    const {
+      data: freshUtilityReminders,
+      error: utilityRemindersError,
+    } = await supabase
+      .from('utilitySmsReminders')
+      .select('*')
+      .eq('shop_id', 'shop-1')
+      .order('scheduledDate', {
+        ascending: false,
+      })
+      .order('created_at', {
+        ascending: false,
+      });
+
+    if (utilityRemindersError) {
+      throw utilityRemindersError;
+    }
+
+    saveData({
+      ...data,
+      utilitySmsReminders:
+        freshUtilityReminders || [],
+    });
+
+    const processed = Number(
+      sendResult?.processed || 0
+    );
+
+    const sentCount = Array.isArray(
+      sendResult?.results
+    )
+      ? sendResult.results.filter(
+          (result) => result.status === 'Sent'
+        ).length
+      : 0;
+
+    const failedCount = Array.isArray(
+      sendResult?.results
+    )
+      ? sendResult.results.filter(
+          (result) => result.status === 'Failed'
+        ).length
+      : 0;
+
+    alert(
+      processed === 0
+        ? 'Hakuna kikumbusho cha maji au Service Charge kinachotakiwa kutumwa leo.'
+        : `Vikumbusho vimechakatwa: ${processed}. Vimetumwa: ${sentCount}. Vilivyoshindikana: ${failedCount}.`
+    );
+  } catch (error) {
+    alert(
+      `Kutuma vikumbusho vya maji na Service Charge kumeshindikana: ${
+        error?.message ||
+        'Hitilafu isiyojulikana'
+      }`
+    );
+  }
+};
+
+const refreshUtilitySmsRecords = async () => {
+  const {
+    data: freshUtilityReminders,
+    error: utilityRemindersError,
+  } = await supabase
+    .from('utilitySmsReminders')
+    .select('*')
+    .eq('shop_id', 'shop-1')
+    .order('scheduledDate', {
+      ascending: false,
+    })
+    .order('created_at', {
+      ascending: false,
+    });
+
+  if (utilityRemindersError) {
+    throw utilityRemindersError;
+  }
+
+  saveData({
+    ...data,
+    utilitySmsReminders:
+      freshUtilityReminders || [],
+  });
+};
+
+const sendSingleUtilitySmsReminder = async (
+  reminder
+) => {
+  if (!reminder?.id) {
+    return;
+  }
+
+  const isFutureReminder =
+    reminder.scheduledDate &&
+    reminder.scheduledDate > todayISO();
+
+  const confirmed = window.confirm(
+    isFutureReminder
+      ? `Kikumbusho hiki kimepangwa tarehe ${reminder.scheduledDate}. Ukitume mapema sasa?`
+      : 'Utume kikumbusho hiki pekee sasa?'
+  );
+
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    const {
+      data: sendResult,
+      error: sendError,
+    } = await supabase.functions.invoke(
+      'send-utility-sms-reminders',
+      {
+        body: {
+          reminderId: reminder.id,
+          requestedAt: new Date().toISOString(),
+        },
+      }
+    );
+
+    if (sendError) {
+      throw sendError;
+    }
+
+    const result = sendResult?.results?.[0];
+
+    if (!result || result.status !== 'Sent') {
+      throw new Error(
+        result?.error ||
+          'Mfumo wa SMS haujathibitisha kutumwa kwa ujumbe.'
+      );
+    }
+
+    await refreshUtilitySmsRecords();
+
+    alert(
+      'Kikumbusho hiki cha maji na Service Charge kimetumwa vizuri.'
+    );
+  } catch (error) {
+    alert(
+      `Kutuma kikumbusho hiki kumeshindikana: ${
+        error?.message ||
+        'Hitilafu isiyojulikana'
+      }`
+    );
+  }
+};
+
+const copyUtilitySmsReminderMessage = async (
+  reminder
+) => {
+  const message = String(
+    reminder?.message || ''
+  ).trim();
+
+  if (!message) {
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(message);
+
+    alert('Ujumbe ulioandaliwa umenakiliwa.');
+  } catch {
+    window.prompt(
+      'Nakili ujumbe huu:',
+      message
+    );
+  }
+};
+
+const markUtilitySmsReminderManuallySent = async (
+  reminder
+) => {
+  if (!reminder?.id) {
+    return;
+  }
+
+  const confirmed = window.confirm(
+    'Thibitisha kuwa tayari umetuma ujumbe huu mwenyewe. Mfumo hautautuma tena moja kwa moja.'
+  );
+
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    const {
+      data: manualResult,
+      error: manualError,
+    } = await supabase.rpc(
+      'mark_utility_sms_reminder_manually_sent',
+      {
+        p_reminder_id: reminder.id,
+      }
+    );
+
+    if (manualError) {
+      throw manualError;
+    }
+
+    if (manualResult?.success !== true) {
+      throw new Error(
+        'Kikumbusho hakikubadilishwa.'
+      );
+    }
+
+    await refreshUtilitySmsRecords();
+
+    alert(
+      'Kikumbusho kimerekodiwa kuwa kimetumwa mwenyewe.'
+    );
+  } catch (error) {
+    alert(
+      `Kurekodi SMS iliyotumwa mwenyewe kumeshindikana: ${
+        error?.message ||
+        'Hitilafu isiyojulikana'
+      }`
+    );
+  }
+};
+
 const sendRentSmsTest = async () => {
   const phoneNumber = String(
     rentSmsTestPhone || ''
@@ -975,6 +1708,217 @@ const sendRentSmsTest = async () => {
     );
   }
 };
+
+  const refreshRentSmsRecords = async () => {
+    const [
+      { data: freshReminders, error: remindersError },
+      { data: freshAttempts, error: attemptsError },
+    ] = await Promise.all([
+      supabase
+        .from('rentSmsReminders')
+        .select('*')
+        .eq('shop_id', 'shop-1'),
+      supabase
+        .from('rentSmsAttempts')
+        .select('*')
+        .eq('shop_id', 'shop-1'),
+    ]);
+
+    const refreshError =
+      remindersError || attemptsError;
+
+    if (refreshError) {
+      throw refreshError;
+    }
+
+    saveData({
+      ...data,
+      rentSmsReminders:
+        freshReminders || rentSmsReminders,
+      rentSmsAttempts:
+        freshAttempts || rentSmsAttempts,
+    });
+  };
+
+  const sendSingleRentSmsReminder = async (
+    reminder
+  ) => {
+    if (!reminder?.id) {
+      return;
+    }
+
+    const isFutureReminder =
+      reminder.scheduledDate &&
+      reminder.scheduledDate > todayISO();
+
+    const confirmed = window.confirm(
+      isFutureReminder
+        ? t(
+            language,
+            `This reminder is scheduled for ${reminder.scheduledDate}. Send it early now?`,
+            `Kikumbusho hiki kimepangwa tarehe ${reminder.scheduledDate}. Ukitume mapema sasa?`
+          )
+        : t(
+            language,
+            'Send only this reminder now?',
+            'Utume kikumbusho hiki pekee sasa?'
+          )
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      const { data: sendResult, error: sendError } =
+        await supabase.functions.invoke(
+          'send-rent-sms-reminders',
+          {
+            body: {
+              reminderId: reminder.id,
+              requestedAt: new Date().toISOString(),
+            },
+          }
+        );
+
+      if (sendError) {
+        throw sendError;
+      }
+
+      const result = sendResult?.results?.[0];
+
+      if (
+        !result ||
+        result.status !== 'Sent'
+      ) {
+        throw new Error(
+          result?.error ||
+            'The SMS provider did not confirm the message.'
+        );
+      }
+
+      await refreshRentSmsRecords();
+
+      alert(
+        t(
+          language,
+          'This reminder has been sent successfully.',
+          'Kikumbusho hiki kimetumwa vizuri.'
+        )
+      );
+    } catch (error) {
+      alert(
+        t(
+          language,
+          `Sending this reminder failed: ${
+            error?.message || 'Unknown error'
+          }`,
+          `Kutuma kikumbusho hiki kumeshindikana: ${
+            error?.message ||
+            'Hitilafu isiyojulikana'
+          }`
+        )
+      );
+    }
+  };
+
+  const copyRentSmsReminderMessage = async (
+    reminder
+  ) => {
+    const message = String(
+      reminder?.message || ''
+    ).trim();
+
+    if (!message) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(message);
+
+      alert(
+        t(
+          language,
+          'The prepared message has been copied.',
+          'Ujumbe ulioandaliwa umenakiliwa.'
+        )
+      );
+    } catch {
+      window.prompt(
+        t(
+          language,
+          'Copy the message below:',
+          'Nakili ujumbe huu:'
+        ),
+        message
+      );
+    }
+  };
+
+  const markRentSmsReminderManuallySent = async (
+    reminder
+  ) => {
+    if (!reminder?.id) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      t(
+        language,
+        'Confirm that you have already sent this exact message manually. The automatic system will not send it again.',
+        'Thibitisha kuwa tayari umetuma ujumbe huu mwenyewe. Mfumo hautautuma tena moja kwa moja.'
+      )
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      const {
+        data: manualResult,
+        error: manualError,
+      } = await supabase.rpc(
+        'mark_rent_sms_reminder_manually_sent',
+        {
+          p_reminder_id: reminder.id,
+        }
+      );
+
+      if (manualError) {
+        throw manualError;
+      }
+
+      if (manualResult?.success !== true) {
+        throw new Error(
+          'The reminder was not updated.'
+        );
+      }
+
+      await refreshRentSmsRecords();
+
+      alert(
+        t(
+          language,
+          'The reminder has been recorded as sent manually.',
+          'Kikumbusho kimerekodiwa kuwa kimetumwa mwenyewe.'
+        )
+      );
+    } catch (error) {
+      alert(
+        t(
+          language,
+          `Recording the manual SMS failed: ${
+            error?.message || 'Unknown error'
+          }`,
+          `Kurekodi SMS iliyotumwa mwenyewe kumeshindikana: ${
+            error?.message ||
+            'Hitilafu isiyojulikana'
+          }`
+        )
+      );
+    }
+  };
 
   const saveRentalExpense = async () => {
   const expenseAmount = Number(
@@ -1745,67 +2689,103 @@ const openRentalTenantEditForm = () => {
   });
   setIsRentalTenantEditOpen(true);
 };
-
-const handleRentalTenantEditSelection = (tenantId) => {
-  const selectedTenant = rentalTenants.find(
-    (tenant) =>
-      String(tenant.id) === String(tenantId)
+const handleRentalTenantEditSelection = (houseId) => {
+  const selectedAccount = rentalHouseAccounts.find(
+    (account) =>
+      String(account.house?.id) === String(houseId)
   );
 
-  if (!selectedTenant) {
+  if (!selectedAccount) {
     setRentalTenantEditForm({
       ...emptyRentalTenantEditForm,
     });
     return;
   }
 
+  const selectedTenant = selectedAccount.tenant;
+  const selectedOccupancy = selectedAccount.occupancy;
+  const selectedHouse = selectedAccount.house;
+
   setRentalTenantEditForm({
-    tenantId: selectedTenant.id,
+    houseId: selectedHouse?.id || '',
+    tenantId: selectedTenant?.id || '',
+    occupancyType:
+      selectedAccount.occupancyType || '',
     fullName:
-      selectedTenant.fullName ||
-      selectedTenant.tenantName ||
+      selectedTenant?.fullName ||
+      selectedTenant?.tenantName ||
+      selectedOccupancy?.occupantName ||
+      selectedHouse?.tenantName ||
       '',
     phoneNumber:
-      selectedTenant.phoneNumber || '',
+      selectedTenant?.phoneNumber || '',
     occupation:
-      selectedTenant.occupation || '',
+      selectedTenant?.occupation || '',
     emergencyContactName:
-      selectedTenant.emergencyContactName || '',
+      selectedTenant?.emergencyContactName || '',
     emergencyContactPhone:
-      selectedTenant.emergencyContactPhone || '',
+      selectedTenant?.emergencyContactPhone || '',
     smsConsent:
-      selectedTenant.smsConsent !== false,
+      selectedTenant
+        ? selectedTenant.smsConsent !== false
+        : true,
     notes:
-      selectedTenant.notes || '',
+      selectedTenant?.notes ||
+      selectedOccupancy?.notes ||
+      '',
   });
 };
+
 const saveRentalTenantDetails = async () => {
+
+
   if (
-    !rentalTenantEditForm.tenantId ||
+    !rentalTenantEditForm.houseId ||
     !rentalTenantEditForm.fullName.trim()
   ) {
     alert(
       t(
         language,
-        'Select a tenant and enter the tenant name.',
-        'Chagua mpangaji na uweke jina la mpangaji.'
+        'Select a house and enter the occupant name.',
+        'Chagua nyumba na uweke jina la mkazi.'
       )
     );
     return;
   }
 
-  const selectedAccount = activeRentAccounts.find(
-    (account) =>
-      String(account.tenantId) ===
-      String(rentalTenantEditForm.tenantId)
-  );
+  const selectedAccount =
+    rentalHouseAccounts.find(
+      (account) =>
+        String(account.house?.id) ===
+        String(rentalTenantEditForm.houseId)
+    );
 
-  const selectedMeter = waterMeters.find(
-    (meter) =>
-      String(meter.houseNumber || '') ===
-        String(selectedAccount?.house?.houseNumber || '') &&
-      meter.active !== false
-  );
+  if (!selectedAccount) {
+    alert(
+      t(
+        language,
+        'The selected house was not found.',
+        'Nyumba iliyochaguliwa haikupatikana.'
+      )
+    );
+    return;
+  }
+
+  if (
+    selectedAccount.occupancyType === 'Vacant'
+  ) {
+    alert(
+      t(
+        language,
+        'This house is vacant. Use the New Tenant form to register its new occupant.',
+        'Nyumba hii ni tupu. Tumia fomu ya Mpangaji Mpya kumsajili mkazi mpya.'
+      )
+    );
+    return;
+  }
+
+  const selectedMeter =
+    selectedAccount.meter || null;
 
   const confirmed = window.confirm(
     t(
@@ -1850,11 +2830,14 @@ const saveRentalTenantDetails = async () => {
   setIsSavingRentalTenantEdit(true);
 
   try {
-    const { error } = await supabase.rpc(
-      'update_rental_tenant_details',
+    const {
+      data: occupantUpdateResult,
+      error: occupantUpdateError,
+    } = await supabase.rpc(
+      'update_property_occupant_details',
       {
-        p_tenant_id:
-          rentalTenantEditForm.tenantId,
+        p_house_id:
+          rentalTenantEditForm.houseId,
         p_full_name:
           rentalTenantEditForm.fullName,
         p_phone_number:
@@ -1872,9 +2855,31 @@ const saveRentalTenantDetails = async () => {
       }
     );
 
-    if (error) {
-      throw error;
+    if (occupantUpdateError) {
+      throw occupantUpdateError;
     }
+
+    const {
+      error: utilityReminderPreparationError,
+    } = await supabase.rpc(
+      'prepare_house_utility_sms_reminders',
+      {
+        p_house_id:
+          rentalTenantEditForm.houseId,
+      }
+    );
+
+    if (utilityReminderPreparationError) {
+      console.error(
+        'Utility SMS reminder preparation failed:',
+        utilityReminderPreparationError
+      );
+    }
+
+    console.log(
+      'Occupant details updated:',
+      occupantUpdateResult
+    );
 
     const [
       { data: freshHouses, error: housesError },
@@ -2774,10 +3779,8 @@ correctedFromId:
 notes: String(
   waterFundExpenseForm.notes || ''
 ).trim(),
-    created_at:
-  existingBillBeingEdited?.created_at ||
-  new Date().toISOString(),
-updated_at: new Date().toISOString(),
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
   };
 
 setIsSavingWaterFundExpense(true);
@@ -3257,7 +4260,9 @@ const waterBillRecord = {
   amountPaid: existingAmountPaid,
   balance: correctedBillBalance,
   status: correctedBillStatus,
-  dueDate: meterPreviewNextReading || null,
+  dueDate: meterForm.readingDate
+    ? addDaysISO(meterForm.readingDate, 3)
+    : null,
   nextReadingDate: meterPreviewNextReading || null,
   notes: meterForm.notes || '',
   created_at:
@@ -3376,6 +4381,122 @@ if (waterBillError) {
   return;
 }
 
+/*
+ * Create one monthly Service Charge only for an active
+ * rent-paying tenant. Owner/family and vacant houses are excluded.
+ */
+const activeServiceChargeAccount =
+  activeRentAccounts.find(
+    (account) =>
+      String(account.house?.houseNumber || '') ===
+      String(meterForm.houseNumber || '')
+  );
+
+if (
+  activeServiceChargeAccount &&
+  meterForm.readingDate
+) {
+  const serviceChargeMonth =
+    meterForm.readingDate.slice(0, 7);
+
+  const serviceChargeDueDate =
+    addDaysISO(meterForm.readingDate, 3);
+
+  const {
+    data: existingMonthlyServiceCharge,
+    error: serviceChargeCheckError,
+  } = await supabase
+    .from('servicecharges')
+    .select('*')
+    .eq('shop_id', shopId)
+    .eq('houseNumber', meterForm.houseNumber)
+    .eq('chargeMonth', serviceChargeMonth)
+    .maybeSingle();
+
+  if (serviceChargeCheckError) {
+    alert(
+      `Water bill was saved, but the monthly Service Charge could not be checked: ${serviceChargeCheckError.message}`
+    );
+    return;
+  }
+
+  const serviceChargeTenantName =
+    activeServiceChargeAccount.tenant?.fullName ||
+    activeServiceChargeAccount.house?.tenantName ||
+    selectedHouse?.tenantName ||
+    '';
+
+  const serviceChargePhoneNumber =
+    activeServiceChargeAccount.tenant?.phoneNumber ||
+    '';
+
+  if (existingMonthlyServiceCharge) {
+    const {
+      error: serviceChargeUpdateError,
+    } = await supabase
+      .from('servicecharges')
+      .update({
+        tenantName: serviceChargeTenantName,
+        tenantId:
+          activeServiceChargeAccount.tenantId || null,
+        houseId:
+          activeServiceChargeAccount.houseId || null,
+        phoneNumber: serviceChargePhoneNumber,
+        waterBillId: waterBillRecord.id,
+        dueDate: serviceChargeDueDate,
+        nextPaymentDate: serviceChargeDueDate,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', existingMonthlyServiceCharge.id)
+      .eq('shop_id', shopId);
+
+    if (serviceChargeUpdateError) {
+      alert(
+        `Water bill was saved, but the existing Service Charge could not be updated: ${serviceChargeUpdateError.message}`
+      );
+      return;
+    }
+  } else {
+    const {
+      error: serviceChargeInsertError,
+    } = await supabase
+      .from('servicecharges')
+      .insert([
+        {
+          id: `service-charge-${shopId}-${meterForm.houseNumber}-${serviceChargeMonth}`,
+          shop_id: shopId,
+          houseNumber: meterForm.houseNumber,
+          houseId:
+            activeServiceChargeAccount.houseId || null,
+          tenantId:
+            activeServiceChargeAccount.tenantId || null,
+          tenantName: serviceChargeTenantName,
+          phoneNumber: serviceChargePhoneNumber,
+          waterBillId: waterBillRecord.id,
+          chargeMonth: serviceChargeMonth,
+          serviceChargeAmount:
+            DEFAULT_SERVICE_CHARGE,
+          amountPaid: 0,
+          balance: DEFAULT_SERVICE_CHARGE,
+          paymentStatus: 'Unpaid',
+          dueDate: serviceChargeDueDate,
+          nextPaymentDate: serviceChargeDueDate,
+          notes:
+            'Monthly Service Charge created automatically with the water bill.',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      ]);
+
+    if (serviceChargeInsertError) {
+      alert(
+        `Water bill was saved, but the monthly Service Charge could not be created: ${serviceChargeInsertError.message}`
+      );
+      return;
+    }
+  }
+}
+
 const { data: creditResult, error: creditError } =
   await supabase.rpc('apply_water_credit_to_bill', {
     p_bill_id: waterBillRecord.id,
@@ -3418,6 +4539,36 @@ if (
     return;
   }
 }
+
+if (activeServiceChargeAccount) {
+  const {
+    data: utilityReminderResult,
+    error: utilityReminderError,
+  } = await supabase.rpc(
+    'prepare_utility_sms_reminders',
+    {
+      p_water_bill_id: waterBillRecord.id,
+    }
+  );
+
+  if (utilityReminderError) {
+    alert(
+      `Ankara ya maji na Service Charge zimehifadhiwa, lakini kuandaa vikumbusho vya SMS kumeshindikana: ${utilityReminderError.message}`
+    );
+    return;
+  }
+
+  if (
+    Number(utilityReminderResult?.prepared || 0) === 0
+  ) {
+    console.info(
+      'Utility SMS reminder was not prepared:',
+      utilityReminderResult?.reason ||
+        'No eligible telephone number was found.'
+    );
+  }
+}
+
 const [
   { data: refreshedBills, error: refreshedBillsError },
   { data: refreshedPayments, error: refreshedPaymentsError },
@@ -3719,6 +4870,883 @@ const startWaterPayment = (bill) => {
 
   setIsWaterPaymentOpen(true);
 };
+  const saveServiceChargeHouseSetting =
+    async () => {
+      const selectedHouse = houses.find(
+        (house) =>
+          String(house.id) ===
+          String(
+            serviceChargeHouseSettingForm.houseId
+          )
+      );
+
+      const monthlyAmount = Number(
+        cleanAmountInput(
+          serviceChargeHouseSettingForm.monthlyAmount
+        ) || 0
+      );
+
+      const settingReason = String(
+        serviceChargeHouseSettingForm.reason ||
+          ''
+      ).trim();
+
+      if (!selectedHouse) {
+        alert(
+          'Tafadhali chagua nyumba unayotaka kubadilisha mipangilio yake.'
+        );
+        return;
+      }
+
+      if (
+        serviceChargeHouseSettingForm.enabled &&
+        monthlyAmount <= 0
+      ) {
+        alert(
+          'Tafadhali weka kiasi halisi cha Service Charge kwa mwezi.'
+        );
+        return;
+      }
+
+      if (!settingReason) {
+        alert(
+          'Tafadhali eleza sababu ya kubadilisha mipangilio hii.'
+        );
+        return;
+      }
+
+      const userConfirmed = window.confirm(
+        `Unathibitisha mipangilio hii?\n\nNyumba: ${
+          selectedHouse.houseNumber || '-'
+        } — ${
+          selectedHouse.tenantName || 'Mkazi'
+        }\nService Charge: ${
+          serviceChargeHouseSettingForm.enabled
+            ? 'IMEWASHWA'
+            : 'IMEZIMWA'
+        }\nKiasi kwa mwezi: TZS ${currency(
+          monthlyAmount
+        )}\n\nBadiliko hili litahifadhiwa kwenye historia.`
+      );
+
+      if (!userConfirmed) {
+        return;
+      }
+
+      setIsSavingServiceChargeHouseSetting(true);
+
+      try {
+        const {
+          error: settingError,
+        } = await supabase.rpc(
+          'update_service_charge_house_setting',
+          {
+            p_house_id: selectedHouse.id,
+            p_enabled:
+              serviceChargeHouseSettingForm.enabled,
+            p_monthly_amount:
+              monthlyAmount ||
+              Number(
+                selectedHouse.monthlyServiceChargeAmount ||
+                  DEFAULT_SERVICE_CHARGE
+              ),
+            p_reason: settingReason,
+          }
+        );
+
+        if (settingError) {
+          throw settingError;
+        }
+
+        const currentShopId =
+          data?.currentUser?.shop_id ||
+          data?.currentUser?.shopId ||
+          'shop-1';
+
+        const {
+          data: freshHouses,
+          error: housesRefreshError,
+        } = await supabase
+          .from('houses')
+          .select('*')
+          .eq('shop_id', currentShopId)
+          .order('houseNumber', {
+            ascending: true,
+          });
+
+        if (housesRefreshError) {
+          throw housesRefreshError;
+        }
+
+        saveData({
+          ...data,
+          houses: freshHouses || houses,
+        });
+
+        await refreshPermanentServiceChargeRecords();
+
+        setServiceChargeHouseSettingForm({
+          ...emptyServiceChargeHouseSettingForm,
+        });
+
+        alert(
+          'Mipangilio ya Service Charge ya nyumba imehifadhiwa kwa kudumu.'
+        );
+      } catch (serviceChargeSettingError) {
+        console.error(
+          'Service Charge house setting failed:',
+          serviceChargeSettingError
+        );
+
+        alert(
+          `Kuhifadhi mipangilio ya Service Charge kumeshindikana: ${
+            serviceChargeSettingError?.message ||
+            'Hitilafu isiyojulikana'
+          }`
+        );
+      } finally {
+        setIsSavingServiceChargeHouseSetting(false);
+      }
+    };
+
+  const prepareMonthlyServiceChargeInvoices =
+    async () => {
+      const selectedChargeMonth =
+        serviceChargeInvoicePreparationForm.chargeMonth;
+
+      if (!selectedChargeMonth) {
+        alert(
+          'Tafadhali chagua mwezi wa Service Charge.'
+        );
+        return;
+      }
+
+      const userConfirmed = window.confirm(
+        `Unataka kuandaa ankara za Service Charge za mwezi ${selectedChargeMonth}? Nyumba tupu na nyumba zilizozimwa Service Charge hazitatozwa.`
+      );
+
+      if (!userConfirmed) {
+        return;
+      }
+
+      setIsPreparingServiceChargeInvoices(true);
+
+      try {
+        const {
+          data: preparationResult,
+          error: preparationError,
+        } = await supabase.rpc(
+          'prepare_monthly_service_charge_invoices',
+          {
+            p_charge_month: selectedChargeMonth,
+          }
+        );
+
+        if (preparationError) {
+          throw preparationError;
+        }
+
+        await refreshServiceChargeBills();
+        await refreshPermanentServiceChargeRecords();
+
+        const createdInvoices = Number(
+          preparationResult?.created || 0
+        );
+
+        const existingInvoices = Number(
+          preparationResult?.alreadyExisted || 0
+        );
+
+        alert(
+          `Ankara za Service Charge zimeandaliwa vizuri.\n\nAnkara mpya: ${createdInvoices}\nZilizokuwepo na kuhifadhiwa bila kurudiwa: ${existingInvoices}`
+        );
+      } catch (serviceChargePreparationError) {
+        console.error(
+          'Monthly Service Charge invoice preparation failed:',
+          serviceChargePreparationError
+        );
+
+        alert(
+          `Kuandaa ankara za Service Charge kumeshindikana: ${
+            serviceChargePreparationError?.message ||
+            'Hitilafu isiyojulikana'
+          }`
+        );
+      } finally {
+        setIsPreparingServiceChargeInvoices(false);
+      }
+    };
+
+      const correctPermanentServiceChargeInvoice =
+    async () => {
+      const selectedInvoice =
+        activeServiceCharges.find(
+          (service) =>
+            String(service.id) ===
+            String(
+              serviceChargeCorrectionForm.recordId
+            )
+        );
+
+      const correctedAmount = Number(
+        cleanAmountInput(
+          serviceChargeCorrectionForm.correctedAmount
+        ) || 0
+      );
+
+      const correctionReason = String(
+        serviceChargeCorrectionForm.reason || ''
+      ).trim();
+
+      if (!selectedInvoice) {
+        alert(
+          'Tafadhali chagua ankara ya Service Charge unayotaka kusahihisha.'
+        );
+        return;
+      }
+
+      if (correctedAmount <= 0) {
+        alert(
+          'Tafadhali weka kiasi sahihi cha ankara.'
+        );
+        return;
+      }
+
+      if (!serviceChargeCorrectionForm.correctedDate) {
+        alert(
+          'Tafadhali weka tarehe sahihi ya ankara.'
+        );
+        return;
+      }
+
+      if (
+        !serviceChargeCorrectionForm.correctedDueDate
+      ) {
+        alert(
+          'Tafadhali weka tarehe sahihi ya mwisho wa malipo.'
+        );
+        return;
+      }
+
+      if (!correctionReason) {
+        alert(
+          'Tafadhali eleza sababu ya kufanya marekebisho.'
+        );
+        return;
+      }
+
+      const userConfirmed = window.confirm(
+        `Unathibitisha kusahihisha ankara ya ${
+          selectedInvoice.houseNumber || '-'
+        } — ${
+          selectedInvoice.tenantName || 'Mkazi'
+        }?\n\nKiasi kipya: TZS ${currency(
+          correctedAmount
+        )}\nTarehe ya ankara: ${
+          serviceChargeCorrectionForm.correctedDate
+        }\nMwisho wa malipo: ${
+          serviceChargeCorrectionForm
+            .correctedDueDate
+        }\n\nRekodi ya zamani haitafutwa.`
+      );
+
+      if (!userConfirmed) {
+        return;
+      }
+
+      setIsSavingServiceChargeCorrection(true);
+
+      try {
+        const {
+          error: correctionError,
+        } = await supabase.rpc(
+          'correct_service_charge_invoice',
+          {
+            p_service_charge_id:
+              selectedInvoice.id,
+            p_service_charge_amount:
+              correctedAmount,
+            p_invoice_date:
+              serviceChargeCorrectionForm
+                .correctedDate,
+            p_due_date:
+              serviceChargeCorrectionForm
+                .correctedDueDate,
+            p_reason: correctionReason,
+          }
+        );
+
+        if (correctionError) {
+          throw correctionError;
+        }
+
+        await refreshServiceChargeBills();
+        await refreshPermanentServiceChargeRecords();
+
+        setServiceChargeCorrectionForm({
+          ...emptyServiceChargeCorrectionForm,
+        });
+
+        alert(
+          'Ankara ya Service Charge imesahihishwa salama. Historia ya zamani imehifadhiwa.'
+        );
+      } catch (serviceChargeCorrectionError) {
+        console.error(
+          'Service Charge invoice correction failed:',
+          serviceChargeCorrectionError
+        );
+
+        alert(
+          `Kusahihisha ankara ya Service Charge kumeshindikana: ${
+            serviceChargeCorrectionError?.message ||
+            'Hitilafu isiyojulikana'
+          }`
+        );
+      } finally {
+        setIsSavingServiceChargeCorrection(false);
+      }
+    };
+
+  const recordPermanentServiceChargePayment =
+    async () => {
+      const selectedHouse =
+        serviceChargeEligibleHouses.find(
+          (house) =>
+            String(house.id) ===
+            String(serviceChargePaymentForm.houseId)
+        );
+
+      const amountReceived = Number(
+        cleanAmountInput(
+          serviceChargePaymentForm.amountReceived
+        ) || 0
+      );
+
+      if (!selectedHouse) {
+        alert(
+          'Tafadhali chagua nyumba iliyolipa Service Charge.'
+        );
+        return;
+      }
+
+      if (amountReceived <= 0) {
+        alert(
+          'Tafadhali weka kiasi halisi kilichopokelewa.'
+        );
+        return;
+      }
+
+      const userConfirmed = window.confirm(
+        `Unathibitisha kupokea TZS ${currency(
+          amountReceived
+        )} kutoka ${selectedHouse.houseNumber} — ${
+          selectedHouse.tenantName ||
+          'Mkazi wa nyumba'
+        }?`
+      );
+
+      if (!userConfirmed) {
+        return;
+      }
+
+      setIsSavingServiceChargePayment(true);
+
+      try {
+        const {
+          data: paymentResult,
+          error: paymentError,
+        } = await supabase.rpc(
+          'record_service_charge_payment',
+          {
+            p_house_id: selectedHouse.id,
+            p_amount_received: amountReceived,
+            p_payment_date:
+              serviceChargePaymentForm.paymentDate ||
+              todayISO(),
+            p_payment_method:
+              serviceChargePaymentForm.paymentMethod ||
+              'Cash',
+            p_reference_number:
+              serviceChargePaymentForm.referenceNumber ||
+              null,
+            p_notes:
+              serviceChargePaymentForm.notes || null,
+          }
+        );
+
+        if (paymentError) {
+          throw paymentError;
+        }
+
+        await refreshServiceChargeBills();
+        await refreshPermanentServiceChargeRecords();
+
+        setServiceChargePaymentForm({
+          ...emptyServiceChargePaymentForm,
+        });
+
+        const allocatedAmount = Number(
+          paymentResult?.allocatedAmount || 0
+        );
+
+        const unappliedCredit = Number(
+          paymentResult?.unappliedCredit || 0
+        );
+
+        alert(
+          `Malipo ya Service Charge yamehifadhiwa kwa kudumu.\n\nKiasi kilichogawiwa kwenye ankara: TZS ${currency(
+            allocatedAmount
+          )}\nSalio la mbele: TZS ${currency(
+            unappliedCredit
+          )}`
+        );
+      } catch (serviceChargePaymentError) {
+        console.error(
+          'Permanent Service Charge payment failed:',
+          serviceChargePaymentError
+        );
+
+        alert(
+          `Kuhifadhi malipo ya Service Charge kumeshindikana: ${
+            serviceChargePaymentError?.message ||
+            'Hitilafu isiyojulikana'
+          }`
+        );
+      } finally {
+        setIsSavingServiceChargePayment(false);
+      }
+    };
+  const correctPermanentServiceChargePayment =
+    async () => {
+      const selectedPayment =
+        serviceChargePayments.find(
+          (payment) =>
+            String(payment.id) ===
+            String(
+              serviceChargeCorrectionForm.recordId
+            )
+        );
+
+      const isReversal =
+        serviceChargeCorrectionForm.actionType ===
+        'Reverse';
+
+      const correctedAmount = Number(
+        cleanAmountInput(
+          serviceChargeCorrectionForm.correctedAmount
+        ) || 0
+      );
+
+      const correctionReason = String(
+        serviceChargeCorrectionForm.reason || ''
+      ).trim();
+
+      if (!selectedPayment) {
+        alert(
+          'Tafadhali chagua malipo ya Service Charge unayotaka kusahihisha.'
+        );
+        return;
+      }
+
+      if (selectedPayment.status === 'Reversed') {
+        alert(
+          'Malipo haya tayari yamerudishwa na hayawezi kusahihishwa tena.'
+        );
+        return;
+      }
+
+      if (!correctionReason) {
+        alert(
+          'Tafadhali eleza sababu ya kufanya marekebisho.'
+        );
+        return;
+      }
+
+      if (!isReversal && correctedAmount <= 0) {
+        alert(
+          'Tafadhali weka kiasi sahihi kilichopokelewa.'
+        );
+        return;
+      }
+
+      if (
+        !isReversal &&
+        !serviceChargeCorrectionForm.correctedDate
+      ) {
+        alert(
+          'Tafadhali weka tarehe sahihi ya malipo.'
+        );
+        return;
+      }
+
+      const confirmationMessage = isReversal
+        ? `Unathibitisha kurudisha malipo ya TZS ${currency(
+            selectedPayment.amountReceived || 0
+          )} ya ${
+            selectedPayment.houseNumber || '-'
+          } — ${
+            selectedPayment.tenantName || 'Mkazi'
+          }?\n\nMfumo utaondoa mgawanyo wa malipo haya na kuhesabu upya salio. Rekodi haitafutwa.`
+        : `Unathibitisha kusahihisha malipo ya ${
+            selectedPayment.houseNumber || '-'
+          } — ${
+            selectedPayment.tenantName || 'Mkazi'
+          }?\n\nKiasi kipya: TZS ${currency(
+            correctedAmount
+          )}\nTarehe mpya: ${
+            serviceChargeCorrectionForm.correctedDate
+          }\n\nMfumo utagawa upya fedha kwenye ankara za zamani.`;
+
+      const userConfirmed =
+        window.confirm(confirmationMessage);
+
+      if (!userConfirmed) {
+        return;
+      }
+
+      setIsSavingServiceChargeCorrection(true);
+
+      try {
+        const {
+          error: correctionError,
+        } = await supabase.rpc(
+          'correct_service_charge_payment',
+          {
+            p_payment_id: selectedPayment.id,
+            p_amount_received: isReversal
+              ? Number(
+                  selectedPayment.amountReceived || 0
+                )
+              : correctedAmount,
+            p_payment_date:
+              serviceChargeCorrectionForm.correctedDate ||
+              selectedPayment.paymentDate ||
+              todayISO(),
+            p_payment_method:
+              serviceChargeCorrectionForm.paymentMethod ||
+              selectedPayment.paymentMethod ||
+              'Cash',
+            p_reference_number:
+              serviceChargeCorrectionForm.referenceNumber ||
+              null,
+            p_notes:
+              serviceChargeCorrectionForm.notes ||
+              null,
+            p_reason: correctionReason,
+            p_reverse: isReversal,
+          }
+        );
+
+        if (correctionError) {
+          throw correctionError;
+        }
+
+        await refreshServiceChargeBills();
+        await refreshPermanentServiceChargeRecords();
+
+        setServiceChargeCorrectionForm({
+          ...emptyServiceChargeCorrectionForm,
+        });
+
+        alert(
+          isReversal
+            ? 'Malipo yamerudishwa salama. Ankara na salio zimehesabiwa upya, na historia imehifadhiwa.'
+            : 'Malipo yamesahihishwa salama. Ankara na salio zimehesabiwa upya, na historia imehifadhiwa.'
+        );
+      } catch (serviceChargeCorrectionError) {
+        console.error(
+          'Service Charge payment correction failed:',
+          serviceChargeCorrectionError
+        );
+
+        alert(
+          `Marekebisho ya malipo ya Service Charge yameshindikana: ${
+            serviceChargeCorrectionError?.message ||
+            'Hitilafu isiyojulikana'
+          }`
+        );
+      } finally {
+        setIsSavingServiceChargeCorrection(false);
+      }
+    };
+
+      const recordPermanentServiceChargeExpense =
+    async () => {
+      const expenseAmount = Number(
+        cleanAmountInput(
+          serviceChargeExpenseForm.amount
+        ) || 0
+      );
+
+      if (!serviceChargeExpenseForm.expenseDate) {
+        alert(
+          'Tafadhali weka tarehe ya matumizi.'
+        );
+        return;
+      }
+
+      if (!serviceChargeExpenseForm.expenseType) {
+        alert(
+          'Tafadhali chagua aina ya matumizi.'
+        );
+        return;
+      }
+
+      if (
+        !String(
+          serviceChargeExpenseForm.description || ''
+        ).trim()
+      ) {
+        alert(
+          'Tafadhali eleza fedha zimetumika kwa kazi gani.'
+        );
+        return;
+      }
+
+      if (expenseAmount <= 0) {
+        alert(
+          'Tafadhali weka kiasi halisi kilichotumika.'
+        );
+        return;
+      }
+
+      const userConfirmed = window.confirm(
+        `Unathibitisha matumizi ya TZS ${currency(
+          expenseAmount
+        )} kwa ajili ya ${
+          serviceChargeExpenseForm.description
+        }?`
+      );
+
+      if (!userConfirmed) {
+        return;
+      }
+
+      setIsSavingServiceChargeExpense(true);
+
+      try {
+        const {
+          error: expenseError,
+        } = await supabase.rpc(
+          'record_service_charge_expense',
+          {
+            p_expense_date:
+              serviceChargeExpenseForm.expenseDate,
+            p_expense_type:
+              serviceChargeExpenseForm.expenseType,
+            p_description:
+              serviceChargeExpenseForm.description.trim(),
+            p_amount: expenseAmount,
+            p_payee:
+              serviceChargeExpenseForm.payee ||
+              null,
+            p_reference_number:
+              serviceChargeExpenseForm.referenceNumber ||
+              null,
+            p_notes:
+              serviceChargeExpenseForm.notes ||
+              null,
+          }
+        );
+
+        if (expenseError) {
+          throw expenseError;
+        }
+
+        await refreshPermanentServiceChargeRecords();
+
+        setServiceChargeExpenseForm({
+          ...emptyServiceChargeExpenseForm,
+        });
+
+        alert(
+          'Matumizi ya Service Charge yamehifadhiwa kwa kudumu.'
+        );
+      } catch (serviceChargeExpenseError) {
+        console.error(
+          'Permanent Service Charge expense failed:',
+          serviceChargeExpenseError
+        );
+
+        alert(
+          `Kuhifadhi matumizi ya Service Charge kumeshindikana: ${
+            serviceChargeExpenseError?.message ||
+            'Hitilafu isiyojulikana'
+          }`
+        );
+      } finally {
+        setIsSavingServiceChargeExpense(false);
+      }
+    };
+  const correctPermanentServiceChargeExpense =
+    async () => {
+      const selectedExpense =
+        serviceChargeExpenses.find(
+          (expense) =>
+            String(expense.id) ===
+            String(
+              serviceChargeCorrectionForm.recordId
+            )
+        );
+
+      const isReversal =
+        serviceChargeCorrectionForm.actionType ===
+        'Reverse';
+
+      const correctedAmount = Number(
+        cleanAmountInput(
+          serviceChargeCorrectionForm.correctedAmount
+        ) || 0
+      );
+
+      const correctionReason = String(
+        serviceChargeCorrectionForm.reason || ''
+      ).trim();
+
+      if (!selectedExpense) {
+        alert(
+          'Tafadhali chagua matumizi ya Service Charge unayotaka kusahihisha.'
+        );
+        return;
+      }
+
+      if (selectedExpense.status === 'Reversed') {
+        alert(
+          'Matumizi haya tayari yamerudishwa na hayawezi kusahihishwa tena.'
+        );
+        return;
+      }
+
+      if (!correctionReason) {
+        alert(
+          'Tafadhali eleza sababu ya kufanya marekebisho.'
+        );
+        return;
+      }
+
+      if (!isReversal && correctedAmount <= 0) {
+        alert(
+          'Tafadhali weka kiasi sahihi kilichotumika.'
+        );
+        return;
+      }
+
+      if (
+        !isReversal &&
+        !serviceChargeCorrectionForm.correctedDate
+      ) {
+        alert(
+          'Tafadhali weka tarehe sahihi ya matumizi.'
+        );
+        return;
+      }
+
+      if (
+        !isReversal &&
+        !String(
+          serviceChargeCorrectionForm.description ||
+            ''
+        ).trim()
+      ) {
+        alert(
+          'Tafadhali eleza fedha zilitumika kwa kazi gani.'
+        );
+        return;
+      }
+
+      const confirmationMessage = isReversal
+        ? `Unathibitisha kurudisha matumizi ya TZS ${currency(
+            selectedExpense.amount || 0
+          )} — ${
+            selectedExpense.description ||
+            selectedExpense.expenseType ||
+            'Matumizi'
+          }?\n\nRekodi haitafutwa na salio la mfuko litahesabiwa upya.`
+        : `Unathibitisha kusahihisha matumizi haya?\n\nMaelezo: ${
+            serviceChargeCorrectionForm.description
+          }\nKiasi kipya: TZS ${currency(
+            correctedAmount
+          )}\nTarehe mpya: ${
+            serviceChargeCorrectionForm.correctedDate
+          }`;
+
+      const userConfirmed =
+        window.confirm(confirmationMessage);
+
+      if (!userConfirmed) {
+        return;
+      }
+
+      setIsSavingServiceChargeCorrection(true);
+
+      try {
+        const {
+          error: correctionError,
+        } = await supabase.rpc(
+          'correct_service_charge_expense',
+          {
+            p_expense_id: selectedExpense.id,
+            p_expense_date:
+              serviceChargeCorrectionForm.correctedDate ||
+              selectedExpense.expenseDate ||
+              todayISO(),
+            p_expense_type:
+              serviceChargeCorrectionForm.expenseType ||
+              selectedExpense.expenseType ||
+              'Other',
+            p_description:
+              serviceChargeCorrectionForm.description ||
+              selectedExpense.description ||
+              '',
+            p_amount: isReversal
+              ? Number(selectedExpense.amount || 0)
+              : correctedAmount,
+            p_payee:
+              serviceChargeCorrectionForm.payee ||
+              null,
+            p_reference_number:
+              serviceChargeCorrectionForm.referenceNumber ||
+              null,
+            p_notes:
+              serviceChargeCorrectionForm.notes ||
+              null,
+            p_reason: correctionReason,
+            p_reverse: isReversal,
+          }
+        );
+
+        if (correctionError) {
+          throw correctionError;
+        }
+
+        await refreshPermanentServiceChargeRecords();
+
+        setServiceChargeCorrectionForm({
+          ...emptyServiceChargeCorrectionForm,
+        });
+
+        alert(
+          isReversal
+            ? 'Matumizi yamerudishwa salama. Salio la mfuko limehesabiwa upya na historia imehifadhiwa.'
+            : 'Matumizi yamesahihishwa salama. Salio la mfuko limehesabiwa upya na historia imehifadhiwa.'
+        );
+      } catch (serviceChargeCorrectionError) {
+        console.error(
+          'Service Charge expense correction failed:',
+          serviceChargeCorrectionError
+        );
+
+        alert(
+          `Marekebisho ya matumizi ya Service Charge yameshindikana: ${
+            serviceChargeCorrectionError?.message ||
+            'Hitilafu isiyojulikana'
+          }`
+        );
+      } finally {
+        setIsSavingServiceChargeCorrection(false);
+      }
+    };
+
   const saveServiceCharge = async () => {
   if (!serviceChargeForm.houseNumber || !serviceChargeForm.serviceChargeAmount) return;
 
@@ -4026,8 +6054,33 @@ previousUnits: String(row.lastReading ?? row.currentUnits ?? ''),
 };
   const today = todayISO();
 
-  const dueSoon = houses.filter((h) => h.nextPaymentDate && daysBetween(today, h.nextPaymentDate) !== null && daysBetween(today, h.nextPaymentDate) >= 0 && daysBetween(today, h.nextPaymentDate) <= 7);
-  const overdue = houses.filter((h) => h.nextPaymentDate && daysBetween(today, h.nextPaymentDate) < 0 && h.houseStatus === 'Occupied');
+  const dueSoon = rentDueSoonAccounts.map((account) => ({
+    ...account,
+    houseNumber: account.house?.houseNumber || '',
+    tenantName:
+      account.tenant?.tenantName ||
+      account.tenant?.name ||
+      account.house?.tenantName ||
+      '',
+    nextPaymentDate: account.nextPaymentDate || '',
+    monthlyRentAmount: Number(
+      account.monthlyRentAmount || 0
+    ),
+  }));
+
+  const overdue = rentOverdueAccounts.map((account) => ({
+    ...account,
+    houseNumber: account.house?.houseNumber || '',
+    tenantName:
+      account.tenant?.tenantName ||
+      account.tenant?.name ||
+      account.house?.tenantName ||
+      '',
+    nextPaymentDate: account.nextPaymentDate || '',
+    monthlyRentAmount: Number(
+      account.monthlyRentAmount || 0
+    ),
+  }));
  const meterReminderSource = waterMeters.filter(
   (meter) =>
     meter.active !== false &&
@@ -4254,11 +6307,216 @@ const totalDiscount = waterBills.reduce(
   0
 );
 
-const totalServiceCharge = serviceCharges.reduce(
+const activeServiceCharges = serviceCharges.filter(
+  (service) =>
+    String(service.paymentStatus || '') !== 'Cancelled'
+);
+
+const totalServiceCharge = activeServiceCharges.reduce(
   (total, service) =>
     total + Number(service.serviceChargeAmount || 0),
   0
 );
+
+const activeServiceChargePaymentRecords =
+  serviceChargePayments.filter(
+    (payment) =>
+      String(payment.status || 'Active') ===
+      'Active'
+  );
+
+const permanentServiceChargeCashCollected =
+  activeServiceChargePaymentRecords.reduce(
+    (total, payment) =>
+      total + Number(payment.amountReceived || 0),
+    0
+  );
+
+const serviceChargeBillsWithPermanentAllocations =
+  new Set(
+    serviceChargePaymentAllocations.map(
+      (allocation) =>
+        String(allocation.serviceChargeId || '')
+    )
+  );
+
+const legacyServiceChargeCashCollected =
+  activeServiceCharges.reduce(
+    (total, service) => {
+      if (
+        serviceChargeBillsWithPermanentAllocations.has(
+          String(service.id || '')
+        )
+      ) {
+        return total;
+      }
+
+      return (
+        total + Number(service.amountPaid || 0)
+      );
+    },
+    0
+  );
+
+const totalServiceChargeCollected =
+  permanentServiceChargeCashCollected +
+  legacyServiceChargeCashCollected;
+
+const activeServiceChargeExpenses =
+  serviceChargeExpenses.filter(
+    (expense) =>
+      String(expense.status || 'Active') ===
+      'Active'
+  );
+
+const totalServiceChargeExpenses =
+  activeServiceChargeExpenses.reduce(
+    (total, expense) =>
+      total + Number(expense.amount || 0),
+    0
+  );
+
+const serviceChargeFundBalance =
+  totalServiceChargeCollected -
+  totalServiceChargeExpenses;
+
+const totalServiceChargeOutstanding =
+  activeServiceCharges.reduce(
+    (total, service) =>
+      total + Number(
+        service.balance ??
+          Math.max(
+            0,
+            Number(service.serviceChargeAmount || 0) -
+              Number(service.amountPaid || 0)
+          )
+      ),
+    0
+  );
+
+const serviceChargeEligibleHouses = houses.filter(
+  (house) =>
+    house.archived !== true &&
+    house.houseStatus !== 'Vacant' &&
+    house.serviceChargeEnabled !== false
+);
+
+const overdueServiceCharges =
+  activeServiceCharges.filter((service) => {
+    const balance = Number(
+      service.balance ??
+        Math.max(
+          0,
+          Number(service.serviceChargeAmount || 0) -
+            Number(service.amountPaid || 0)
+        )
+    );
+
+    return (
+      balance > 0 &&
+      service.dueDate &&
+      daysBetween(todayISO(), service.dueDate) < 0
+    );
+  });
+
+const serviceChargesDueSoon =
+  activeServiceCharges.filter((service) => {
+    const balance = Number(
+      service.balance ??
+        Math.max(
+          0,
+          Number(service.serviceChargeAmount || 0) -
+            Number(service.amountPaid || 0)
+        )
+    );
+
+    const remainingDays = service.dueDate
+      ? daysBetween(todayISO(), service.dueDate)
+      : null;
+
+    return (
+      balance > 0 &&
+      remainingDays !== null &&
+      remainingDays >= 0 &&
+      remainingDays <= 7
+    );
+  });
+
+const currentServiceChargeMonth =
+  getCurrentServiceChargeMonth();
+
+const serviceChargeHousesMissingCurrentInvoice =
+  serviceChargeEligibleHouses.filter((house) => {
+    return !activeServiceCharges.some((service) => {
+      const sameHouse =
+        String(service.houseId || '') ===
+          String(house.id || '') ||
+        String(service.houseNumber || '')
+          .trim()
+          .toUpperCase() ===
+          String(house.houseNumber || '')
+            .trim()
+            .toUpperCase();
+
+      return (
+        sameHouse &&
+        String(service.chargeMonth || '') ===
+          currentServiceChargeMonth
+      );
+    });
+  });
+
+const serviceChargeDisabledHouses = houses.filter(
+  (house) =>
+    house.archived !== true &&
+    String(house.houseStatus || '')
+      .trim()
+      .toLowerCase() !== 'vacant' &&
+    house.serviceChargeEnabled === false
+);
+
+const serviceChargeAccountsMissingContact =
+  activeServiceCharges.filter((service) => {
+    const balance = Number(
+      service.balance ??
+        Math.max(
+          0,
+          Number(service.serviceChargeAmount || 0) -
+            Number(service.amountPaid || 0)
+        )
+    );
+
+    if (balance <= 0) {
+      return false;
+    }
+
+    const connectedHouse = houses.find(
+      (house) =>
+        String(house.id || '') ===
+          String(service.houseId || '') ||
+        String(house.houseNumber || '')
+          .trim()
+          .toUpperCase() ===
+          String(service.houseNumber || '')
+            .trim()
+            .toUpperCase()
+    );
+
+    const occupantName = String(
+      service.tenantName ||
+        connectedHouse?.tenantName ||
+        ''
+    ).trim();
+
+    const phoneNumber = String(
+      service.phoneNumber ||
+        service.tenantPhone ||
+        connectedHouse?.phoneNumber ||
+        ''
+    ).trim();
+
+    return !occupantName || !phoneNumber;
+  });
 
   const tabs = [
     ['dashboard', t(language, 'Dashboard', 'Dashibodi')],
@@ -4319,13 +6577,85 @@ const totalServiceCharge = serviceCharges.reduce(
   'waterFund',
   t(language, 'Expense Fund', 'Mfuko wa Matumizi'),
 ],
-['alerts', t(language, 'Account Alerts', 'Tahadhari za Akaunti')],
+[
+  'alerts',
+  t(
+    language,
+    'Account Alerts',
+    'Tahadhari za Akaunti'
+  ),
+],
+[
+  'utilitySms',
+  t(
+    language,
+    'Water and Service Charge SMS',
+    'Vikumbusho vya Maji na Service Charge'
+  ),
+],
 [
   'utilityReports',
-  t(language, 'Utility Reports', 'Ripoti za Huduma'),
+  t(
+    language,
+    'Utility Reports',
+    'Ripoti za Huduma'
+  ),
 ],
 ];
-
+const serviceChargeSections = [
+  [
+    'summary',
+    t(language, 'Summary', 'Muhtasari'),
+  ],
+  [
+    'attention',
+    t(
+      language,
+      'Service Charges Requiring Action',
+      'Service Charge Zinazohitaji Hatua'
+    ),
+  ],
+  [
+    'invoices',
+    t(
+      language,
+      'Service Charge Invoices',
+      'Ankara za Service Charge'
+    ),
+  ],
+  [
+    'payments',
+    t(
+      language,
+      'Invoices and Payments',
+      'Ankara na Malipo'
+    ),
+  ],
+  [
+    'fund',
+    t(
+      language,
+      'Service Charge Fund',
+      'Mfuko wa Service Charge'
+    ),
+  ],
+  [
+    'alerts',
+    t(
+      language,
+      'Account Alerts',
+      'Tahadhari za Akaunti'
+    ),
+  ],
+  [
+    'reports',
+    t(
+      language,
+      'Service Charge Reports',
+      'Ripoti za Service Charge'
+    ),
+  ],
+];
   return (
     <div className="relative min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.9),transparent_35%),radial-gradient(circle_at_bottom_right,rgba(99,102,241,0.12),transparent_30%),linear-gradient(to_bottom_right,#f8fafc,#eff6ff,#e0e7ff)] p-4">
 
@@ -4428,6 +6758,9 @@ const totalServiceCharge = serviceCharges.reduce(
 </div>
 
             <div className="grid gap-4 lg:grid-cols-3">
+
+
+            
   <Card className="border-blue-200 bg-blue-50">
     <CardHeader>
       <CardTitle className="text-blue-700">Upcoming Rent Reminder</CardTitle>
@@ -6987,9 +9320,77 @@ const totalServiceCharge = serviceCharges.reduce(
                                       'Ujumbe Ulioandaliwa'
                                     )}
                                   </p>
+
                                   <p className="mt-2 text-sm leading-6 text-slate-800">
                                     {reminder.message}
                                   </p>
+                                </div>
+
+                                <div className="mt-4 flex flex-wrap gap-3">
+                                  {[
+                                    'Pending',
+                                    'Failed',
+                                  ].includes(
+                                    reminder.status
+                                  ) && (
+                                    <>
+                                      <Button
+                                        type="button"
+                                        className="bg-purple-700"
+                                        onClick={() =>
+                                          sendSingleRentSmsReminder(
+                                            reminder
+                                          )
+                                        }
+                                      >
+                                        {reminder.scheduledDate &&
+                                        reminder.scheduledDate >
+                                          todayISO()
+                                          ? t(
+                                              language,
+                                              'Send Early',
+                                              'Tuma Mapema'
+                                            )
+                                          : t(
+                                              language,
+                                              'Send This Only',
+                                              'Tuma Hiki Pekee'
+                                            )}
+                                      </Button>
+
+                                      <Button
+                                        type="button"
+                                        className="bg-emerald-700"
+                                        onClick={() =>
+                                          markRentSmsReminderManuallySent(
+                                            reminder
+                                          )
+                                        }
+                                      >
+                                        {t(
+                                          language,
+                                          'I Sent It Manually',
+                                          'Nimetuma Mwenyewe'
+                                        )}
+                                      </Button>
+                                    </>
+                                  )}
+
+                                  <Button
+                                    type="button"
+                                    className="bg-slate-700"
+                                    onClick={() =>
+                                      copyRentSmsReminderMessage(
+                                        reminder
+                                      )
+                                    }
+                                  >
+                                    {t(
+                                      language,
+                                      'Copy Message',
+                                      'Nakili Ujumbe'
+                                    )}
+                                  </Button>
                                 </div>
 
                                 {reminder.failureReason && (
@@ -9211,8 +11612,8 @@ const totalServiceCharge = serviceCharges.reduce(
                 <p className="mt-1 text-sm text-violet-700">
                   {t(
                     language,
-                    'Personal details can be edited. The house, permanent meter and rent history remain locked.',
-                    'Taarifa binafsi zinaweza kuhaririwa. Nyumba, mita ya kudumu na historia ya kodi vitabaki vimefungwa.'
+                    'Every house appears here with its current status. Occupant contact details can be edited without changing the permanent house or meter.',
+'Kila nyumba inaonekana hapa pamoja na hali yake ya sasa. Taarifa za mkazi zinaweza kuhaririwa bila kubadilisha nyumba au mita ya kudumu.'
                   )}
                 </p>
               </div>
@@ -9221,10 +11622,10 @@ const totalServiceCharge = serviceCharges.reduce(
                 <Select
                   label={t(
                     language,
-                    'Select Existing Tenant',
-                    'Chagua Mpangaji Aliyepo'
+                    'Select House or Occupant',
+                    'Chagua Nyumba au Mkazi'
                   )}
-                  value={rentalTenantEditForm.tenantId}
+                  value={rentalTenantEditForm.houseId}
                   onChange={(e) =>
                     handleRentalTenantEditSelection(
                       e.target.value
@@ -9234,39 +11635,31 @@ const totalServiceCharge = serviceCharges.reduce(
                   <option value="">
                     {t(
                       language,
-                      'Select tenant',
-                      'Chagua mpangaji'
+                      'Select house',
+                      'Chagua nyumba'
                     )}
                   </option>
 
-                  {activeRentAccounts.map((account) => {
-                    const accountMeter = waterMeters.find(
-                      (meter) =>
-                        String(meter.houseNumber || '') ===
-                          String(
-                            account.house?.houseNumber || ''
-                          ) &&
-                        meter.active !== false
-                    );
-
-                    return (
-                      <option
-                        key={account.id}
-                        value={account.tenantId}
-                      >
-                        {account.house?.houseNumber || '-'}
-                        {' — '}
-                        {accountMeter?.meterNumber || '-'}
-                        {' — '}
-                        {account.tenant?.fullName ||
-                          account.house?.tenantName ||
-                          '-'}
-                      </option>
-                    );
-                  })}
+                  {rentalHouseAccounts.map((account) => (
+                    <option
+                      key={account.house?.id}
+                      value={account.house?.id}
+                    >
+                      {account.house?.houseNumber || '-'}
+                      {' — '}
+                      {account.meter?.meterNumber || '-'}
+                      {' — '}
+                      {account.tenant?.fullName ||
+                        account.occupancy?.occupantName ||
+                        account.house?.tenantName ||
+                        'Hakuna mkazi'}
+                      {' — '}
+                      {account.statusLabel}
+                    </option>
+                  ))}
                 </Select>
 
-                {rentalTenantEditForm.tenantId && (
+                {rentalTenantEditForm.houseId && (
                   <>
                     <div className="grid gap-4 sm:grid-cols-2">
                       <PreviewValue
@@ -9473,9 +11866,10 @@ const totalServiceCharge = serviceCharges.reduce(
                     type="button"
                     className="bg-violet-700"
                     disabled={
-                      isSavingRentalTenantEdit ||
-                      !rentalTenantEditForm.tenantId
-                    }
+  isSavingRentalTenantEdit ||
+  !rentalTenantEditForm.houseId ||
+  !rentalTenantEditForm.fullName.trim()
+}
                     onClick={saveRentalTenantDetails}
                   >
                     {isSavingRentalTenantEdit
@@ -11853,12 +14247,51 @@ return (
               'Ankara ya DAWASCO Inayolipwa'
             )}
             value={waterFundExpenseForm.supplierBillId}
-            onChange={(e) =>
+            onChange={(e) => {
+              const selectedBillId = e.target.value;
+
+              const selectedBill =
+                activeWaterSupplierBills.find(
+                  (bill) =>
+                    String(bill.id || '') ===
+                    String(selectedBillId)
+                );
+
+              const amountAlreadyPaid =
+                activeWaterFundExpenses
+                  .filter(
+                    (expense) =>
+                      String(expense.supplierBillId || '') ===
+                        String(selectedBillId) &&
+                      String(expense.expenseType || '') ===
+                        'DAWASCO Payment'
+                  )
+                  .reduce(
+                    (total, expense) =>
+                      total + Number(expense.amount || 0),
+                    0
+                  );
+
+              const remainingBalance = selectedBill
+                ? Math.max(
+                    0,
+                    Number(selectedBill.billAmount || 0) -
+                      amountAlreadyPaid
+                  )
+                : '';
+
               setWaterFundExpenseForm((previous) => ({
                 ...previous,
-                supplierBillId: e.target.value,
-              }))
-            }
+                supplierBillId: selectedBillId,
+                amount:
+                  remainingBalance === ''
+                    ? ''
+                    : String(remainingBalance),
+                payee: selectedBillId
+                  ? 'DAWASCO'
+                  : '',
+              }));
+            }}
           >
             <option value="">
               {t(
@@ -12559,6 +14992,333 @@ return (
   </div>
 
                             )}
+
+{activeWaterSection === 'utilitySms' && (
+  <div className="space-y-5 lg:col-span-2">
+    <div className="overflow-hidden rounded-3xl border border-cyan-200 bg-white shadow-sm">
+      <div className="border-b border-cyan-100 bg-cyan-50 px-6 py-5">
+        <h3 className="text-2xl font-bold text-cyan-950">
+          Vikumbusho vya Maji na Service Charge
+        </h3>
+
+        <p className="mt-1 text-sm leading-6 text-cyan-700">
+          Mfumo unatayarisha ujumbe mmoja unaounganisha
+          ankara ya maji, usomaji wa mita na Service Charge
+          ya mwezi.
+        </p>
+      </div>
+
+      <div className="grid gap-4 p-5 md:grid-cols-2">
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+          <p className="font-bold text-amber-900">
+            Kumbukumbu ya Mmiliki
+          </p>
+
+          <p className="mt-2 text-sm leading-6 text-amber-800">
+            Tarehe 20 ya kila mwezi: andaa taarifa za
+            Service Charge na jiandae kusoma mita.
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
+          <p className="font-bold text-blue-900">
+            Ratiba ya Usomaji
+          </p>
+
+          <p className="mt-2 text-sm leading-6 text-blue-800">
+            Tarehe 22 ya kila mwezi: ingiza usomaji wa mita.
+            Mfumo utaweka siku tatu za malipo na kuandaa SMS.
+          </p>
+        </div>
+      </div>
+
+      <div className="border-t border-cyan-100 bg-slate-50 px-6 py-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-bold text-slate-900">
+              Tuma Vikumbusho Vinavyotakiwa Leo
+            </p>
+
+            <p className="mt-1 text-sm text-slate-600">
+              SMS zitatumwa kupitia SIM 2 kwa vikumbusho
+              ambavyo tarehe yake imefika.
+            </p>
+          </div>
+
+          <Button
+            type="button"
+            className="bg-cyan-700"
+            onClick={sendDueUtilitySmsReminders}
+          >
+            Tuma Vikumbusho vya Leo
+          </Button>
+        </div>
+      </div>
+    </div>
+
+    <div className="overflow-hidden rounded-3xl border border-violet-200 bg-white shadow-sm">
+      <div className="border-b border-violet-100 bg-violet-50 px-6 py-5">
+        <h3 className="text-xl font-bold text-violet-950">
+          Foleni ya Kudumu ya Vikumbusho
+        </h3>
+
+        <p className="mt-1 text-sm leading-6 text-violet-700">
+          Ujumbe ulioandaliwa, uliotumwa au ulioshindikana
+          utaendelea kuhifadhiwa hapa.
+        </p>
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4">
+            <p className="text-sm text-slate-600">
+              Jumla
+            </p>
+
+            <p className="mt-2 text-2xl font-bold text-slate-950">
+              {utilitySmsReminders.length}
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+            <p className="text-sm text-amber-700">
+              Zinasubiri
+            </p>
+
+            <p className="mt-2 text-2xl font-bold text-amber-900">
+              {
+                utilitySmsReminders.filter(
+                  (reminder) =>
+                    reminder.status === 'Pending' ||
+                    reminder.status === 'Processing'
+                ).length
+              }
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+            <p className="text-sm text-emerald-700">
+              Zimetumwa
+            </p>
+
+            <p className="mt-2 text-2xl font-bold text-emerald-900">
+              {
+                utilitySmsReminders.filter(
+                  (reminder) =>
+                    reminder.status === 'Sent' ||
+                    reminder.status === 'Delivered'
+                ).length
+              }
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-red-200 bg-red-50 p-4">
+            <p className="text-sm text-red-700">
+              Zimeshindikana
+            </p>
+
+            <p className="mt-2 text-2xl font-bold text-red-900">
+              {
+                utilitySmsReminders.filter(
+                  (reminder) =>
+                    reminder.status === 'Failed'
+                ).length
+              }
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-4 p-5">
+        {utilitySmsReminders.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-5 py-10 text-center">
+            <p className="font-bold text-slate-700">
+              Bado hakuna kikumbusho kilichoandaliwa
+            </p>
+
+            <p className="mt-2 text-sm text-slate-500">
+              Vikumbusho vitaonekana hapa baada ya kuhifadhi
+              usomaji mpya wa mita kwa mpangaji mwenye namba
+              ya simu.
+            </p>
+          </div>
+        ) : (
+          [...utilitySmsReminders]
+            .sort(
+              (first, second) =>
+                new Date(
+                  second.scheduledDate ||
+                    second.created_at ||
+                    0
+                ).getTime() -
+                new Date(
+                  first.scheduledDate ||
+                    first.created_at ||
+                    0
+                ).getTime()
+            )
+            .map((reminder) => (
+              <div
+                key={reminder.id}
+                className="overflow-hidden rounded-2xl border border-slate-200 bg-white"
+              >
+                <div className="flex flex-col gap-3 bg-slate-900 px-5 py-4 text-white sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-300">
+                      {reminder.reminderType}
+                    </p>
+
+                    <p className="mt-1 text-lg font-bold">
+                      {reminder.houseNumber || '-'}
+                      {' — '}
+                      {reminder.tenantName || 'Mteja'}
+                    </p>
+
+                    <p className="mt-1 text-sm text-slate-300">
+                      {reminder.phoneNumber || 'Hakuna namba ya simu'}
+                    </p>
+                  </div>
+
+                  <span
+                    className={`w-fit rounded-full px-3 py-1 text-xs font-bold ${
+                      reminder.status === 'Sent' ||
+                      reminder.status === 'Delivered'
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : reminder.status === 'Failed'
+                          ? 'bg-red-100 text-red-800'
+                          : reminder.status === 'Cancelled'
+                            ? 'bg-slate-200 text-slate-700'
+                            : 'bg-amber-100 text-amber-800'
+                    }`}
+                  >
+                    {reminder.status}
+                  </span>
+                </div>
+
+                <div className="grid gap-3 border-b border-slate-100 bg-slate-50 p-4 sm:grid-cols-2 xl:grid-cols-4">
+                  <div>
+                    <p className="text-xs text-slate-500">
+                      Tarehe ya Kutumwa
+                    </p>
+
+                    <p className="mt-1 font-bold text-slate-900">
+                      {reminder.scheduledDate || '-'}
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="text-xs text-slate-500">
+                      Mwisho wa Malipo
+                    </p>
+
+                    <p className="mt-1 font-bold text-slate-900">
+                      {reminder.dueDate || '-'}
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="text-xs text-slate-500">
+                      Malipo Yaliyopokelewa
+                    </p>
+
+                    <p className="mt-1 font-bold text-emerald-700">
+                      TZS{' '}
+                      {currency(
+                        Number(
+                          reminder.amountReceived || 0
+                        )
+                      )}
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="text-xs text-slate-500">
+                      Salio
+                    </p>
+
+                    <p className="mt-1 font-bold text-red-700">
+                      TZS{' '}
+                      {currency(
+                        Number(
+                          reminder.totalBalance || 0
+                        )
+                      )}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-5">
+                  <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                    Ujumbe
+                  </p>
+
+                  <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                    {reminder.message}
+                  </p>
+
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    {[
+                      'Pending',
+                      'Failed',
+                    ].includes(
+                      reminder.status
+                    ) && (
+                      <>
+                        <Button
+                          type="button"
+                          className="bg-cyan-700"
+                          onClick={() =>
+                            sendSingleUtilitySmsReminder(
+                              reminder
+                            )
+                          }
+                        >
+                          {reminder.scheduledDate &&
+                          reminder.scheduledDate >
+                            todayISO()
+                            ? 'Tuma Mapema'
+                            : 'Tuma Hiki Pekee'}
+                        </Button>
+
+                        <Button
+                          type="button"
+                          className="bg-emerald-700"
+                          onClick={() =>
+                            markUtilitySmsReminderManuallySent(
+                              reminder
+                            )
+                          }
+                        >
+                          Nimetuma Mwenyewe
+                        </Button>
+                      </>
+                    )}
+
+                    <Button
+                      type="button"
+                      className="bg-slate-700"
+                      onClick={() =>
+                        copyUtilitySmsReminderMessage(
+                          reminder
+                        )
+                      }
+                    >
+                      Nakili Ujumbe
+                    </Button>
+                  </div>
+
+                  {reminder.failureReason && (
+                    <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                      Sababu ya kushindikana:{' '}
+                      {reminder.failureReason}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))
+        )}
+      </div>
+    </div>
+  </div>
+)}
 
 {activeWaterSection === 'utilityReports' && (
   <div className="lg:col-span-2">
@@ -13448,23 +16208,4187 @@ className={
         )}
 
         {activeTab === 'servicecharge' && (
-          <div className="grid gap-4 lg:grid-cols-2">
-            <Card>
-              <CardHeader><CardTitle>{t(language, 'Service Charge Details', 'Taarifa za Service Charge')}</CardTitle></CardHeader>
-              <CardContent className="space-y-3">
-                <Input label={t(language, 'House Name', 'Jina la Nyumba')} placeholder="e.g. G1" value={serviceChargeForm.houseNumber} onChange={(e) => setServiceChargeForm((p) => ({ ...p, houseNumber: e.target.value }))} />
-                <Input label={t(language, 'Tenant Name', 'Jina la Mpangaji')} placeholder="Tenant name" value={serviceChargeForm.tenantName} onChange={(e) => setServiceChargeForm((p) => ({ ...p, tenantName: e.target.value }))} />
-                <Input label={t(language, 'Service Charge Amount', 'Kiasi cha Service Charge')} type="number" value={serviceChargeForm.serviceChargeAmount} onChange={(e) => setServiceChargeForm((p) => ({ ...p, serviceChargeAmount: e.target.value }))} />
-                <Input label={t(language, 'Date Paid', 'Tarehe Ilipolipwa')} type="date" value={serviceChargeForm.datePaid} onChange={(e) => setServiceChargeForm((p) => ({ ...p, datePaid: e.target.value, nextPaymentDate: addMonthsISO(e.target.value, 1) }))} />
-                <Input label={t(language, 'Next Date of Payment', 'Tarehe ya Malipo Yanayofuata')} type="date" value={serviceChargeForm.nextPaymentDate || (serviceChargeForm.datePaid ? addMonthsISO(serviceChargeForm.datePaid, 1) : '')} readOnly />
-                <Select label={t(language, 'Payment Status', 'Hali ya Malipo')} value={serviceChargeForm.paymentStatus} onChange={(e) => setServiceChargeForm((p) => ({ ...p, paymentStatus: e.target.value }))}>
-                  <option value="Paid">{t(language, 'Paid', 'Imelipwa')}</option>
-                  <option value="Unpaid">{t(language, 'Unpaid', 'Haijalipwa')}</option>
-                </Select>
-                <Textarea label={t(language, 'Notes', 'Maelezo')} rows={3} value={serviceChargeForm.notes} onChange={(e) => setServiceChargeForm((p) => ({ ...p, notes: e.target.value }))} />
-                <Button type="button" onClick={saveServiceCharge}>{t(language, 'Save Service Charge', 'Hifadhi Service Charge')}</Button>
-              </CardContent>
-            </Card>
+          <div className="space-y-4">
+            <div className="overflow-hidden rounded-3xl border border-violet-200 bg-white shadow-sm">
+              <div className="border-b border-violet-200 bg-gradient-to-r from-violet-50 via-indigo-50 to-blue-50 px-6 py-6">
+                <p className="text-sm font-bold uppercase tracking-wide text-violet-700">
+                  {t(
+                    language,
+                    'Complete Service Charge Management System',
+                    'Mfumo Kamili wa Usimamizi wa Service Charge'
+                  )}
+                </p>
+
+                <h2 className="mt-2 text-3xl font-bold text-slate-950">
+                  {t(
+                    language,
+                    'Service Charge Information',
+                    'Taarifa za Service Charge'
+                  )}
+                </h2>
+
+                <p className="mt-2 text-slate-600">
+                  {t(
+                    language,
+                    'Manage monthly invoices, payments, balances, expenses, account alerts and permanent reports.',
+                    'Simamia ankara za kila mwezi, malipo, salio, matumizi, tahadhari za akaunti na ripoti za kudumu.'
+                  )}
+                </p>
+              </div>
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+              <aside className="h-fit rounded-3xl border border-slate-200 bg-white p-3 shadow-sm">
+                <div className="space-y-2">
+                  {serviceChargeSections.map(
+                    ([value, label]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() =>
+                          setActiveServiceChargeSection(value)
+                        }
+                        className={`w-full rounded-2xl px-4 py-4 text-left text-sm font-semibold transition ${
+                          activeServiceChargeSection === value
+                            ? 'bg-violet-700 text-white shadow-md'
+                            : 'bg-slate-50 text-slate-700 hover:bg-violet-50 hover:text-violet-800'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    )
+                  )}
+                </div>
+              </aside>
+
+              <main className="min-w-0">
+                {activeServiceChargeSection ===
+                  'summary' && (
+                  <div className="space-y-4">
+                    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                      <div className="rounded-3xl border border-blue-200 bg-blue-50 p-6">
+                        <p className="font-bold uppercase text-blue-700">
+                          {t(
+                            language,
+                            'Chargeable Accounts',
+                            'Akaunti Zinazotozwa'
+                          )}
+                        </p>
+
+                        <p className="mt-4 text-4xl font-bold text-blue-950">
+                          {serviceChargeEligibleHouses.length}
+                        </p>
+                      </div>
+
+                      <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-6">
+                        <p className="font-bold uppercase text-emerald-700">
+                          {t(
+                            language,
+                            'Service Charge Collected',
+                            'Service Charge Iliyokusanywa'
+                          )}
+                        </p>
+
+                        <p className="mt-4 text-4xl font-bold text-emerald-950">
+                          TZS{' '}
+                          {currency(
+                            totalServiceChargeCollected
+                          )}
+                        </p>
+                      </div>
+
+                      <div className="rounded-3xl border border-amber-200 bg-amber-50 p-6">
+                        <p className="font-bold uppercase text-amber-700">
+                          {t(
+                            language,
+                            'Outstanding Service Charge',
+                            'Service Charge Inayodaiwa'
+                          )}
+                        </p>
+
+                        <p className="mt-4 text-4xl font-bold text-amber-950">
+                          TZS{' '}
+                          {currency(
+                            totalServiceChargeOutstanding
+                          )}
+                        </p>
+                      </div>
+
+                      <div className="rounded-3xl border border-violet-200 bg-violet-50 p-6">
+                        <p className="font-bold uppercase text-violet-700">
+                          {t(
+                            language,
+                            'Invoices Issued',
+                            'Ankara Zilizotolewa'
+                          )}
+                        </p>
+
+                        <p className="mt-4 text-4xl font-bold text-violet-950">
+                          {activeServiceCharges.length}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="rounded-3xl border border-yellow-200 bg-yellow-50 p-6">
+                        <p className="font-bold uppercase text-yellow-800">
+                          {t(
+                            language,
+                            'Due Within Seven Days',
+                            'Zinazofika Ndani ya Siku 7'
+                          )}
+                        </p>
+
+                        <p className="mt-4 text-4xl font-bold text-yellow-950">
+                          {serviceChargesDueSoon.length}
+                        </p>
+
+                        <p className="mt-2 text-sm text-yellow-800">
+                          {t(
+                            language,
+                            'Accounts requiring an early reminder.',
+                            'Akaunti zinazohitaji kukumbushwa mapema.'
+                          )}
+                        </p>
+                      </div>
+
+                      <div className="rounded-3xl border border-red-200 bg-red-50 p-6">
+                        <p className="font-bold uppercase text-red-700">
+                          {t(
+                            language,
+                            'Overdue Accounts',
+                            'Akaunti Zilizochelewa'
+                          )}
+                        </p>
+
+                        <p className="mt-4 text-4xl font-bold text-red-950">
+                          {overdueServiceCharges.length}
+                        </p>
+
+                        <p className="mt-2 text-sm text-red-700">
+                          {t(
+                            language,
+                            'Accounts requiring immediate action.',
+                            'Akaunti zinazohitaji hatua ya haraka.'
+                          )}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                      <h3 className="text-xl font-bold text-slate-950">
+                        {t(
+                          language,
+                          'Monthly Service Charge Rule',
+                          'Kanuni ya Service Charge ya Kila Mwezi'
+                        )}
+                      </h3>
+
+                      <div className="mt-4 grid gap-4 sm:grid-cols-3">
+                        <PreviewValue
+                          label={t(
+                            language,
+                            'Invoice Date',
+                            'Tarehe ya Ankara'
+                          )}
+                          value={t(
+                            language,
+                            '22nd of every month',
+                            'Tarehe 22 ya kila mwezi'
+                          )}
+                        />
+
+                        <PreviewValue
+                          label={t(
+                            language,
+                            'Payment Deadline',
+                            'Mwisho wa Malipo'
+                          )}
+                          value={t(
+                            language,
+                            '25th of every month',
+                            'Tarehe 25 ya kila mwezi'
+                          )}
+                        />
+
+                        <PreviewValue
+                          label={t(
+                            language,
+                            'Standard Amount',
+                            'Kiasi cha Kawaida'
+                          )}
+                          value={`TZS ${currency(
+                            DEFAULT_SERVICE_CHARGE
+                          )}`}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeServiceChargeSection ===
+                  'invoices' && (
+                  <div className="space-y-4">
+                    <div className="overflow-hidden rounded-3xl border border-violet-200 bg-white shadow-sm">
+                      <div className="border-b border-violet-200 bg-violet-50 px-6 py-5">
+                        <h3 className="text-2xl font-bold text-violet-950">
+                          {t(
+                            language,
+                            'Prepare Monthly Service Charge Invoices',
+                            'Andaa Ankara za Service Charge za Mwezi'
+                          )}
+                        </h3>
+
+                        <p className="mt-2 text-violet-700">
+                          {t(
+                            language,
+                            'One invoice will be prepared for every eligible occupied house. Existing invoices will not be duplicated.',
+                            'Ankara moja itaandaliwa kwa kila nyumba inayostahili kutozwa. Ankara zilizopo hazitarudiwa.'
+                          )}
+                        </p>
+                      </div>
+
+                      <div className="grid gap-4 p-6 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+                        <Input
+                          label={t(
+                            language,
+                            'Service Charge Month',
+                            'Mwezi wa Service Charge'
+                          )}
+                          type="month"
+                          value={
+                            serviceChargeInvoicePreparationForm.chargeMonth
+                          }
+                          onChange={(event) =>
+                            setServiceChargeInvoicePreparationForm(
+                              {
+                                chargeMonth:
+                                  event.target.value,
+                              }
+                            )
+                          }
+                        />
+
+                        <Button
+                          type="button"
+                          className="bg-violet-700 px-6 py-3"
+                          disabled={
+                            isPreparingServiceChargeInvoices
+                          }
+                          onClick={
+                            prepareMonthlyServiceChargeInvoices
+                          }
+                        >
+                          {isPreparingServiceChargeInvoices
+                            ? t(
+                                language,
+                                'Preparing Invoices...',
+                                'Inaandaa Ankara...'
+                              )
+                            : t(
+                                language,
+                                'Prepare Monthly Invoices',
+                                'Andaa Ankara za Mwezi'
+                              )}
+                        </Button>
+                      </div>
+
+                      <div className="border-t border-violet-100 bg-slate-50 px-6 py-4">
+                        <div className="grid gap-3 sm:grid-cols-3">
+                          <PreviewValue
+                            label={t(
+                              language,
+                              'Invoice Date',
+                              'Tarehe ya Ankara'
+                            )}
+                            value={t(
+                              language,
+                              '22nd of the selected month',
+                              'Tarehe 22 ya mwezi uliochaguliwa'
+                            )}
+                          />
+
+                          <PreviewValue
+                            label={t(
+                              language,
+                              'Payment Deadline',
+                              'Mwisho wa Malipo'
+                            )}
+                            value={t(
+                              language,
+                              '25th of the selected month',
+                              'Tarehe 25 ya mwezi uliochaguliwa'
+                            )}
+                          />
+
+                          <PreviewValue
+                            label={t(
+                              language,
+                              'Standard Charge',
+                              'Kiasi cha Kawaida'
+                            )}
+                            value={`TZS ${currency(
+                              DEFAULT_SERVICE_CHARGE
+                            )}`}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="overflow-hidden rounded-3xl border border-purple-200 bg-white shadow-sm">
+                      <div className="border-b border-purple-200 bg-purple-50 px-6 py-5">
+                        <h3 className="text-xl font-bold text-purple-950">
+                          {t(
+                            language,
+                            'Correct Service Charge Invoice',
+                            'Sahihisha Ankara ya Service Charge'
+                          )}
+                        </h3>
+
+                        <p className="mt-2 text-sm text-purple-700">
+                          {t(
+                            language,
+                            'Correct an amount or date without deleting the original history.',
+                            'Sahihisha kiasi au tarehe bila kufuta historia ya awali.'
+                          )}
+                        </p>
+                      </div>
+
+                      <div className="grid gap-4 p-6 md:grid-cols-2">
+                        <Select
+                          label={t(
+                            language,
+                            'Invoice to Correct',
+                            'Ankara ya Kusahihisha'
+                          )}
+                          value={
+                            serviceChargeCorrectionForm.recordId
+                          }
+                          onChange={(event) => {
+                            const selectedInvoice =
+                              activeServiceCharges.find(
+                                (service) =>
+                                  String(service.id) ===
+                                  String(event.target.value)
+                              );
+
+                            if (!selectedInvoice) {
+                              setServiceChargeCorrectionForm({
+                                ...emptyServiceChargeCorrectionForm,
+                              });
+                              return;
+                            }
+
+                            setServiceChargeCorrectionForm({
+                              ...emptyServiceChargeCorrectionForm,
+                              recordType: 'Invoice',
+                              recordId:
+                                selectedInvoice.id,
+                              correctedAmount:
+                                formatAmountInput(
+                                  String(
+                                    selectedInvoice.serviceChargeAmount ||
+                                      0
+                                  )
+                                ),
+                              correctedDate:
+                                selectedInvoice.invoiceDate ||
+                                todayISO(),
+                              correctedDueDate:
+                                selectedInvoice.dueDate ||
+                                selectedInvoice.nextPaymentDate ||
+                                '',
+                            });
+                          }}
+                        >
+                          <option value="">
+                            {t(
+                              language,
+                              'Select invoice',
+                              'Chagua ankara'
+                            )}
+                          </option>
+
+                          {activeServiceCharges.map(
+                            (service) => (
+                              <option
+                                key={service.id}
+                                value={service.id}
+                              >
+                                {service.houseNumber || '-'} —{' '}
+                                {service.tenantName ||
+                                  t(
+                                    language,
+                                    'Occupant',
+                                    'Mkazi'
+                                  )}{' '}
+                                —{' '}
+                                {service.chargeMonth || '-'} — TZS{' '}
+                                {currency(
+                                  service.serviceChargeAmount ||
+                                    0
+                                )}
+                              </option>
+                            )
+                          )}
+                        </Select>
+
+                        <Input
+                          label={t(
+                            language,
+                            'Correct Invoice Amount',
+                            'Kiasi Sahihi cha Ankara'
+                          )}
+                          type="text"
+                          inputMode="numeric"
+                          placeholder="Mfano: 5,000"
+                          value={
+                            serviceChargeCorrectionForm.correctedAmount
+                          }
+                          onChange={(event) =>
+                            setServiceChargeCorrectionForm(
+                              (previous) => ({
+                                ...previous,
+                                correctedAmount:
+                                  formatAmountInput(
+                                    event.target.value
+                                  ),
+                              })
+                            )
+                          }
+                        />
+
+                        <Input
+                          label={t(
+                            language,
+                            'Correct Invoice Date',
+                            'Tarehe Sahihi ya Ankara'
+                          )}
+                          type="date"
+                          value={
+                            serviceChargeCorrectionForm.correctedDate
+                          }
+                          onChange={(event) =>
+                            setServiceChargeCorrectionForm(
+                              (previous) => ({
+                                ...previous,
+                                correctedDate:
+                                  event.target.value,
+                              })
+                            )
+                          }
+                        />
+
+                        <Input
+                          label={t(
+                            language,
+                            'Correct Payment Deadline',
+                            'Mwisho Sahihi wa Malipo'
+                          )}
+                          type="date"
+                          value={
+                            serviceChargeCorrectionForm.correctedDueDate
+                          }
+                          onChange={(event) =>
+                            setServiceChargeCorrectionForm(
+                              (previous) => ({
+                                ...previous,
+                                correctedDueDate:
+                                  event.target.value,
+                              })
+                            )
+                          }
+                        />
+
+                        <div className="md:col-span-2">
+                          <Textarea
+                            label={t(
+                              language,
+                              'Reason for Correction',
+                              'Sababu ya Marekebisho'
+                            )}
+                            rows={3}
+                            placeholder={t(
+                              language,
+                              'Explain what was entered incorrectly.',
+                              'Eleza taarifa gani iliingizwa kimakosa.'
+                            )}
+                            value={
+                              serviceChargeCorrectionForm.reason
+                            }
+                            onChange={(event) =>
+                              setServiceChargeCorrectionForm(
+                                (previous) => ({
+                                  ...previous,
+                                  reason:
+                                    event.target.value,
+                                })
+                              )
+                            }
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end border-t border-purple-100 bg-purple-50 px-6 py-5">
+                        <Button
+                          type="button"
+                          className="bg-purple-700 px-6 py-3"
+                          disabled={
+                            isSavingServiceChargeCorrection ||
+                            !serviceChargeCorrectionForm.recordId
+                          }
+                          onClick={
+                            correctPermanentServiceChargeInvoice
+                          }
+                        >
+                          {isSavingServiceChargeCorrection
+                            ? t(
+                                language,
+                                'Saving Correction...',
+                                'Inahifadhi Marekebisho...'
+                              )
+                            : t(
+                                language,
+                                'Save Invoice Correction',
+                                'Hifadhi Marekebisho ya Ankara'
+                              )}
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+                      <div className="border-b border-slate-200 px-6 py-5">
+                        <h3 className="text-xl font-bold text-slate-950">
+                          {t(
+                            language,
+                            'Permanent Service Charge Invoice Register',
+                            'Rejesta ya Kudumu ya Ankara za Service Charge'
+                          )}
+                        </h3>
+
+                        <p className="mt-1 text-sm text-slate-600">
+                          {t(
+                            language,
+                            'Every monthly invoice and its current payment position are preserved here.',
+                            'Kila ankara ya mwezi na hali yake ya malipo vinahifadhiwa hapa.'
+                          )}
+                        </p>
+                      </div>
+
+                      {activeServiceCharges.length === 0 ? (
+                        <div className="p-8 text-center text-slate-500">
+                          {t(
+                            language,
+                            'No Service Charge invoice has been prepared yet.',
+                            'Bado hakuna ankara ya Service Charge iliyoandaliwa.'
+                          )}
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-slate-200">
+                          {activeServiceCharges.map(
+                            (service) => {
+                              const invoiceAmount = Number(
+                                service.serviceChargeAmount ||
+                                  0
+                              );
+
+                              const amountPaid = Number(
+                                service.amountPaid || 0
+                              );
+
+                              const invoiceBalance = Number(
+                                service.balance ??
+                                  Math.max(
+                                    0,
+                                    invoiceAmount -
+                                      amountPaid
+                                  )
+                              );
+
+                              return (
+                                <div
+                                  key={service.id}
+                                  className="grid gap-4 px-6 py-5 lg:grid-cols-[1.2fr_1fr_1fr_1fr_auto] lg:items-center"
+                                >
+                                  <div>
+                                    <p className="font-bold text-slate-950">
+                                      {service.houseNumber ||
+                                        '-'}{' '}
+                                      —{' '}
+                                      {service.tenantName ||
+                                        t(
+                                          language,
+                                          'No occupant name',
+                                          'Hakuna jina la mkazi'
+                                        )}
+                                    </p>
+
+                                    <p className="mt-1 text-sm text-slate-500">
+                                      {t(
+                                        language,
+                                        'Charge month',
+                                        'Mwezi wa malipo'
+                                      )}
+                                      :{' '}
+                                      {service.chargeMonth ||
+                                        '-'}
+                                    </p>
+                                  </div>
+
+                                  <PreviewValue
+                                    label={t(
+                                      language,
+                                      'Invoice Amount',
+                                      'Kiasi cha Ankara'
+                                    )}
+                                    value={`TZS ${currency(
+                                      invoiceAmount
+                                    )}`}
+                                  />
+
+                                  <PreviewValue
+                                    label={t(
+                                      language,
+                                      'Amount Paid',
+                                      'Kiasi Kilicholipwa'
+                                    )}
+                                    value={`TZS ${currency(
+                                      amountPaid
+                                    )}`}
+                                  />
+
+                                  <PreviewValue
+                                    label={t(
+                                      language,
+                                      'Balance',
+                                      'Salio'
+                                    )}
+                                    value={`TZS ${currency(
+                                      invoiceBalance
+                                    )}`}
+                                  />
+
+                                  <div>
+                                    <span
+                                      className={`inline-flex rounded-full px-3 py-2 text-xs font-bold ${
+                                        invoiceBalance <= 0
+                                          ? 'bg-emerald-100 text-emerald-800'
+                                          : amountPaid > 0
+                                            ? 'bg-amber-100 text-amber-800'
+                                            : 'bg-red-100 text-red-800'
+                                      }`}
+                                    >
+                                      {invoiceBalance <= 0
+                                        ? t(
+                                            language,
+                                            'Paid',
+                                            'Imelipwa'
+                                          )
+                                        : amountPaid > 0
+                                          ? t(
+                                              language,
+                                              'Partially Paid',
+                                              'Imelipwa Sehemu'
+                                            )
+                                          : t(
+                                              language,
+                                              'Unpaid',
+                                              'Haijalipwa'
+                                            )}
+                                    </span>
+
+                                    <p className="mt-2 text-xs text-slate-500">
+                                      {t(
+                                        language,
+                                        'Due',
+                                        'Mwisho'
+                                      )}
+                                      :{' '}
+                                      {service.dueDate ||
+                                        service.nextPaymentDate ||
+                                        '-'}
+                                    </p>
+                                  </div>
+                                </div>
+                              );
+                            }
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {activeServiceChargeSection ===
+                  'payments' && (
+                  <div className="space-y-4">
+                    <div className="overflow-hidden rounded-3xl border border-emerald-200 bg-white shadow-sm">
+                      <div className="border-b border-emerald-200 bg-emerald-50 px-6 py-5">
+                        <h3 className="text-2xl font-bold text-emerald-950">
+                          {t(
+                            language,
+                            'Record Service Charge Payment',
+                            'Sajili Malipo ya Service Charge'
+                          )}
+                        </h3>
+
+                        <p className="mt-2 text-emerald-700">
+                          {t(
+                            language,
+                            'Select the house and enter the amount received. The system will clear the oldest invoice first and preserve any excess as future credit.',
+                            'Chagua nyumba na uweke kiasi kilichopokelewa. Mfumo utalipa ankara ya zamani kwanza na kuhifadhi fedha iliyozidi kama salio la mbele.'
+                          )}
+                        </p>
+                      </div>
+
+                      <div className="grid gap-4 p-6 md:grid-cols-2">
+                        <Select
+                          label={t(
+                            language,
+                            'House / Occupant',
+                            'Nyumba / Mkazi'
+                          )}
+                          value={
+                            serviceChargePaymentForm.houseId
+                          }
+                          onChange={(event) =>
+                            setServiceChargePaymentForm(
+                              (previous) => ({
+                                ...previous,
+                                houseId:
+                                  event.target.value,
+                              })
+                            )
+                          }
+                        >
+                          <option value="">
+                            {t(
+                              language,
+                              'Select house',
+                              'Chagua nyumba'
+                            )}
+                          </option>
+
+                          {serviceChargeEligibleHouses.map(
+                            (house) => (
+                              <option
+                                key={house.id}
+                                value={house.id}
+                              >
+                                {house.houseNumber} —{' '}
+                                {house.tenantName ||
+                                  t(
+                                    language,
+                                    'Occupant',
+                                    'Mkazi'
+                                  )}
+                              </option>
+                            )
+                          )}
+                        </Select>
+
+                        <Input
+                          label={t(
+                            language,
+                            'Amount Received',
+                            'Kiasi Kilichopokelewa'
+                          )}
+                          type="text"
+                          inputMode="numeric"
+                          placeholder="Mfano: 5,000"
+                          value={
+                            serviceChargePaymentForm.amountReceived
+                          }
+                          onChange={(event) =>
+                            setServiceChargePaymentForm(
+                              (previous) => ({
+                                ...previous,
+                                amountReceived:
+                                  formatAmountInput(
+                                    event.target.value
+                                  ),
+                              })
+                            )
+                          }
+                        />
+
+                        <Input
+                          label={t(
+                            language,
+                            'Payment Date',
+                            'Tarehe ya Malipo'
+                          )}
+                          type="date"
+                          value={
+                            serviceChargePaymentForm.paymentDate
+                          }
+                          onChange={(event) =>
+                            setServiceChargePaymentForm(
+                              (previous) => ({
+                                ...previous,
+                                paymentDate:
+                                  event.target.value,
+                              })
+                            )
+                          }
+                        />
+
+                        <Select
+                          label={t(
+                            language,
+                            'Payment Method',
+                            'Njia ya Malipo'
+                          )}
+                          value={
+                            serviceChargePaymentForm.paymentMethod
+                          }
+                          onChange={(event) =>
+                            setServiceChargePaymentForm(
+                              (previous) => ({
+                                ...previous,
+                                paymentMethod:
+                                  event.target.value,
+                              })
+                            )
+                          }
+                        >
+                          <option value="Cash">
+                            {t(
+                              language,
+                              'Cash',
+                              'Fedha Taslimu'
+                            )}
+                          </option>
+
+                          <option value="Mobile Money">
+                            Mobile Money
+                          </option>
+
+                          <option value="Bank">
+                            {t(
+                              language,
+                              'Bank',
+                              'Benki'
+                            )}
+                          </option>
+                        </Select>
+
+                        <Input
+                          label={t(
+                            language,
+                            'Receipt or Reference Number',
+                            'Namba ya Risiti au Kumbukumbu'
+                          )}
+                          placeholder={t(
+                            language,
+                            'Optional',
+                            'Si lazima'
+                          )}
+                          value={
+                            serviceChargePaymentForm.referenceNumber
+                          }
+                          onChange={(event) =>
+                            setServiceChargePaymentForm(
+                              (previous) => ({
+                                ...previous,
+                                referenceNumber:
+                                  event.target.value,
+                              })
+                            )
+                          }
+                        />
+
+                        <div className="md:col-span-2">
+                          <Textarea
+                            label={t(
+                              language,
+                              'Notes',
+                              'Maelezo'
+                            )}
+                            rows={3}
+                            value={
+                              serviceChargePaymentForm.notes
+                            }
+                            onChange={(event) =>
+                              setServiceChargePaymentForm(
+                                (previous) => ({
+                                  ...previous,
+                                  notes:
+                                    event.target.value,
+                                })
+                              )
+                            }
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end border-t border-emerald-100 bg-emerald-50 px-6 py-5">
+                        <Button
+                          type="button"
+                          className="bg-emerald-700 px-6 py-3"
+                          disabled={
+                            isSavingServiceChargePayment
+                          }
+                          onClick={
+                            recordPermanentServiceChargePayment
+                          }
+                        >
+                          {isSavingServiceChargePayment
+                            ? t(
+                                language,
+                                'Saving Payment...',
+                                'Inahifadhi Malipo...'
+                              )
+                            : t(
+                                language,
+                                'Save Service Charge Payment',
+                                'Hifadhi Malipo ya Service Charge'
+                              )}
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="overflow-hidden rounded-3xl border border-purple-200 bg-white shadow-sm">
+                      <div className="border-b border-purple-200 bg-purple-50 px-6 py-5">
+                        <h3 className="text-xl font-bold text-purple-950">
+                          {t(
+                            language,
+                            'Correct or Reverse Service Charge Payment',
+                            'Sahihisha au Rudisha Malipo ya Service Charge'
+                          )}
+                        </h3>
+
+                        <p className="mt-2 text-sm text-purple-700">
+                          {t(
+                            language,
+                            'The system will recalculate invoice allocations and preserve the original history.',
+                            'Mfumo utahesabu upya mgawanyo wa ankara na kuhifadhi historia ya awali.'
+                          )}
+                        </p>
+                      </div>
+
+                      <div className="grid gap-4 p-6 md:grid-cols-2">
+                        <Select
+                          label={t(
+                            language,
+                            'Payment to Correct',
+                            'Malipo ya Kusahihisha'
+                          )}
+                          value={
+                            serviceChargeCorrectionForm.recordType ===
+                            'Payment'
+                              ? serviceChargeCorrectionForm.recordId
+                              : ''
+                          }
+                          onChange={(event) => {
+                            const selectedPayment =
+                              serviceChargePayments.find(
+                                (payment) =>
+                                  String(payment.id) ===
+                                  String(event.target.value)
+                              );
+
+                            if (!selectedPayment) {
+                              setServiceChargeCorrectionForm({
+                                ...emptyServiceChargeCorrectionForm,
+                                recordType: 'Payment',
+                              });
+                              return;
+                            }
+
+                            setServiceChargeCorrectionForm({
+                              ...emptyServiceChargeCorrectionForm,
+                              recordType: 'Payment',
+                              recordId:
+                                selectedPayment.id,
+                              actionType: 'Update',
+                              correctedAmount:
+                                formatAmountInput(
+                                  String(
+                                    selectedPayment.amountReceived ||
+                                      0
+                                  )
+                                ),
+                              correctedDate:
+                                selectedPayment.paymentDate ||
+                                todayISO(),
+                              paymentMethod:
+                                selectedPayment.paymentMethod ||
+                                'Cash',
+                              referenceNumber:
+                                selectedPayment.referenceNumber ||
+                                '',
+                              notes:
+                                selectedPayment.notes || '',
+                            });
+                          }}
+                        >
+                          <option value="">
+                            {t(
+                              language,
+                              'Select payment',
+                              'Chagua malipo'
+                            )}
+                          </option>
+
+                          {serviceChargePayments.map(
+                            (payment) => (
+                              <option
+                                key={payment.id}
+                                value={payment.id}
+                                disabled={
+                                  payment.status ===
+                                  'Reversed'
+                                }
+                              >
+                                {payment.houseNumber || '-'} —{' '}
+                                {payment.tenantName ||
+                                  t(
+                                    language,
+                                    'Occupant',
+                                    'Mkazi'
+                                  )}{' '}
+                                — {payment.paymentDate || '-'} — TZS{' '}
+                                {currency(
+                                  payment.amountReceived || 0
+                                )}
+                                {payment.status === 'Reversed'
+                                  ? ` — ${t(
+                                      language,
+                                      'Reversed',
+                                      'Imerudishwa'
+                                    )}`
+                                  : ''}
+                              </option>
+                            )
+                          )}
+                        </Select>
+
+                        <Select
+                          label={t(
+                            language,
+                            'Correction Action',
+                            'Aina ya Marekebisho'
+                          )}
+                          value={
+                            serviceChargeCorrectionForm.actionType
+                          }
+                          onChange={(event) =>
+                            setServiceChargeCorrectionForm(
+                              (previous) => ({
+                                ...previous,
+                                actionType:
+                                  event.target.value,
+                              })
+                            )
+                          }
+                        >
+                          <option value="Update">
+                            {t(
+                              language,
+                              'Correct Payment Details',
+                              'Sahihisha Taarifa za Malipo'
+                            )}
+                          </option>
+
+                          <option value="Reverse">
+                            {t(
+                              language,
+                              'Reverse Incorrect Payment',
+                              'Rudisha Malipo Yaliyoingizwa Kimakosa'
+                            )}
+                          </option>
+                        </Select>
+
+                        <Input
+                          label={t(
+                            language,
+                            'Correct Amount Received',
+                            'Kiasi Sahihi Kilichopokelewa'
+                          )}
+                          type="text"
+                          inputMode="numeric"
+                          placeholder="Mfano: 5,000"
+                          disabled={
+                            serviceChargeCorrectionForm.actionType ===
+                            'Reverse'
+                          }
+                          value={
+                            serviceChargeCorrectionForm.correctedAmount
+                          }
+                          onChange={(event) =>
+                            setServiceChargeCorrectionForm(
+                              (previous) => ({
+                                ...previous,
+                                correctedAmount:
+                                  formatAmountInput(
+                                    event.target.value
+                                  ),
+                              })
+                            )
+                          }
+                        />
+
+                        <Input
+                          label={t(
+                            language,
+                            'Correct Payment Date',
+                            'Tarehe Sahihi ya Malipo'
+                          )}
+                          type="date"
+                          disabled={
+                            serviceChargeCorrectionForm.actionType ===
+                            'Reverse'
+                          }
+                          value={
+                            serviceChargeCorrectionForm.correctedDate
+                          }
+                          onChange={(event) =>
+                            setServiceChargeCorrectionForm(
+                              (previous) => ({
+                                ...previous,
+                                correctedDate:
+                                  event.target.value,
+                              })
+                            )
+                          }
+                        />
+
+                        <Select
+                          label={t(
+                            language,
+                            'Payment Method',
+                            'Njia ya Malipo'
+                          )}
+                          disabled={
+                            serviceChargeCorrectionForm.actionType ===
+                            'Reverse'
+                          }
+                          value={
+                            serviceChargeCorrectionForm.paymentMethod
+                          }
+                          onChange={(event) =>
+                            setServiceChargeCorrectionForm(
+                              (previous) => ({
+                                ...previous,
+                                paymentMethod:
+                                  event.target.value,
+                              })
+                            )
+                          }
+                        >
+                          <option value="Cash">
+                            {t(
+                              language,
+                              'Cash',
+                              'Fedha Taslimu'
+                            )}
+                          </option>
+
+                          <option value="Mobile Money">
+                            Mobile Money
+                          </option>
+
+                          <option value="Bank">
+                            {t(
+                              language,
+                              'Bank',
+                              'Benki'
+                            )}
+                          </option>
+
+                          <option value="Other">
+                            {t(
+                              language,
+                              'Other',
+                              'Nyingine'
+                            )}
+                          </option>
+                        </Select>
+
+                        <Input
+                          label={t(
+                            language,
+                            'Receipt or Reference Number',
+                            'Namba ya Risiti au Kumbukumbu'
+                          )}
+                          disabled={
+                            serviceChargeCorrectionForm.actionType ===
+                            'Reverse'
+                          }
+                          value={
+                            serviceChargeCorrectionForm.referenceNumber
+                          }
+                          onChange={(event) =>
+                            setServiceChargeCorrectionForm(
+                              (previous) => ({
+                                ...previous,
+                                referenceNumber:
+                                  event.target.value,
+                              })
+                            )
+                          }
+                        />
+
+                        <div className="md:col-span-2">
+                          <Textarea
+                            label={t(
+                              language,
+                              'Reason for Correction',
+                              'Sababu ya Marekebisho'
+                            )}
+                            rows={3}
+                            placeholder={t(
+                              language,
+                              'Explain what was entered incorrectly.',
+                              'Eleza taarifa gani iliingizwa kimakosa.'
+                            )}
+                            value={
+                              serviceChargeCorrectionForm.reason
+                            }
+                            onChange={(event) =>
+                              setServiceChargeCorrectionForm(
+                                (previous) => ({
+                                  ...previous,
+                                  reason:
+                                    event.target.value,
+                                })
+                              )
+                            }
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end border-t border-purple-100 bg-purple-50 px-6 py-5">
+                        <Button
+                          type="button"
+                          className={
+                            serviceChargeCorrectionForm.actionType ===
+                            'Reverse'
+                              ? 'bg-red-700 px-6 py-3'
+                              : 'bg-purple-700 px-6 py-3'
+                          }
+                          disabled={
+                            isSavingServiceChargeCorrection ||
+                            serviceChargeCorrectionForm.recordType !==
+                              'Payment' ||
+                            !serviceChargeCorrectionForm.recordId
+                          }
+                          onClick={
+                            correctPermanentServiceChargePayment
+                          }
+                        >
+                          {isSavingServiceChargeCorrection
+                            ? t(
+                                language,
+                                'Saving Correction...',
+                                'Inahifadhi Marekebisho...'
+                              )
+                            : serviceChargeCorrectionForm.actionType ===
+                                'Reverse'
+                              ? t(
+                                  language,
+                                  'Reverse Payment Safely',
+                                  'Rudisha Malipo kwa Usalama'
+                                )
+                              : t(
+                                  language,
+                                  'Save Payment Correction',
+                                  'Hifadhi Marekebisho ya Malipo'
+                                )}
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+                      <div className="border-b border-slate-200 px-6 py-5">
+                        <h3 className="text-xl font-bold text-slate-950">
+                          {t(
+                            language,
+                            'Permanent Payment Receipt Register',
+                            'Rejesta ya Kudumu ya Risiti za Malipo'
+                          )}
+                        </h3>
+
+                        <p className="mt-1 text-sm text-slate-600">
+                          {t(
+                            language,
+                            'Every payment remains here together with the amount allocated and any future credit.',
+                            'Kila malipo yanabaki hapa pamoja na kiasi kilichogawiwa na salio lolote la mbele.'
+                          )}
+                        </p>
+                      </div>
+
+                      {isLoadingServiceChargeRecords ? (
+                        <div className="p-8 text-center text-slate-500">
+                          {t(
+                            language,
+                            'Loading payment records...',
+                            'Inapakia rekodi za malipo...'
+                          )}
+                        </div>
+                      ) : serviceChargePayments.length ===
+                        0 ? (
+                        <div className="p-8 text-center text-slate-500">
+                          {t(
+                            language,
+                            'No permanent Service Charge payment has been recorded yet.',
+                            'Bado hakuna malipo ya kudumu ya Service Charge yaliyosajiliwa.'
+                          )}
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-slate-200">
+                          {serviceChargePayments.map(
+                            (payment) => (
+                              <div
+                                key={payment.id}
+                                className="grid gap-4 px-6 py-5 lg:grid-cols-[1.2fr_1fr_1fr_1fr_auto] lg:items-center"
+                              >
+                                <div>
+                                  <p className="font-bold text-slate-950">
+                                    {payment.houseNumber ||
+                                      '-'}{' '}
+                                    —{' '}
+                                    {payment.tenantName ||
+                                      t(
+                                        language,
+                                        'Occupant',
+                                        'Mkazi'
+                                      )}
+                                  </p>
+
+                                  <p className="mt-1 text-sm text-slate-500">
+                                    {payment.paymentDate ||
+                                      '-'}{' '}
+                                    ·{' '}
+                                    {payment.paymentMethod ||
+                                      'Cash'}
+                                  </p>
+
+                                  {payment.referenceNumber ? (
+                                    <p className="mt-1 text-xs text-slate-500">
+                                      {t(
+                                        language,
+                                        'Reference',
+                                        'Kumbukumbu'
+                                      )}
+                                      :{' '}
+                                      {
+                                        payment.referenceNumber
+                                      }
+                                    </p>
+                                  ) : null}
+                                </div>
+
+                                <PreviewValue
+                                  label={t(
+                                    language,
+                                    'Amount Received',
+                                    'Kilichopokelewa'
+                                  )}
+                                  value={`TZS ${currency(
+                                    payment.amountReceived
+                                  )}`}
+                                />
+
+                                <PreviewValue
+                                  label={t(
+                                    language,
+                                    'Allocated to Invoices',
+                                    'Kilichogawiwa Kwenye Ankara'
+                                  )}
+                                  value={`TZS ${currency(
+                                    payment.amountAllocated
+                                  )}`}
+                                />
+
+                                <PreviewValue
+                                  label={t(
+                                    language,
+                                    'Future Credit',
+                                    'Salio la Mbele'
+                                  )}
+                                  value={`TZS ${currency(
+                                    payment.unappliedCredit
+                                  )}`}
+                                />
+
+                                <span
+                                  className={`inline-flex rounded-full px-3 py-2 text-xs font-bold ${
+                                    payment.status ===
+                                    'Reversed'
+                                      ? 'bg-red-100 text-red-800'
+                                      : 'bg-emerald-100 text-emerald-800'
+                                  }`}
+                                >
+                                  {payment.status ===
+                                  'Reversed'
+                                    ? t(
+                                        language,
+                                        'Reversed',
+                                        'Imerudishwa'
+                                      )
+                                    : t(
+                                        language,
+                                        'Active',
+                                        'Halali'
+                                      )}
+                                </span>
+                              </div>
+                            )
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {activeServiceChargeSection ===
+                  'fund' && (
+                  <div className="space-y-4">
+                    <div className="grid gap-4 sm:grid-cols-3">
+                      <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-6">
+                        <p className="font-bold uppercase text-emerald-700">
+                          {t(
+                            language,
+                            'Money Collected',
+                            'Fedha Zilizokusanywa'
+                          )}
+                        </p>
+
+                        <p className="mt-4 text-4xl font-bold text-emerald-950">
+                          TZS{' '}
+                          {currency(
+                            totalServiceChargeCollected
+                          )}
+                        </p>
+
+                        <p className="mt-2 text-sm text-emerald-700">
+                          {t(
+                            language,
+                            'Actual Service Charge receipts.',
+                            'Malipo halisi ya Service Charge yaliyopokelewa.'
+                          )}
+                        </p>
+                      </div>
+
+                      <div className="rounded-3xl border border-red-200 bg-red-50 p-6">
+                        <p className="font-bold uppercase text-red-700">
+                          {t(
+                            language,
+                            'Expenses Paid',
+                            'Matumizi Yaliyolipwa'
+                          )}
+                        </p>
+
+                        <p className="mt-4 text-4xl font-bold text-red-950">
+                          TZS{' '}
+                          {currency(
+                            totalServiceChargeExpenses
+                          )}
+                        </p>
+
+                        <p className="mt-2 text-sm text-red-700">
+                          {t(
+                            language,
+                            'Active fund expenses only.',
+                            'Matumizi halali ya mfuko pekee.'
+                          )}
+                        </p>
+                      </div>
+
+                      <div
+                        className={`rounded-3xl border p-6 ${
+                          serviceChargeFundBalance >= 0
+                            ? 'border-violet-200 bg-violet-50'
+                            : 'border-orange-200 bg-orange-50'
+                        }`}
+                      >
+                        <p
+                          className={`font-bold uppercase ${
+                            serviceChargeFundBalance >= 0
+                              ? 'text-violet-700'
+                              : 'text-orange-700'
+                          }`}
+                        >
+                          {t(
+                            language,
+                            'Fund Balance',
+                            'Salio la Mfuko'
+                          )}
+                        </p>
+
+                        <p
+                          className={`mt-4 text-4xl font-bold ${
+                            serviceChargeFundBalance >= 0
+                              ? 'text-violet-950'
+                              : 'text-orange-950'
+                          }`}
+                        >
+                          TZS{' '}
+                          {currency(
+                            serviceChargeFundBalance
+                          )}
+                        </p>
+
+                        <p className="mt-2 text-sm text-slate-600">
+                          {serviceChargeFundBalance >= 0
+                            ? t(
+                                language,
+                                'Money available for future shared expenses.',
+                                'Fedha iliyopo kwa matumizi ya pamoja yajayo.'
+                              )
+                            : t(
+                                language,
+                                'Expenses currently exceed collected money.',
+                                'Matumizi kwa sasa yamezidi fedha zilizokusanywa.'
+                              )}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="overflow-hidden rounded-3xl border border-orange-200 bg-white shadow-sm">
+                      <div className="border-b border-orange-200 bg-orange-50 px-6 py-5">
+                        <h3 className="text-2xl font-bold text-orange-950">
+                          {t(
+                            language,
+                            'Record Service Charge Expense',
+                            'Sajili Matumizi ya Service Charge'
+                          )}
+                        </h3>
+
+                        <p className="mt-2 text-orange-700">
+                          {t(
+                            language,
+                            'Record genuine shared-property expenses paid from this fund.',
+                            'Sajili matumizi halisi ya maeneo ya pamoja yaliyolipwa kutoka kwenye mfuko huu.'
+                          )}
+                        </p>
+                      </div>
+
+                      <div className="grid gap-4 p-6 md:grid-cols-2">
+                        <Input
+                          label={t(
+                            language,
+                            'Expense Date',
+                            'Tarehe ya Matumizi'
+                          )}
+                          type="date"
+                          value={
+                            serviceChargeExpenseForm.expenseDate
+                          }
+                          onChange={(event) =>
+                            setServiceChargeExpenseForm(
+                              (previous) => ({
+                                ...previous,
+                                expenseDate:
+                                  event.target.value,
+                              })
+                            )
+                          }
+                        />
+
+                        <Select
+                          label={t(
+                            language,
+                            'Expense Type',
+                            'Aina ya Matumizi'
+                          )}
+                          value={
+                            serviceChargeExpenseForm.expenseType
+                          }
+                          onChange={(event) =>
+                            setServiceChargeExpenseForm(
+                              (previous) => ({
+                                ...previous,
+                                expenseType:
+                                  event.target.value,
+                              })
+                            )
+                          }
+                        >
+                          <option value="Cleaning">
+                            {t(
+                              language,
+                              'Cleaning',
+                              'Usafi'
+                            )}
+                          </option>
+
+                          <option value="Common Area Repair">
+                            {t(
+                              language,
+                              'Common Area Repair',
+                              'Matengenezo ya Eneo la Pamoja'
+                            )}
+                          </option>
+
+                          <option value="Security">
+                            {t(
+                              language,
+                              'Security',
+                              'Ulinzi'
+                            )}
+                          </option>
+
+                          <option value="Caretaker">
+                            {t(
+                              language,
+                              'Caretaker',
+                              'Msimamizi wa Nyumba'
+                            )}
+                          </option>
+
+                          <option value="Waste Collection">
+                            {t(
+                              language,
+                              'Waste Collection',
+                              'Uondoaji wa Taka'
+                            )}
+                          </option>
+
+                          <option value="Shared Electricity">
+                            {t(
+                              language,
+                              'Shared Electricity',
+                              'Umeme wa Eneo la Pamoja'
+                            )}
+                          </option>
+
+                          <option value="Other">
+                            {t(
+                              language,
+                              'Other',
+                              'Matumizi Mengine'
+                            )}
+                          </option>
+                        </Select>
+
+                        <Input
+                          label={t(
+                            language,
+                            'Expense Description',
+                            'Maelezo ya Matumizi'
+                          )}
+                          placeholder={t(
+                            language,
+                            'What was paid for?',
+                            'Fedha imelipia kazi gani?'
+                          )}
+                          value={
+                            serviceChargeExpenseForm.description
+                          }
+                          onChange={(event) =>
+                            setServiceChargeExpenseForm(
+                              (previous) => ({
+                                ...previous,
+                                description:
+                                  event.target.value,
+                              })
+                            )
+                          }
+                        />
+
+                        <Input
+                          label={t(
+                            language,
+                            'Amount Paid',
+                            'Kiasi Kilicholipwa'
+                          )}
+                          type="text"
+                          inputMode="numeric"
+                          placeholder="Mfano: 20,000"
+                          value={
+                            serviceChargeExpenseForm.amount
+                          }
+                          onChange={(event) =>
+                            setServiceChargeExpenseForm(
+                              (previous) => ({
+                                ...previous,
+                                amount:
+                                  formatAmountInput(
+                                    event.target.value
+                                  ),
+                              })
+                            )
+                          }
+                        />
+
+                        <Input
+                          label={t(
+                            language,
+                            'Payee',
+                            'Aliyelipwa'
+                          )}
+                          placeholder={t(
+                            language,
+                            'Person or company paid',
+                            'Mtu au kampuni iliyolipwa'
+                          )}
+                          value={
+                            serviceChargeExpenseForm.payee
+                          }
+                          onChange={(event) =>
+                            setServiceChargeExpenseForm(
+                              (previous) => ({
+                                ...previous,
+                                payee:
+                                  event.target.value,
+                              })
+                            )
+                          }
+                        />
+
+                        <Input
+                          label={t(
+                            language,
+                            'Receipt or Reference Number',
+                            'Namba ya Risiti au Kumbukumbu'
+                          )}
+                          placeholder={t(
+                            language,
+                            'Optional',
+                            'Si lazima'
+                          )}
+                          value={
+                            serviceChargeExpenseForm.referenceNumber
+                          }
+                          onChange={(event) =>
+                            setServiceChargeExpenseForm(
+                              (previous) => ({
+                                ...previous,
+                                referenceNumber:
+                                  event.target.value,
+                              })
+                            )
+                          }
+                        />
+
+                        <div className="md:col-span-2">
+                          <Textarea
+                            label={t(
+                              language,
+                              'Additional Notes',
+                              'Maelezo ya Ziada'
+                            )}
+                            rows={3}
+                            value={
+                              serviceChargeExpenseForm.notes
+                            }
+                            onChange={(event) =>
+                              setServiceChargeExpenseForm(
+                                (previous) => ({
+                                  ...previous,
+                                  notes:
+                                    event.target.value,
+                                })
+                              )
+                            }
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end border-t border-orange-100 bg-orange-50 px-6 py-5">
+                        <Button
+                          type="button"
+                          className="bg-orange-600 px-6 py-3"
+                          disabled={
+                            isSavingServiceChargeExpense
+                          }
+                          onClick={
+                            recordPermanentServiceChargeExpense
+                          }
+                        >
+                          {isSavingServiceChargeExpense
+                            ? t(
+                                language,
+                                'Saving Expense...',
+                                'Inahifadhi Matumizi...'
+                              )
+                            : t(
+                                language,
+                                'Save Service Charge Expense',
+                                'Hifadhi Matumizi ya Service Charge'
+                              )}
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="overflow-hidden rounded-3xl border border-purple-200 bg-white shadow-sm">
+                      <div className="border-b border-purple-200 bg-purple-50 px-6 py-5">
+                        <h3 className="text-xl font-bold text-purple-950">
+                          {t(
+                            language,
+                            'Correct or Reverse Service Charge Expense',
+                            'Sahihisha au Rudisha Matumizi ya Service Charge'
+                          )}
+                        </h3>
+
+                        <p className="mt-2 text-sm text-purple-700">
+                          {t(
+                            language,
+                            'The original record will remain preserved and the fund balance will be recalculated.',
+                            'Rekodi ya awali itaendelea kuhifadhiwa na salio la mfuko litahesabiwa upya.'
+                          )}
+                        </p>
+                      </div>
+
+                      <div className="grid gap-4 p-6 md:grid-cols-2">
+                        <Select
+                          label={t(
+                            language,
+                            'Expense to Correct',
+                            'Matumizi ya Kusahihisha'
+                          )}
+                          value={
+                            serviceChargeCorrectionForm.recordType ===
+                            'Expense'
+                              ? serviceChargeCorrectionForm.recordId
+                              : ''
+                          }
+                          onChange={(event) => {
+                            const selectedExpense =
+                              serviceChargeExpenses.find(
+                                (expense) =>
+                                  String(expense.id) ===
+                                  String(event.target.value)
+                              );
+
+                            if (!selectedExpense) {
+                              setServiceChargeCorrectionForm({
+                                ...emptyServiceChargeCorrectionForm,
+                                recordType: 'Expense',
+                              });
+                              return;
+                            }
+
+                            setServiceChargeCorrectionForm({
+                              ...emptyServiceChargeCorrectionForm,
+                              recordType: 'Expense',
+                              recordId:
+                                selectedExpense.id,
+                              actionType: 'Update',
+                              correctedAmount:
+                                formatAmountInput(
+                                  String(
+                                    selectedExpense.amount ||
+                                      0
+                                  )
+                                ),
+                              correctedDate:
+                                selectedExpense.expenseDate ||
+                                todayISO(),
+                              expenseType:
+                                selectedExpense.expenseType ||
+                                'Other',
+                              description:
+                                selectedExpense.description ||
+                                '',
+                              payee:
+                                selectedExpense.payee || '',
+                              referenceNumber:
+                                selectedExpense.referenceNumber ||
+                                '',
+                              notes:
+                                selectedExpense.notes || '',
+                            });
+                          }}
+                        >
+                          <option value="">
+                            {t(
+                              language,
+                              'Select expense',
+                              'Chagua matumizi'
+                            )}
+                          </option>
+
+                          {serviceChargeExpenses.map(
+                            (expense) => (
+                              <option
+                                key={expense.id}
+                                value={expense.id}
+                                disabled={
+                                  expense.status ===
+                                  'Reversed'
+                                }
+                              >
+                                {expense.expenseDate || '-'} —{' '}
+                                {expense.description ||
+                                  expense.expenseType ||
+                                  '-'}{' '}
+                                — TZS{' '}
+                                {currency(expense.amount || 0)}
+                                {expense.status === 'Reversed'
+                                  ? ` — ${t(
+                                      language,
+                                      'Reversed',
+                                      'Imerudishwa'
+                                    )}`
+                                  : ''}
+                              </option>
+                            )
+                          )}
+                        </Select>
+
+                        <Select
+                          label={t(
+                            language,
+                            'Correction Action',
+                            'Aina ya Marekebisho'
+                          )}
+                          value={
+                            serviceChargeCorrectionForm.actionType
+                          }
+                          onChange={(event) =>
+                            setServiceChargeCorrectionForm(
+                              (previous) => ({
+                                ...previous,
+                                actionType:
+                                  event.target.value,
+                              })
+                            )
+                          }
+                        >
+                          <option value="Update">
+                            {t(
+                              language,
+                              'Correct Expense Details',
+                              'Sahihisha Taarifa za Matumizi'
+                            )}
+                          </option>
+
+                          <option value="Reverse">
+                            {t(
+                              language,
+                              'Reverse Incorrect Expense',
+                              'Rudisha Matumizi Yaliyoingizwa Kimakosa'
+                            )}
+                          </option>
+                        </Select>
+
+                        <Input
+                          label={t(
+                            language,
+                            'Correct Expense Date',
+                            'Tarehe Sahihi ya Matumizi'
+                          )}
+                          type="date"
+                          disabled={
+                            serviceChargeCorrectionForm.actionType ===
+                            'Reverse'
+                          }
+                          value={
+                            serviceChargeCorrectionForm.correctedDate
+                          }
+                          onChange={(event) =>
+                            setServiceChargeCorrectionForm(
+                              (previous) => ({
+                                ...previous,
+                                correctedDate:
+                                  event.target.value,
+                              })
+                            )
+                          }
+                        />
+
+                        <Select
+                          label={t(
+                            language,
+                            'Expense Type',
+                            'Aina ya Matumizi'
+                          )}
+                          disabled={
+                            serviceChargeCorrectionForm.actionType ===
+                            'Reverse'
+                          }
+                          value={
+                            serviceChargeCorrectionForm.expenseType
+                          }
+                          onChange={(event) =>
+                            setServiceChargeCorrectionForm(
+                              (previous) => ({
+                                ...previous,
+                                expenseType:
+                                  event.target.value,
+                              })
+                            )
+                          }
+                        >
+                          <option value="Cleaning">
+                            {t(
+                              language,
+                              'Cleaning',
+                              'Usafi'
+                            )}
+                          </option>
+
+                          <option value="Common Area Repair">
+                            {t(
+                              language,
+                              'Common Area Repair',
+                              'Matengenezo ya Eneo la Pamoja'
+                            )}
+                          </option>
+
+                          <option value="Security">
+                            {t(
+                              language,
+                              'Security',
+                              'Ulinzi'
+                            )}
+                          </option>
+
+                          <option value="Caretaker">
+                            {t(
+                              language,
+                              'Caretaker',
+                              'Msimamizi wa Nyumba'
+                            )}
+                          </option>
+
+                          <option value="Waste Collection">
+                            {t(
+                              language,
+                              'Waste Collection',
+                              'Uondoaji wa Taka'
+                            )}
+                          </option>
+
+                          <option value="Shared Electricity">
+                            {t(
+                              language,
+                              'Shared Electricity',
+                              'Umeme wa Eneo la Pamoja'
+                            )}
+                          </option>
+
+                          <option value="Other">
+                            {t(
+                              language,
+                              'Other',
+                              'Matumizi Mengine'
+                            )}
+                          </option>
+                        </Select>
+
+                        <Input
+                          label={t(
+                            language,
+                            'Correct Description',
+                            'Maelezo Sahihi ya Matumizi'
+                          )}
+                          disabled={
+                            serviceChargeCorrectionForm.actionType ===
+                            'Reverse'
+                          }
+                          value={
+                            serviceChargeCorrectionForm.description
+                          }
+                          onChange={(event) =>
+                            setServiceChargeCorrectionForm(
+                              (previous) => ({
+                                ...previous,
+                                description:
+                                  event.target.value,
+                              })
+                            )
+                          }
+                        />
+
+                        <Input
+                          label={t(
+                            language,
+                            'Correct Amount',
+                            'Kiasi Sahihi'
+                          )}
+                          type="text"
+                          inputMode="numeric"
+                          placeholder="Mfano: 20,000"
+                          disabled={
+                            serviceChargeCorrectionForm.actionType ===
+                            'Reverse'
+                          }
+                          value={
+                            serviceChargeCorrectionForm.correctedAmount
+                          }
+                          onChange={(event) =>
+                            setServiceChargeCorrectionForm(
+                              (previous) => ({
+                                ...previous,
+                                correctedAmount:
+                                  formatAmountInput(
+                                    event.target.value
+                                  ),
+                              })
+                            )
+                          }
+                        />
+
+                        <Input
+                          label={t(
+                            language,
+                            'Paid To',
+                            'Aliyelipwa'
+                          )}
+                          disabled={
+                            serviceChargeCorrectionForm.actionType ===
+                            'Reverse'
+                          }
+                          value={
+                            serviceChargeCorrectionForm.payee
+                          }
+                          onChange={(event) =>
+                            setServiceChargeCorrectionForm(
+                              (previous) => ({
+                                ...previous,
+                                payee:
+                                  event.target.value,
+                              })
+                            )
+                          }
+                        />
+
+                        <Input
+                          label={t(
+                            language,
+                            'Receipt or Reference Number',
+                            'Namba ya Risiti au Kumbukumbu'
+                          )}
+                          disabled={
+                            serviceChargeCorrectionForm.actionType ===
+                            'Reverse'
+                          }
+                          value={
+                            serviceChargeCorrectionForm.referenceNumber
+                          }
+                          onChange={(event) =>
+                            setServiceChargeCorrectionForm(
+                              (previous) => ({
+                                ...previous,
+                                referenceNumber:
+                                  event.target.value,
+                              })
+                            )
+                          }
+                        />
+
+                        <div className="md:col-span-2">
+                          <Textarea
+                            label={t(
+                              language,
+                              'Reason for Correction',
+                              'Sababu ya Marekebisho'
+                            )}
+                            rows={3}
+                            placeholder={t(
+                              language,
+                              'Explain what was entered incorrectly.',
+                              'Eleza taarifa gani iliingizwa kimakosa.'
+                            )}
+                            value={
+                              serviceChargeCorrectionForm.reason
+                            }
+                            onChange={(event) =>
+                              setServiceChargeCorrectionForm(
+                                (previous) => ({
+                                  ...previous,
+                                  reason:
+                                    event.target.value,
+                                })
+                              )
+                            }
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end border-t border-purple-100 bg-purple-50 px-6 py-5">
+                        <Button
+                          type="button"
+                          className={
+                            serviceChargeCorrectionForm.actionType ===
+                            'Reverse'
+                              ? 'bg-red-700 px-6 py-3'
+                              : 'bg-purple-700 px-6 py-3'
+                          }
+                          disabled={
+                            isSavingServiceChargeCorrection ||
+                            serviceChargeCorrectionForm.recordType !==
+                              'Expense' ||
+                            !serviceChargeCorrectionForm.recordId
+                          }
+                          onClick={
+                            correctPermanentServiceChargeExpense
+                          }
+                        >
+                          {isSavingServiceChargeCorrection
+                            ? t(
+                                language,
+                                'Saving Correction...',
+                                'Inahifadhi Marekebisho...'
+                              )
+                            : serviceChargeCorrectionForm.actionType ===
+                                'Reverse'
+                              ? t(
+                                  language,
+                                  'Reverse Expense Safely',
+                                  'Rudisha Matumizi kwa Usalama'
+                                )
+                              : t(
+                                  language,
+                                  'Save Expense Correction',
+                                  'Hifadhi Marekebisho ya Matumizi'
+                                )}
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+                      <div className="border-b border-slate-200 px-6 py-5">
+                        <h3 className="text-xl font-bold text-slate-950">
+                          {t(
+                            language,
+                            'Permanent Expense Register',
+                            'Rejesta ya Kudumu ya Matumizi'
+                          )}
+                        </h3>
+                      </div>
+
+                      {isLoadingServiceChargeRecords ? (
+                        <div className="p-8 text-center text-slate-500">
+                          {t(
+                            language,
+                            'Loading expense records...',
+                            'Inapakia rekodi za matumizi...'
+                          )}
+                        </div>
+                      ) : serviceChargeExpenses.length ===
+                        0 ? (
+                        <div className="p-8 text-center text-slate-500">
+                          {t(
+                            language,
+                            'No Service Charge expense has been recorded.',
+                            'Bado hakuna matumizi ya Service Charge yaliyosajiliwa.'
+                          )}
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-slate-200">
+                          {serviceChargeExpenses.map(
+                            (expense) => (
+                              <div
+                                key={expense.id}
+                                className="grid gap-4 px-6 py-5 lg:grid-cols-[1.2fr_1fr_1fr_auto] lg:items-center"
+                              >
+                                <div>
+                                  <p className="font-bold text-slate-950">
+                                    {expense.description ||
+                                      expense.expenseType}
+                                  </p>
+
+                                  <p className="mt-1 text-sm text-slate-500">
+                                    {expense.expenseType} ·{' '}
+                                    {expense.expenseDate}
+                                  </p>
+
+                                  {expense.payee ? (
+                                    <p className="mt-1 text-xs text-slate-500">
+                                      {t(
+                                        language,
+                                        'Paid to',
+                                        'Aliyelipwa'
+                                      )}
+                                      : {expense.payee}
+                                    </p>
+                                  ) : null}
+                                </div>
+
+                                <PreviewValue
+                                  label={t(
+                                    language,
+                                    'Amount',
+                                    'Kiasi'
+                                  )}
+                                  value={`TZS ${currency(
+                                    expense.amount
+                                  )}`}
+                                />
+
+                                <PreviewValue
+                                  label={t(
+                                    language,
+                                    'Reference',
+                                    'Kumbukumbu'
+                                  )}
+                                  value={
+                                    expense.referenceNumber ||
+                                    '-'
+                                  }
+                                />
+
+                                <span
+                                  className={`inline-flex rounded-full px-3 py-2 text-xs font-bold ${
+                                    expense.status ===
+                                    'Reversed'
+                                      ? 'bg-red-100 text-red-800'
+                                      : 'bg-emerald-100 text-emerald-800'
+                                  }`}
+                                >
+                                  {expense.status ===
+                                  'Reversed'
+                                    ? t(
+                                        language,
+                                        'Reversed',
+                                        'Imerudishwa'
+                                      )
+                                    : t(
+                                        language,
+                                        'Active',
+                                        'Halali'
+                                      )}
+                                </span>
+                              </div>
+                            )
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {activeServiceChargeSection ===
+                  'attention' && (
+                  <div className="space-y-4">
+                    <div className="overflow-hidden rounded-3xl border border-red-200 bg-white shadow-sm">
+                      <div className="border-b border-red-200 bg-red-50 px-6 py-5">
+                        <h3 className="text-2xl font-bold text-red-950">
+                          {t(
+                            language,
+                            'Overdue Service Charge Accounts',
+                            'Akaunti za Service Charge Zilizochelewa'
+                          )}
+                        </h3>
+
+                        <p className="mt-2 text-red-700">
+                          {overdueServiceCharges.length}{' '}
+                          {t(
+                            language,
+                            'accounts require immediate action.',
+                            'zinahitaji hatua ya haraka.'
+                          )}
+                        </p>
+                      </div>
+
+                      {overdueServiceCharges.length ===
+                      0 ? (
+                        <div className="p-8 text-center text-slate-500">
+                          {t(
+                            language,
+                            'There is currently no overdue Service Charge.',
+                            'Kwa sasa hakuna Service Charge iliyochelewa.'
+                          )}
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-slate-200">
+                          {overdueServiceCharges.map(
+                            (service) => {
+                              const outstandingBalance =
+                                Number(
+                                  service.balance ??
+                                    Math.max(
+                                      0,
+                                      Number(
+                                        service.serviceChargeAmount ||
+                                          0
+                                      ) -
+                                        Number(
+                                          service.amountPaid ||
+                                            0
+                                        )
+                                    )
+                                );
+
+                              return (
+                                <div
+                                  key={service.id}
+                                  className="grid gap-4 px-6 py-5 lg:grid-cols-[1.2fr_1fr_1fr_auto] lg:items-center"
+                                >
+                                  <div>
+                                    <p className="font-bold text-slate-950">
+                                      {service.houseNumber ||
+                                        '-'}{' '}
+                                      —{' '}
+                                      {service.tenantName ||
+                                        t(
+                                          language,
+                                          'Occupant',
+                                          'Mkazi'
+                                        )}
+                                    </p>
+
+                                    <p className="mt-1 text-sm text-slate-500">
+                                      {t(
+                                        language,
+                                        'Charge month',
+                                        'Mwezi wa malipo'
+                                      )}
+                                      :{' '}
+                                      {service.chargeMonth ||
+                                        '-'}
+                                    </p>
+                                  </div>
+
+                                  <PreviewValue
+                                    label={t(
+                                      language,
+                                      'Payment Deadline',
+                                      'Mwisho wa Malipo'
+                                    )}
+                                    value={
+                                      service.dueDate ||
+                                      service.nextPaymentDate ||
+                                      '-'
+                                    }
+                                  />
+
+                                  <PreviewValue
+                                    label={t(
+                                      language,
+                                      'Outstanding Balance',
+                                      'Salio Linalodaiwa'
+                                    )}
+                                    value={`TZS ${currency(
+                                      outstandingBalance
+                                    )}`}
+                                  />
+
+                                  <span className="inline-flex rounded-full bg-red-100 px-4 py-2 text-xs font-bold text-red-800">
+                                    {t(
+                                      language,
+                                      'Overdue',
+                                      'Imechelewa'
+                                    )}
+                                  </span>
+                                </div>
+                              );
+                            }
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="overflow-hidden rounded-3xl border border-yellow-200 bg-white shadow-sm">
+                      <div className="border-b border-yellow-200 bg-yellow-50 px-6 py-5">
+                        <h3 className="text-2xl font-bold text-yellow-950">
+                          {t(
+                            language,
+                            'Service Charge Due Within Seven Days',
+                            'Service Charge Inayofika Ndani ya Siku 7'
+                          )}
+                        </h3>
+
+                        <p className="mt-2 text-yellow-800">
+                          {serviceChargesDueSoon.length}{' '}
+                          {t(
+                            language,
+                            'accounts are approaching the payment deadline.',
+                            'zinakaribia mwisho wa malipo.'
+                          )}
+                        </p>
+                      </div>
+
+                      {serviceChargesDueSoon.length ===
+                      0 ? (
+                        <div className="p-8 text-center text-slate-500">
+                          {t(
+                            language,
+                            'There is currently no Service Charge due within seven days.',
+                            'Kwa sasa hakuna Service Charge inayofika ndani ya siku saba.'
+                          )}
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-slate-200">
+                          {serviceChargesDueSoon.map(
+                            (service) => {
+                              const outstandingBalance =
+                                Number(
+                                  service.balance ??
+                                    Math.max(
+                                      0,
+                                      Number(
+                                        service.serviceChargeAmount ||
+                                          0
+                                      ) -
+                                        Number(
+                                          service.amountPaid ||
+                                            0
+                                        )
+                                    )
+                                );
+
+                              return (
+                                <div
+                                  key={service.id}
+                                  className="grid gap-4 px-6 py-5 lg:grid-cols-[1.2fr_1fr_1fr_auto] lg:items-center"
+                                >
+                                  <div>
+                                    <p className="font-bold text-slate-950">
+                                      {service.houseNumber ||
+                                        '-'}{' '}
+                                      —{' '}
+                                      {service.tenantName ||
+                                        t(
+                                          language,
+                                          'Occupant',
+                                          'Mkazi'
+                                        )}
+                                    </p>
+
+                                    <p className="mt-1 text-sm text-slate-500">
+                                      {t(
+                                        language,
+                                        'Charge month',
+                                        'Mwezi wa malipo'
+                                      )}
+                                      :{' '}
+                                      {service.chargeMonth ||
+                                        '-'}
+                                    </p>
+                                  </div>
+
+                                  <PreviewValue
+                                    label={t(
+                                      language,
+                                      'Payment Deadline',
+                                      'Mwisho wa Malipo'
+                                    )}
+                                    value={
+                                      service.dueDate ||
+                                      service.nextPaymentDate ||
+                                      '-'
+                                    }
+                                  />
+
+                                  <PreviewValue
+                                    label={t(
+                                      language,
+                                      'Outstanding Balance',
+                                      'Salio Linalodaiwa'
+                                    )}
+                                    value={`TZS ${currency(
+                                      outstandingBalance
+                                    )}`}
+                                  />
+
+                                  <span className="inline-flex rounded-full bg-yellow-100 px-4 py-2 text-xs font-bold text-yellow-800">
+                                    {t(
+                                      language,
+                                      'Due Soon',
+                                      'Inakaribia'
+                                    )}
+                                  </span>
+                                </div>
+                              );
+                            }
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {activeServiceChargeSection ===
+                  'alerts' && (
+                  <div className="space-y-5">
+                    <div className="overflow-hidden rounded-3xl border border-cyan-200 bg-white shadow-sm">
+                      <div className="border-b border-cyan-200 bg-cyan-50 px-6 py-5">
+                        <h3 className="text-2xl font-bold text-cyan-950">
+                          {t(
+                            language,
+                            'Service Charge Settings for Each House',
+                            'Mipangilio ya Service Charge kwa Kila Nyumba'
+                          )}
+                        </h3>
+
+                        <p className="mt-2 text-cyan-700">
+                          {t(
+                            language,
+                            'Enable, disable or change the monthly amount without changing the house or occupant.',
+                            'Washa, zima au badilisha kiasi cha mwezi bila kubadilisha nyumba au mkazi.'
+                          )}
+                        </p>
+                      </div>
+
+                      <div className="grid gap-4 p-6 md:grid-cols-2">
+                        <Select
+                          label={t(
+                            language,
+                            'House',
+                            'Nyumba'
+                          )}
+                          value={
+                            serviceChargeHouseSettingForm.houseId
+                          }
+                          onChange={(event) => {
+                            const selectedHouse =
+                              houses.find(
+                                (house) =>
+                                  String(house.id) ===
+                                  String(event.target.value)
+                              );
+
+                            if (!selectedHouse) {
+                              setServiceChargeHouseSettingForm({
+                                ...emptyServiceChargeHouseSettingForm,
+                              });
+                              return;
+                            }
+
+                            setServiceChargeHouseSettingForm({
+                              ...emptyServiceChargeHouseSettingForm,
+                              houseId: selectedHouse.id,
+                              enabled:
+                                selectedHouse.serviceChargeEnabled !==
+                                false,
+                              monthlyAmount:
+                                formatAmountInput(
+                                  String(
+                                    selectedHouse.monthlyServiceChargeAmount ||
+                                      DEFAULT_SERVICE_CHARGE
+                                  )
+                                ),
+                            });
+                          }}
+                        >
+                          <option value="">
+                            {t(
+                              language,
+                              'Select house',
+                              'Chagua nyumba'
+                            )}
+                          </option>
+
+                          {houses
+                            .filter(
+                              (house) =>
+                                house.archived !== true
+                            )
+                            .map((house) => (
+                              <option
+                                key={house.id}
+                                value={house.id}
+                              >
+                                {house.houseNumber || '-'} —{' '}
+                                {house.tenantName ||
+                                  t(
+                                    language,
+                                    'No occupant name',
+                                    'Hakuna jina la mkazi'
+                                  )}{' '}
+                                —{' '}
+                                {house.serviceChargeEnabled !==
+                                false
+                                  ? t(
+                                      language,
+                                      'Enabled',
+                                      'Imewashwa'
+                                    )
+                                  : t(
+                                      language,
+                                      'Disabled',
+                                      'Imezimwa'
+                                    )}
+                              </option>
+                            ))}
+                        </Select>
+
+                        <Select
+                          label={t(
+                            language,
+                            'Service Charge Status',
+                            'Hali ya Service Charge'
+                          )}
+                          value={
+                            serviceChargeHouseSettingForm.enabled
+                              ? 'Enabled'
+                              : 'Disabled'
+                          }
+                          onChange={(event) =>
+                            setServiceChargeHouseSettingForm(
+                              (previous) => ({
+                                ...previous,
+                                enabled:
+                                  event.target.value ===
+                                  'Enabled',
+                              })
+                            )
+                          }
+                        >
+                          <option value="Enabled">
+                            {t(
+                              language,
+                              'Enabled — Charge this house',
+                              'Imewashwa — Toza nyumba hii'
+                            )}
+                          </option>
+
+                          <option value="Disabled">
+                            {t(
+                              language,
+                              'Disabled — Do not charge this house',
+                              'Imezimwa — Usitoze nyumba hii'
+                            )}
+                          </option>
+                        </Select>
+
+                        <Input
+                          label={t(
+                            language,
+                            'Monthly Service Charge Amount',
+                            'Kiasi cha Service Charge kwa Mwezi'
+                          )}
+                          type="text"
+                          inputMode="numeric"
+                          placeholder="Mfano: 5,000"
+                          disabled={
+                            !serviceChargeHouseSettingForm.enabled
+                          }
+                          value={
+                            serviceChargeHouseSettingForm.monthlyAmount
+                          }
+                          onChange={(event) =>
+                            setServiceChargeHouseSettingForm(
+                              (previous) => ({
+                                ...previous,
+                                monthlyAmount:
+                                  formatAmountInput(
+                                    event.target.value
+                                  ),
+                              })
+                            )
+                          }
+                        />
+
+                        <Input
+                          label={t(
+                            language,
+                            'Reason for Change',
+                            'Sababu ya Badiliko'
+                          )}
+                          placeholder={t(
+                            language,
+                            'Explain why this setting is changing.',
+                            'Eleza kwa nini mipangilio hii inabadilishwa.'
+                          )}
+                          value={
+                            serviceChargeHouseSettingForm.reason
+                          }
+                          onChange={(event) =>
+                            setServiceChargeHouseSettingForm(
+                              (previous) => ({
+                                ...previous,
+                                reason:
+                                  event.target.value,
+                              })
+                            )
+                          }
+                        />
+                      </div>
+
+                      <div className="flex justify-end border-t border-cyan-100 bg-cyan-50 px-6 py-5">
+                        <Button
+                          type="button"
+                          className="bg-cyan-700 px-6 py-3"
+                          disabled={
+                            isSavingServiceChargeHouseSetting ||
+                            !serviceChargeHouseSettingForm.houseId
+                          }
+                          onClick={
+                            saveServiceChargeHouseSetting
+                          }
+                        >
+                          {isSavingServiceChargeHouseSetting
+                            ? t(
+                                language,
+                                'Saving Settings...',
+                                'Inahifadhi Mipangilio...'
+                              )
+                            : t(
+                                language,
+                                'Save House Setting',
+                                'Hifadhi Mipangilio ya Nyumba'
+                              )}
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="overflow-hidden rounded-3xl border border-red-200 bg-white shadow-sm">
+                      <div className="border-b border-red-200 bg-red-50 px-6 py-5">
+                        <h3 className="text-2xl font-bold text-red-950">
+                          {t(
+                            language,
+                            'Houses Missing This Month’s Invoice',
+                            'Nyumba Zisizo na Ankara ya Mwezi Huu'
+                          )}
+                        </h3>
+
+                        <p className="mt-2 text-red-700">
+                          {
+                            serviceChargeHousesMissingCurrentInvoice.length
+                          }{' '}
+                          {t(
+                            language,
+                            'houses require a Service Charge invoice.',
+                            'zinahitaji kuandaliwa ankara ya Service Charge.'
+                          )}
+                        </p>
+                      </div>
+
+                      {serviceChargeHousesMissingCurrentInvoice.length ===
+                      0 ? (
+                        <div className="p-8 text-center text-slate-500">
+                          {t(
+                            language,
+                            'Every eligible house has this month’s invoice.',
+                            'Nyumba zote zinazohusika zina ankara ya mwezi huu.'
+                          )}
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-slate-200">
+                          {serviceChargeHousesMissingCurrentInvoice.map(
+                            (house) => (
+                              <div
+                                key={house.id}
+                                className="grid gap-4 px-6 py-5 md:grid-cols-[1fr_1fr_auto] md:items-center"
+                              >
+                                <div>
+                                  <p className="font-bold text-slate-950">
+                                    {house.houseNumber || '-'} —{' '}
+                                    {house.tenantName ||
+                                      t(
+                                        language,
+                                        'Occupant',
+                                        'Mkazi'
+                                      )}
+                                  </p>
+
+                                  <p className="mt-1 text-sm text-slate-500">
+                                    {t(
+                                      language,
+                                      'Required month',
+                                      'Mwezi unaohitajika'
+                                    )}
+                                    : {currentServiceChargeMonth}
+                                  </p>
+                                </div>
+
+                                <PreviewValue
+                                  label={t(
+                                    language,
+                                    'Monthly Service Charge',
+                                    'Service Charge kwa Mwezi'
+                                  )}
+                                  value={`TZS ${currency(
+                                    Number(
+                                      house.monthlyServiceChargeAmount ||
+                                        DEFAULT_SERVICE_CHARGE
+                                    )
+                                  )}`}
+                                />
+
+                                <span className="inline-flex rounded-full bg-red-100 px-4 py-2 text-xs font-bold text-red-800">
+                                  {t(
+                                    language,
+                                    'Invoice Missing',
+                                    'Ankara Haipo'
+                                  )}
+                                </span>
+                              </div>
+                            )
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="overflow-hidden rounded-3xl border border-amber-200 bg-white shadow-sm">
+                      <div className="border-b border-amber-200 bg-amber-50 px-6 py-5">
+                        <h3 className="text-2xl font-bold text-amber-950">
+                          {t(
+                            language,
+                            'Houses With Service Charge Disabled',
+                            'Nyumba Ambazo Service Charge Imezimwa'
+                          )}
+                        </h3>
+
+                        <p className="mt-2 text-amber-700">
+                          {serviceChargeDisabledHouses.length}{' '}
+                          {t(
+                            language,
+                            'occupied houses are not currently being charged.',
+                            'zinatumika lakini kwa sasa hazitozwi Service Charge.'
+                          )}
+                        </p>
+                      </div>
+
+                      {serviceChargeDisabledHouses.length === 0 ? (
+                        <div className="p-8 text-center text-slate-500">
+                          {t(
+                            language,
+                            'No occupied house has Service Charge disabled.',
+                            'Hakuna nyumba inayotumika ambayo Service Charge imezimwa.'
+                          )}
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-slate-200">
+                          {serviceChargeDisabledHouses.map(
+                            (house) => (
+                              <div
+                                key={house.id}
+                                className="grid gap-4 px-6 py-5 md:grid-cols-[1fr_1fr_auto] md:items-center"
+                              >
+                                <div>
+                                  <p className="font-bold text-slate-950">
+                                    {house.houseNumber || '-'} —{' '}
+                                    {house.tenantName ||
+                                      t(
+                                        language,
+                                        'Occupant',
+                                        'Mkazi'
+                                      )}
+                                  </p>
+
+                                  <p className="mt-1 text-sm text-slate-500">
+                                    {t(
+                                      language,
+                                      'House status',
+                                      'Hali ya nyumba'
+                                    )}
+                                    : {house.houseStatus || '-'}
+                                  </p>
+                                </div>
+
+                                <PreviewValue
+                                  label={t(
+                                    language,
+                                    'Normal Monthly Amount',
+                                    'Kiasi cha Kawaida kwa Mwezi'
+                                  )}
+                                  value={`TZS ${currency(
+                                    Number(
+                                      house.monthlyServiceChargeAmount ||
+                                        DEFAULT_SERVICE_CHARGE
+                                    )
+                                  )}`}
+                                />
+
+                                <span className="inline-flex rounded-full bg-amber-100 px-4 py-2 text-xs font-bold text-amber-800">
+                                  {t(
+                                    language,
+                                    'Disabled',
+                                    'Imezimwa'
+                                  )}
+                                </span>
+                              </div>
+                            )
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="overflow-hidden rounded-3xl border border-purple-200 bg-white shadow-sm">
+                      <div className="border-b border-purple-200 bg-purple-50 px-6 py-5">
+                        <h3 className="text-2xl font-bold text-purple-950">
+                          {t(
+                            language,
+                            'Unpaid Accounts Missing Contact Details',
+                            'Akaunti Zenye Deni Zisizo na Mawasiliano Kamili'
+                          )}
+                        </h3>
+
+                        <p className="mt-2 text-purple-700">
+                          {
+                            serviceChargeAccountsMissingContact.length
+                          }{' '}
+                          {t(
+                            language,
+                            'unpaid accounts need an occupant name or phone number.',
+                            'zenye deni zinahitaji jina la mkazi au namba ya simu.'
+                          )}
+                        </p>
+                      </div>
+
+                      {serviceChargeAccountsMissingContact.length ===
+                      0 ? (
+                        <div className="p-8 text-center text-slate-500">
+                          {t(
+                            language,
+                            'Every unpaid account has the required contact details.',
+                            'Akaunti zote zenye deni zina taarifa muhimu za mawasiliano.'
+                          )}
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-slate-200">
+                          {serviceChargeAccountsMissingContact.map(
+                            (service) => {
+                              const connectedHouse =
+                                houses.find(
+                                  (house) =>
+                                    String(house.id || '') ===
+                                      String(
+                                        service.houseId || ''
+                                      ) ||
+                                    String(
+                                      house.houseNumber || ''
+                                    )
+                                      .trim()
+                                      .toUpperCase() ===
+                                      String(
+                                        service.houseNumber || ''
+                                      )
+                                        .trim()
+                                        .toUpperCase()
+                                );
+
+                              const occupantName =
+                                service.tenantName ||
+                                connectedHouse?.tenantName ||
+                                '';
+
+                              const phoneNumber =
+                                service.phoneNumber ||
+                                service.tenantPhone ||
+                                connectedHouse?.phoneNumber ||
+                                '';
+
+                              return (
+                                <div
+                                  key={service.id}
+                                  className="grid gap-4 px-6 py-5 md:grid-cols-[1fr_1fr_1fr_auto] md:items-center"
+                                >
+                                  <div>
+                                    <p className="font-bold text-slate-950">
+                                      {service.houseNumber ||
+                                        connectedHouse?.houseNumber ||
+                                        '-'}
+                                    </p>
+
+                                    <p className="mt-1 text-sm text-slate-500">
+                                      {service.chargeMonth || '-'}
+                                    </p>
+                                  </div>
+
+                                  <PreviewValue
+                                    label={t(
+                                      language,
+                                      'Occupant Name',
+                                      'Jina la Mkazi'
+                                    )}
+                                    value={
+                                      occupantName ||
+                                      t(
+                                        language,
+                                        'Missing',
+                                        'Halipo'
+                                      )
+                                    }
+                                  />
+
+                                  <PreviewValue
+                                    label={t(
+                                      language,
+                                      'Phone Number',
+                                      'Namba ya Simu'
+                                    )}
+                                    value={
+                                      phoneNumber ||
+                                      t(
+                                        language,
+                                        'Missing',
+                                        'Haipo'
+                                      )
+                                    }
+                                  />
+
+                                  <span className="inline-flex rounded-full bg-purple-100 px-4 py-2 text-xs font-bold text-purple-800">
+                                    {t(
+                                      language,
+                                      'Complete Details',
+                                      'Kamilisha Taarifa'
+                                    )}
+                                  </span>
+                                </div>
+                              );
+                            }
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {activeServiceChargeSection ===
+                  'reports' && (
+                  <div className="space-y-5">
+                    <div className="overflow-hidden rounded-3xl border border-indigo-200 bg-white shadow-sm">
+                      <div className="border-b border-indigo-200 bg-indigo-50 px-6 py-5">
+                        <h3 className="text-2xl font-bold text-indigo-950">
+                          {t(
+                            language,
+                            'Service Charge Reports',
+                            'Ripoti za Service Charge'
+                          )}
+                        </h3>
+
+                        <p className="mt-2 text-indigo-700">
+                          {t(
+                            language,
+                            'Select one report below to view its permanent records.',
+                            'Chagua ripoti moja hapa chini ili kuona rekodi zake za kudumu.'
+                          )}
+                        </p>
+                      </div>
+
+                      <div className="grid gap-4 p-5 sm:grid-cols-2 xl:grid-cols-5">
+                        {[
+                          {
+                            value: 'invoices',
+                            title: t(
+                              language,
+                              'Invoice Register',
+                              'Rejesta ya Ankara'
+                            ),
+                            description: t(
+                              language,
+                              'Every Service Charge invoice.',
+                              'Ankara zote za Service Charge.'
+                            ),
+                            colour:
+                              'border-blue-200 bg-blue-50 text-blue-950',
+                          },
+                          {
+                            value: 'payments',
+                            title: t(
+                              language,
+                              'Payment History',
+                              'Historia ya Malipo'
+                            ),
+                            description: t(
+                              language,
+                              'Every permanent payment receipt.',
+                              'Risiti zote za malipo ya kudumu.'
+                            ),
+                            colour:
+                              'border-emerald-200 bg-emerald-50 text-emerald-950',
+                          },
+                          {
+                            value: 'outstanding',
+                            title: t(
+                              language,
+                              'Outstanding Balances',
+                              'Salio Linalodaiwa'
+                            ),
+                            description: t(
+                              language,
+                              'Unpaid and partially paid invoices.',
+                              'Ankara ambazo hazijalipwa au zimelipwa sehemu.'
+                            ),
+                            colour:
+                              'border-amber-200 bg-amber-50 text-amber-950',
+                          },
+                          {
+                            value: 'expenses',
+                            title: t(
+                              language,
+                              'Expenses and Fund',
+                              'Matumizi na Mfuko'
+                            ),
+                            description: t(
+                              language,
+                              'Collections, expenses and fund balance.',
+                              'Makusanyo, matumizi na salio la mfuko.'
+                            ),
+                            colour:
+                              'border-red-200 bg-red-50 text-red-950',
+                          },
+                          {
+                            value: 'corrections',
+                            title: t(
+                              language,
+                              'Correction History',
+                              'Historia ya Marekebisho'
+                            ),
+                            description: t(
+                              language,
+                              'Permanent audit of all corrections.',
+                              'Ukaguzi wa kudumu wa marekebisho yote.'
+                            ),
+                            colour:
+                              'border-purple-200 bg-purple-50 text-purple-950',
+                          },
+                        ].map((report) => (
+                          <button
+                            key={report.value}
+                            type="button"
+                            onClick={() =>
+                              setActiveServiceChargeReport(
+                                report.value
+                              )
+                            }
+                            className={`rounded-2xl border p-5 text-left transition hover:-translate-y-1 hover:shadow-md ${
+                              report.colour
+                            } ${
+                              activeServiceChargeReport ===
+                              report.value
+                                ? 'ring-2 ring-indigo-500 ring-offset-2'
+                                : ''
+                            }`}
+                          >
+                            <p className="font-bold">
+                              {report.title}
+                            </p>
+
+                            <p className="mt-2 text-sm leading-6 opacity-80">
+                              {report.description}
+                            </p>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {!activeServiceChargeReport && (
+                      <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center shadow-sm">
+                        <p className="text-lg font-bold text-slate-700">
+                          {t(
+                            language,
+                            'Select a report above.',
+                            'Chagua ripoti hapo juu.'
+                          )}
+                        </p>
+
+                        <p className="mt-2 text-slate-500">
+                          {t(
+                            language,
+                            'Its detailed permanent records will appear here.',
+                            'Rekodi zake za kudumu zitaonekana hapa.'
+                          )}
+                        </p>
+                      </div>
+                    )}
+
+                    {activeServiceChargeReport ===
+                      'invoices' && (
+                      <div className="overflow-hidden rounded-3xl border border-blue-200 bg-white shadow-sm">
+                        <div className="border-b border-blue-200 bg-blue-50 px-6 py-5">
+                          <div className="flex flex-wrap items-center justify-between gap-4">
+                            <div>
+                              <h3 className="text-2xl font-bold text-blue-950">
+                                {t(
+                                  language,
+                                  'Permanent Service Charge Invoice Register',
+                                  'Rejesta ya Kudumu ya Ankara za Service Charge'
+                                )}
+                              </h3>
+
+                              <p className="mt-2 text-blue-700">
+                                {t(
+                                  language,
+                                  'Every invoice remains preserved together with its payment position.',
+                                  'Kila ankara inaendelea kuhifadhiwa pamoja na hali yake ya malipo.'
+                                )}
+                              </p>
+                            </div>
+
+                            <div className="rounded-2xl border border-blue-200 bg-white px-5 py-3 text-center">
+                              <p className="text-xs font-bold uppercase text-blue-600">
+                                {t(
+                                  language,
+                                  'Total Invoices',
+                                  'Jumla ya Ankara'
+                                )}
+                              </p>
+
+                              <p className="mt-1 text-2xl font-bold text-blue-950">
+                                {activeServiceCharges.length}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {activeServiceCharges.length === 0 ? (
+                          <div className="p-10 text-center text-slate-500">
+                            {t(
+                              language,
+                              'No Service Charge invoice has been recorded.',
+                              'Hakuna ankara ya Service Charge iliyorekodiwa.'
+                            )}
+                          </div>
+                        ) : (
+                          <div className="divide-y divide-slate-200">
+                            {activeServiceCharges.map(
+                              (service) => {
+                                const invoiceAmount =
+                                  Number(
+                                    service.serviceChargeAmount ||
+                                      0
+                                  );
+
+                                const amountPaid = Number(
+                                  service.amountPaid || 0
+                                );
+
+                                const balance = Number(
+                                  service.balance ??
+                                    Math.max(
+                                      0,
+                                      invoiceAmount -
+                                        amountPaid
+                                    )
+                                );
+
+                                return (
+                                  <div
+                                    key={service.id}
+                                    className="grid gap-4 px-6 py-5 lg:grid-cols-[1.2fr_1fr_1fr_1fr_1fr_auto] lg:items-center"
+                                  >
+                                    <div>
+                                      <p className="font-bold text-slate-950">
+                                        {service.houseNumber ||
+                                          '-'}{' '}
+                                        —{' '}
+                                        {service.tenantName ||
+                                          t(
+                                            language,
+                                            'Occupant',
+                                            'Mkazi'
+                                          )}
+                                      </p>
+
+                                      <p className="mt-1 text-sm text-slate-500">
+                                        {t(
+                                          language,
+                                          'Charge month',
+                                          'Mwezi wa malipo'
+                                        )}
+                                        :{' '}
+                                        {service.chargeMonth ||
+                                          '-'}
+                                      </p>
+                                    </div>
+
+                                    <PreviewValue
+                                      label={t(
+                                        language,
+                                        'Invoice Date',
+                                        'Tarehe ya Ankara'
+                                      )}
+                                      value={
+                                        service.invoiceDate ||
+                                        '-'
+                                      }
+                                    />
+
+                                    <PreviewValue
+                                      label={t(
+                                        language,
+                                        'Due Date',
+                                        'Mwisho wa Malipo'
+                                      )}
+                                      value={
+                                        service.dueDate ||
+                                        service.nextPaymentDate ||
+                                        '-'
+                                      }
+                                    />
+
+                                    <PreviewValue
+                                      label={t(
+                                        language,
+                                        'Invoice Amount',
+                                        'Kiasi cha Ankara'
+                                      )}
+                                      value={`TZS ${currency(
+                                        invoiceAmount
+                                      )}`}
+                                    />
+
+                                    <PreviewValue
+                                      label={t(
+                                        language,
+                                        'Balance',
+                                        'Salio'
+                                      )}
+                                      value={`TZS ${currency(
+                                        balance
+                                      )}`}
+                                    />
+
+                                    <span
+                                      className={`inline-flex rounded-full px-3 py-2 text-xs font-bold ${
+                                        balance <= 0
+                                          ? 'bg-emerald-100 text-emerald-800'
+                                          : amountPaid > 0
+                                            ? 'bg-amber-100 text-amber-800'
+                                            : 'bg-red-100 text-red-800'
+                                      }`}
+                                    >
+                                      {balance <= 0
+                                        ? t(
+                                            language,
+                                            'Paid',
+                                            'Imelipwa'
+                                          )
+                                        : amountPaid > 0
+                                          ? t(
+                                              language,
+                                              'Partially Paid',
+                                              'Imelipwa Sehemu'
+                                            )
+                                          : t(
+                                              language,
+                                              'Unpaid',
+                                              'Haijalipwa'
+                                            )}
+                                    </span>
+                                  </div>
+                                );
+                              }
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {activeServiceChargeReport ===
+                      'payments' && (
+                      <div className="overflow-hidden rounded-3xl border border-emerald-200 bg-white shadow-sm">
+                        <div className="border-b border-emerald-200 bg-emerald-50 px-6 py-5">
+                          <div className="flex flex-wrap items-center justify-between gap-4">
+                            <div>
+                              <h3 className="text-2xl font-bold text-emerald-950">
+                                {t(
+                                  language,
+                                  'Permanent Service Charge Payment History',
+                                  'Historia ya Kudumu ya Malipo ya Service Charge'
+                                )}
+                              </h3>
+
+                              <p className="mt-2 text-emerald-700">
+                                {t(
+                                  language,
+                                  'Every receipt remains preserved together with its invoice allocation and future credit.',
+                                  'Kila risiti inahifadhiwa pamoja na mgawanyo wake kwenye ankara na salio la mbele.'
+                                )}
+                              </p>
+                            </div>
+
+                            <div className="rounded-2xl border border-emerald-200 bg-white px-5 py-3 text-center">
+                              <p className="text-xs font-bold uppercase text-emerald-600">
+                                {t(
+                                  language,
+                                  'Active Money Received',
+                                  'Fedha Halali Zilizopokelewa'
+                                )}
+                              </p>
+
+                              <p className="mt-1 text-2xl font-bold text-emerald-950">
+                                TZS{' '}
+                                {currency(
+                                  permanentServiceChargeCashCollected
+                                )}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {isLoadingServiceChargeRecords ? (
+                          <div className="p-10 text-center text-slate-500">
+                            {t(
+                              language,
+                              'Loading permanent payment records...',
+                              'Inapakia rekodi za kudumu za malipo...'
+                            )}
+                          </div>
+                        ) : serviceChargePayments.length ===
+                          0 ? (
+                          <div className="p-10 text-center text-slate-500">
+                            {t(
+                              language,
+                              'No permanent Service Charge payment has been recorded.',
+                              'Hakuna malipo ya kudumu ya Service Charge yaliyorekodiwa.'
+                            )}
+                          </div>
+                        ) : (
+                          <div className="divide-y divide-slate-200">
+                            {serviceChargePayments.map(
+                              (payment) => (
+                                <div
+                                  key={payment.id}
+                                  className="grid gap-4 px-6 py-5 lg:grid-cols-[1.2fr_1fr_1fr_1fr_auto] lg:items-center"
+                                >
+                                  <div>
+                                    <p className="font-bold text-slate-950">
+                                      {payment.houseNumber ||
+                                        '-'}{' '}
+                                      —{' '}
+                                      {payment.tenantName ||
+                                        t(
+                                          language,
+                                          'Occupant',
+                                          'Mkazi'
+                                        )}
+                                    </p>
+
+                                    <p className="mt-1 text-sm text-slate-500">
+                                      {payment.paymentDate ||
+                                        '-'}{' '}
+                                      ·{' '}
+                                      {payment.paymentMethod ||
+                                        'Cash'}
+                                    </p>
+
+                                    {payment.referenceNumber ? (
+                                      <p className="mt-1 text-xs text-slate-500">
+                                        {t(
+                                          language,
+                                          'Reference',
+                                          'Kumbukumbu'
+                                        )}
+                                        :{' '}
+                                        {
+                                          payment.referenceNumber
+                                        }
+                                      </p>
+                                    ) : null}
+                                  </div>
+
+                                  <PreviewValue
+                                    label={t(
+                                      language,
+                                      'Amount Received',
+                                      'Kilichopokelewa'
+                                    )}
+                                    value={`TZS ${currency(
+                                      payment.amountReceived
+                                    )}`}
+                                  />
+
+                                  <PreviewValue
+                                    label={t(
+                                      language,
+                                      'Allocated to Invoices',
+                                      'Kilichogawiwa Kwenye Ankara'
+                                    )}
+                                    value={`TZS ${currency(
+                                      payment.amountAllocated
+                                    )}`}
+                                  />
+
+                                  <PreviewValue
+                                    label={t(
+                                      language,
+                                      'Future Credit',
+                                      'Salio la Mbele'
+                                    )}
+                                    value={`TZS ${currency(
+                                      payment.unappliedCredit
+                                    )}`}
+                                  />
+
+                                  <span
+                                    className={`inline-flex rounded-full px-3 py-2 text-xs font-bold ${
+                                      payment.status ===
+                                      'Reversed'
+                                        ? 'bg-red-100 text-red-800'
+                                        : 'bg-emerald-100 text-emerald-800'
+                                    }`}
+                                  >
+                                    {payment.status ===
+                                    'Reversed'
+                                      ? t(
+                                          language,
+                                          'Reversed',
+                                          'Imerudishwa'
+                                        )
+                                      : t(
+                                          language,
+                                          'Active',
+                                          'Halali'
+                                        )}
+                                  </span>
+                                </div>
+                              )
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {activeServiceChargeReport ===
+                      'outstanding' && (
+                      <div className="overflow-hidden rounded-3xl border border-amber-200 bg-white shadow-sm">
+                        <div className="border-b border-amber-200 bg-amber-50 px-6 py-5">
+                          <div className="flex flex-wrap items-center justify-between gap-4">
+                            <div>
+                              <h3 className="text-2xl font-bold text-amber-950">
+                                {t(
+                                  language,
+                                  'Outstanding Service Charge Balances',
+                                  'Salio Linalodaiwa la Service Charge'
+                                )}
+                              </h3>
+
+                              <p className="mt-2 text-amber-700">
+                                {t(
+                                  language,
+                                  'Only unpaid and partially paid invoices appear here.',
+                                  'Ankara ambazo hazijalipwa au zimelipwa sehemu pekee ndizo zinaonekana hapa.'
+                                )}
+                              </p>
+                            </div>
+
+                            <div className="rounded-2xl border border-amber-200 bg-white px-5 py-3 text-center">
+                              <p className="text-xs font-bold uppercase text-amber-700">
+                                {t(
+                                  language,
+                                  'Total Outstanding',
+                                  'Jumla Inayodaiwa'
+                                )}
+                              </p>
+
+                              <p className="mt-1 text-2xl font-bold text-amber-950">
+                                TZS{' '}
+                                {currency(
+                                  totalServiceChargeOutstanding
+                                )}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {activeServiceCharges.filter(
+                          (service) =>
+                            Number(
+                              service.balance ??
+                                Math.max(
+                                  0,
+                                  Number(
+                                    service.serviceChargeAmount ||
+                                      0
+                                  ) -
+                                    Number(
+                                      service.amountPaid || 0
+                                    )
+                                )
+                            ) > 0
+                        ).length === 0 ? (
+                          <div className="p-10 text-center text-slate-500">
+                            {t(
+                              language,
+                              'There is currently no outstanding Service Charge.',
+                              'Kwa sasa hakuna Service Charge inayodaiwa.'
+                            )}
+                          </div>
+                        ) : (
+                          <div className="divide-y divide-slate-200">
+                            {activeServiceCharges
+                              .filter(
+                                (service) =>
+                                  Number(
+                                    service.balance ??
+                                      Math.max(
+                                        0,
+                                        Number(
+                                          service.serviceChargeAmount ||
+                                            0
+                                        ) -
+                                          Number(
+                                            service.amountPaid ||
+                                              0
+                                          )
+                                      )
+                                  ) > 0
+                              )
+                              .map((service) => {
+                                const invoiceAmount =
+                                  Number(
+                                    service.serviceChargeAmount ||
+                                      0
+                                  );
+
+                                const amountPaid = Number(
+                                  service.amountPaid || 0
+                                );
+
+                                const balance = Number(
+                                  service.balance ??
+                                    Math.max(
+                                      0,
+                                      invoiceAmount -
+                                        amountPaid
+                                    )
+                                );
+
+                                const isOverdue =
+                                  service.dueDate &&
+                                  daysBetween(
+                                    todayISO(),
+                                    service.dueDate
+                                  ) < 0;
+
+                                return (
+                                  <div
+                                    key={service.id}
+                                    className="grid gap-4 px-6 py-5 lg:grid-cols-[1.2fr_1fr_1fr_1fr_auto] lg:items-center"
+                                  >
+                                    <div>
+                                      <p className="font-bold text-slate-950">
+                                        {service.houseNumber ||
+                                          '-'}{' '}
+                                        —{' '}
+                                        {service.tenantName ||
+                                          t(
+                                            language,
+                                            'Occupant',
+                                            'Mkazi'
+                                          )}
+                                      </p>
+
+                                      <p className="mt-1 text-sm text-slate-500">
+                                        {t(
+                                          language,
+                                          'Charge month',
+                                          'Mwezi wa malipo'
+                                        )}
+                                        :{' '}
+                                        {service.chargeMonth ||
+                                          '-'}
+                                      </p>
+                                    </div>
+
+                                    <PreviewValue
+                                      label={t(
+                                        language,
+                                        'Payment Deadline',
+                                        'Mwisho wa Malipo'
+                                      )}
+                                      value={
+                                        service.dueDate ||
+                                        service.nextPaymentDate ||
+                                        '-'
+                                      }
+                                    />
+
+                                    <PreviewValue
+                                      label={t(
+                                        language,
+                                        'Invoice Amount',
+                                        'Kiasi cha Ankara'
+                                      )}
+                                      value={`TZS ${currency(
+                                        invoiceAmount
+                                      )}`}
+                                    />
+
+                                    <PreviewValue
+                                      label={t(
+                                        language,
+                                        'Outstanding Balance',
+                                        'Salio Linalodaiwa'
+                                      )}
+                                      value={`TZS ${currency(
+                                        balance
+                                      )}`}
+                                    />
+
+                                    <span
+                                      className={`inline-flex rounded-full px-3 py-2 text-xs font-bold ${
+                                        isOverdue
+                                          ? 'bg-red-100 text-red-800'
+                                          : amountPaid > 0
+                                            ? 'bg-amber-100 text-amber-800'
+                                            : 'bg-yellow-100 text-yellow-800'
+                                      }`}
+                                    >
+                                      {isOverdue
+                                        ? t(
+                                            language,
+                                            'Overdue',
+                                            'Imechelewa'
+                                          )
+                                        : amountPaid > 0
+                                          ? t(
+                                              language,
+                                              'Partially Paid',
+                                              'Imelipwa Sehemu'
+                                            )
+                                          : t(
+                                              language,
+                                              'Unpaid',
+                                              'Haijalipwa'
+                                            )}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {activeServiceChargeReport ===
+                      'expenses' && (
+                      <div className="space-y-5">
+                        <div className="grid gap-4 sm:grid-cols-3">
+                          <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
+                            <p className="font-bold uppercase text-emerald-700">
+                              {t(
+                                language,
+                                'Money Collected',
+                                'Fedha Zilizokusanywa'
+                              )}
+                            </p>
+
+                            <p className="mt-4 text-3xl font-bold text-emerald-950">
+                              TZS{' '}
+                              {currency(
+                                totalServiceChargeCollected
+                              )}
+                            </p>
+                          </div>
+
+                          <div className="rounded-3xl border border-red-200 bg-red-50 p-6 shadow-sm">
+                            <p className="font-bold uppercase text-red-700">
+                              {t(
+                                language,
+                                'Expenses Paid',
+                                'Matumizi Yaliyolipwa'
+                              )}
+                            </p>
+
+                            <p className="mt-4 text-3xl font-bold text-red-950">
+                              TZS{' '}
+                              {currency(
+                                totalServiceChargeExpenses
+                              )}
+                            </p>
+                          </div>
+
+                          <div
+                            className={`rounded-3xl border p-6 shadow-sm ${
+                              serviceChargeFundBalance >= 0
+                                ? 'border-violet-200 bg-violet-50'
+                                : 'border-orange-200 bg-orange-50'
+                            }`}
+                          >
+                            <p
+                              className={`font-bold uppercase ${
+                                serviceChargeFundBalance >= 0
+                                  ? 'text-violet-700'
+                                  : 'text-orange-700'
+                              }`}
+                            >
+                              {t(
+                                language,
+                                'Fund Balance',
+                                'Salio la Mfuko'
+                              )}
+                            </p>
+
+                            <p
+                              className={`mt-4 text-3xl font-bold ${
+                                serviceChargeFundBalance >= 0
+                                  ? 'text-violet-950'
+                                  : 'text-orange-950'
+                              }`}
+                            >
+                              TZS{' '}
+                              {currency(
+                                serviceChargeFundBalance
+                              )}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="overflow-hidden rounded-3xl border border-red-200 bg-white shadow-sm">
+                          <div className="border-b border-red-200 bg-red-50 px-6 py-5">
+                            <div className="flex flex-wrap items-center justify-between gap-4">
+                              <div>
+                                <h3 className="text-2xl font-bold text-red-950">
+                                  {t(
+                                    language,
+                                    'Permanent Service Charge Expense Report',
+                                    'Ripoti ya Kudumu ya Matumizi ya Service Charge'
+                                  )}
+                                </h3>
+
+                                <p className="mt-2 text-red-700">
+                                  {t(
+                                    language,
+                                    'Every expense remains preserved, including reversed records.',
+                                    'Kila matumizi yanaendelea kuhifadhiwa, pamoja na rekodi zilizorudishwa.'
+                                  )}
+                                </p>
+                              </div>
+
+                              <div className="rounded-2xl border border-red-200 bg-white px-5 py-3 text-center">
+                                <p className="text-xs font-bold uppercase text-red-600">
+                                  {t(
+                                    language,
+                                    'Expense Records',
+                                    'Rekodi za Matumizi'
+                                  )}
+                                </p>
+
+                                <p className="mt-1 text-2xl font-bold text-red-950">
+                                  {
+                                    serviceChargeExpenses.length
+                                  }
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+
+                          {isLoadingServiceChargeRecords ? (
+                            <div className="p-10 text-center text-slate-500">
+                              {t(
+                                language,
+                                'Loading expense records...',
+                                'Inapakia rekodi za matumizi...'
+                              )}
+                            </div>
+                          ) : serviceChargeExpenses.length ===
+                            0 ? (
+                            <div className="p-10 text-center text-slate-500">
+                              {t(
+                                language,
+                                'No Service Charge expense has been recorded.',
+                                'Hakuna matumizi ya Service Charge yaliyorekodiwa.'
+                              )}
+                            </div>
+                          ) : (
+                            <div className="divide-y divide-slate-200">
+                              {serviceChargeExpenses.map(
+                                (expense) => (
+                                  <div
+                                    key={expense.id}
+                                    className="grid gap-4 px-6 py-5 lg:grid-cols-[1.3fr_1fr_1fr_1fr_auto] lg:items-center"
+                                  >
+                                    <div>
+                                      <p className="font-bold text-slate-950">
+                                        {expense.description ||
+                                          expense.expenseType ||
+                                          '-'}
+                                      </p>
+
+                                      <p className="mt-1 text-sm text-slate-500">
+                                        {expense.expenseType ||
+                                          t(
+                                            language,
+                                            'Other',
+                                            'Mengine'
+                                          )}
+                                      </p>
+                                    </div>
+
+                                    <PreviewValue
+                                      label={t(
+                                        language,
+                                        'Expense Date',
+                                        'Tarehe ya Matumizi'
+                                      )}
+                                      value={
+                                        expense.expenseDate ||
+                                        '-'
+                                      }
+                                    />
+
+                                    <PreviewValue
+                                      label={t(
+                                        language,
+                                        'Paid To',
+                                        'Aliyelipwa'
+                                      )}
+                                      value={
+                                        expense.payee || '-'
+                                      }
+                                    />
+
+                                    <PreviewValue
+                                      label={t(
+                                        language,
+                                        'Amount',
+                                        'Kiasi'
+                                      )}
+                                      value={`TZS ${currency(
+                                        expense.amount
+                                      )}`}
+                                    />
+
+                                    <span
+                                      className={`inline-flex rounded-full px-3 py-2 text-xs font-bold ${
+                                        expense.status ===
+                                        'Reversed'
+                                          ? 'bg-red-100 text-red-800'
+                                          : 'bg-emerald-100 text-emerald-800'
+                                      }`}
+                                    >
+                                      {expense.status ===
+                                      'Reversed'
+                                        ? t(
+                                            language,
+                                            'Reversed',
+                                            'Imerudishwa'
+                                          )
+                                        : t(
+                                            language,
+                                            'Active',
+                                            'Halali'
+                                          )}
+                                    </span>
+                                  </div>
+                                )
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    {activeServiceChargeReport ===
+                      'corrections' && (
+                      <div className="overflow-hidden rounded-3xl border border-purple-200 bg-white shadow-sm">
+                        <div className="border-b border-purple-200 bg-purple-50 px-6 py-5">
+                          <div className="flex flex-wrap items-center justify-between gap-4">
+                            <div>
+                              <h3 className="text-2xl font-bold text-purple-950">
+                                {t(
+                                  language,
+                                  'Permanent Service Charge Correction History',
+                                  'Historia ya Kudumu ya Marekebisho ya Service Charge'
+                                )}
+                              </h3>
+
+                              <p className="mt-2 text-purple-700">
+                                {t(
+                                  language,
+                                  'Every correction and reversal remains preserved for audit purposes.',
+                                  'Kila marekebisho na urejeshaji vinaendelea kuhifadhiwa kwa ajili ya ukaguzi.'
+                                )}
+                              </p>
+                            </div>
+
+                            <div className="rounded-2xl border border-purple-200 bg-white px-5 py-3 text-center">
+                              <p className="text-xs font-bold uppercase text-purple-600">
+                                {t(
+                                  language,
+                                  'Correction Records',
+                                  'Rekodi za Marekebisho'
+                                )}
+                              </p>
+
+                              <p className="mt-1 text-2xl font-bold text-purple-950">
+                                {
+                                  serviceChargeCorrections.length
+                                }
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {isLoadingServiceChargeRecords ? (
+                          <div className="p-10 text-center text-slate-500">
+                            {t(
+                              language,
+                              'Loading correction history...',
+                              'Inapakia historia ya marekebisho...'
+                            )}
+                          </div>
+                        ) : serviceChargeCorrections.length ===
+                          0 ? (
+                          <div className="p-10 text-center text-slate-500">
+                            {t(
+                              language,
+                              'No Service Charge correction has been recorded.',
+                              'Hakuna marekebisho ya Service Charge yaliyorekodiwa.'
+                            )}
+                          </div>
+                        ) : (
+                          <div className="divide-y divide-slate-200">
+                            {serviceChargeCorrections.map(
+                              (correction) => (
+                                <div
+                                  key={correction.id}
+                                  className="grid gap-4 px-6 py-5 lg:grid-cols-[1.2fr_1fr_1fr_1.5fr_auto] lg:items-center"
+                                >
+                                  <div>
+                                    <p className="font-bold text-slate-950">
+                                      {correction.recordType ||
+                                        t(
+                                          language,
+                                          'Service Charge Record',
+                                          'Rekodi ya Service Charge'
+                                        )}
+                                    </p>
+
+                                    <p className="mt-1 text-xs text-slate-500">
+                                      ID:{' '}
+                                      {correction.recordId ||
+                                        '-'}
+                                    </p>
+                                  </div>
+
+                                  <PreviewValue
+                                    label={t(
+                                      language,
+                                      'Action',
+                                      'Kitendo'
+                                    )}
+                                    value={
+                                      correction.actionType ||
+                                      correction.correctionType ||
+                                      '-'
+                                    }
+                                  />
+
+                                  <PreviewValue
+                                    label={t(
+                                      language,
+                                      'Correction Date',
+                                      'Tarehe ya Marekebisho'
+                                    )}
+                                    value={
+                                      correction.correctedDate ||
+                                      correction.created_at ||
+                                      '-'
+                                    }
+                                  />
+
+                                  <PreviewValue
+                                    label={t(
+                                      language,
+                                      'Reason',
+                                      'Sababu'
+                                    )}
+                                    value={
+                                      correction.reason ||
+                                      correction.notes ||
+                                      '-'
+                                    }
+                                  />
+
+                                  <span className="inline-flex rounded-full bg-purple-100 px-3 py-2 text-xs font-bold text-purple-800">
+                                    {t(
+                                      language,
+                                      'Preserved',
+                                      'Imehifadhiwa'
+                                    )}
+                                  </span>
+                                </div>
+                              )
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </main>
+            </div>
           </div>
         )}
 
