@@ -193,7 +193,7 @@ const emptyServiceChargeForm = {
 
 const emptyServiceChargePaymentForm = {
   houseId: '',
-  amountReceived: '',
+  amountReceived: '5000',
   paymentDate: todayISO(),
   paymentMethod: 'Cash',
   referenceNumber: '',
