@@ -11026,6 +11026,37 @@ if (salesMode === 'year') {
       throw new Error('Supabase sales response was not a valid list.');
     }
 
+    let centralFundTransactionsQuery = supabase
+      .from('centralFundTransactions')
+      .select('*')
+      .order('created_at', {
+        ascending: false,
+      });
+
+    if (!isOwnerUser) {
+      centralFundTransactionsQuery =
+        centralFundTransactionsQuery.eq(
+          'shop_id',
+          shopId
+        );
+    }
+
+    const {
+      data: cloudCentralFundTransactions,
+      error: centralFundTransactionsError,
+    } = await centralFundTransactionsQuery;
+
+    if (centralFundTransactionsError) {
+      throw centralFundTransactionsError;
+    }
+
+    if (
+      !Array.isArray(cloudCentralFundTransactions)
+    ) {
+      throw new Error(
+        'Supabase central fund transactions response was not a valid list.'
+      );
+    }
 
     const productRefreshIntervalMs =
       20 * 60 * 1000;
@@ -11083,6 +11114,86 @@ if (salesMode === 'year') {
         ...sale,
         confirmed: true,
       })),
+
+      centralFundTransactions:
+        cloudCentralFundTransactions.map((row) => ({
+          id: row?.id || '',
+          transactionType:
+            row?.transaction_type || '',
+          transactionDate:
+            row?.transaction_date || '',
+
+          shop_id: String(
+            row?.shop_id || ''
+          ).trim(),
+          shopName: row?.shop_name || '',
+
+          expenseKey: row?.expense_key || '',
+          expenseName:
+            row?.expense_name || '',
+
+          sourceFundType:
+            row?.source_fund_type || '',
+          sourceFundKey:
+            row?.source_fund_key || '',
+          sourceFundName:
+            row?.source_fund_name || '',
+          sourceShopId: String(
+            row?.source_shop_id || ''
+          ).trim(),
+          sourceShopName:
+            row?.source_shop_name || '',
+
+          destinationFundType:
+            row?.destination_fund_type || '',
+          destinationFundKey:
+            row?.destination_fund_key || '',
+          destinationFundName:
+            row?.destination_fund_name || '',
+          destinationShopId: String(
+            row?.destination_shop_id || ''
+          ).trim(),
+          destinationShopName:
+            row?.destination_shop_name || '',
+
+          amount: Number(row?.amount || 0),
+
+          payee: row?.payee || '',
+          purpose: row?.purpose || '',
+          paymentMethod:
+            row?.payment_method || '',
+          paymentReference:
+            row?.payment_reference || '',
+          notes: row?.notes || '',
+
+          status: row?.status || 'confirmed',
+
+          borrowingDueDate:
+            row?.borrowing_due_date || '',
+          borrowingStatus:
+            row?.borrowing_status || '',
+          borrowedAmount: Number(
+            row?.borrowed_amount || 0
+          ),
+          repaidAmount: Number(
+            row?.repaid_amount || 0
+          ),
+
+          relatedTransactionId:
+            row?.related_transaction_id || '',
+          reversalOfTransactionId:
+            row?.reversal_of_transaction_id || '',
+
+          recordedByUserId:
+            row?.recorded_by_user_id || '',
+          recordedByName:
+            row?.recorded_by_name || '',
+          recordedByRole:
+            row?.recorded_by_role || '',
+
+          created_at: row?.created_at || '',
+          updated_at: row?.updated_at || '',
+        })),
 
       products: cloudProducts.map((p) =>
         normalizeProduct({
@@ -11405,8 +11516,31 @@ const pendingQueueItems = readSyncQueue().filter(
             );
           });
 
+        const previousCentralFundTransactions =
+          Array.isArray(
+            prev.centralFundTransactions
+          )
+            ? prev.centralFundTransactions
+            : [];
+
+        const confirmedCentralFundTransactions =
+          Array.isArray(
+            confirmedResult.centralFundTransactions
+          )
+            ? confirmedResult.centralFundTransactions
+            : [];
+
+        const centralFundTransactionsChanged =
+          JSON.stringify(
+            previousCentralFundTransactions
+          ) !==
+          JSON.stringify(
+            confirmedCentralFundTransactions
+          );
+
         if (
           !confirmedSalesChanged &&
+          !centralFundTransactionsChanged &&
           confirmedResult.productsWereRefreshed ===
             false
         ) {
@@ -11484,6 +11618,9 @@ const pendingQueueItems = readSyncQueue().filter(
           ...prev,
           sales: nextSales,
           products: nextProducts,
+
+          centralFundTransactions:
+            confirmedCentralFundTransactions,
         };
 
         if (confirmedResult.isOwnerUser) {
