@@ -3227,40 +3227,176 @@ function ShopCard({ shop, maxSales, maxProfit, language }) {
   );
 }
 
-function RecommendationCard({ rec, actionRecord, onDecision, language }) {
+function RecommendationCard({
+  rec,
+  actionRecord,
+  onDecision,
+  language,
+}) {
   const sw = language !== 'en';
+
+  const priority = String(
+    rec.priority || ''
+  ).toLowerCase();
+
+  const isCritical =
+    priority === 'critical' ||
+    priority === 'urgent';
+
+  const typeLabel =
+    sw && rec.type === 'REORDER NEEDED'
+      ? 'STOCK INAHITAJI KUAGIZWA'
+      : rec.type;
+
+  const priorityLabel = sw
+    ? isCritical
+      ? 'Hatua Inahitajika Leo'
+      : 'Inahitaji Uangalizi'
+    : isCritical
+      ? 'Action Required Today'
+      : 'Needs Attention';
+
   return (
-    <div className="overflow-hidden rounded-[28px] border border-white/70 bg-white shadow-md shadow-slate-200/60">
-      <div className={`bg-gradient-to-r ${priorityTone(rec.priority)} p-4`}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-xs font-black uppercase tracking-wide opacity-80">{rec.type}</p>
-            <h4 className="mt-1 text-base font-black leading-6">{rec.title}</h4>
+    <div
+      className={`overflow-hidden rounded-3xl border bg-white shadow-sm ${
+        isCritical
+          ? 'border-red-200 border-l-4 border-l-red-500'
+          : 'border-amber-200 border-l-4 border-l-amber-500'
+      }`}
+    >
+      <div className="p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span
+                className={`rounded-full px-3 py-1 text-xs font-black ${
+                  isCritical
+                    ? 'bg-red-100 text-red-800'
+                    : 'bg-amber-100 text-amber-800'
+                }`}
+              >
+                {priorityLabel}
+              </span>
+
+              <span className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                {typeLabel}
+              </span>
+            </div>
+
+            <h4 className="mt-3 text-lg font-black leading-7 text-slate-950">
+              {rec.title}
+            </h4>
+
+            <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                {sw
+                  ? 'Hatua ya Kuchukua'
+                  : 'Required Action'}
+              </p>
+
+              <p className="mt-2 text-base font-bold leading-7 text-slate-900">
+                {rec.action || '-'}
+              </p>
+            </div>
+
+            {rec.question ? (
+              <p className="mt-3 text-sm font-semibold leading-6 text-slate-700">
+                {rec.question}
+              </p>
+            ) : null}
           </div>
-          <span className="rounded-full bg-white/80 px-3 py-1 text-xs font-black shadow-sm">{rec.priority}</span>
-        </div>
-      </div>
-      <div className="p-4">
-        <div className="grid gap-3 md:grid-cols-2">
-          <div className="rounded-2xl bg-slate-50 p-3">
-            <p className="text-xs font-black uppercase text-slate-400">{sw ? 'Ushahidi' : 'Evidence'}</p>
-            <p className="mt-1 text-sm leading-6 text-slate-700">{rec.evidence || '-'}</p>
+
+          <div className="flex shrink-0 flex-wrap gap-2 lg:w-56 lg:flex-col">
+            <button
+              type="button"
+              className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-slate-800"
+              onClick={() =>
+                onDecision(rec, 'Done')
+              }
+            >
+              {sw
+                ? 'Thibitisha Imefanyika'
+                : 'Confirm Completed'}
+            </button>
+
+            <button
+              type="button"
+              className="rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
+              onClick={() =>
+                onDecision(rec, 'Planned')
+              }
+            >
+              {sw
+                ? 'Weka Kama Imepangwa'
+                : 'Mark as Planned'}
+            </button>
           </div>
-          <div className="rounded-2xl bg-emerald-50 p-3">
-            <p className="text-xs font-black uppercase text-emerald-600">{sw ? 'Hatua inayopendekezwa' : 'Suggested action'}</p>
-            <p className="mt-1 text-sm leading-6 text-slate-700">{rec.action || '-'}</p>
+        </div>
+
+        <details className="mt-4 rounded-2xl border border-slate-200 bg-white">
+          <summary className="cursor-pointer px-4 py-3 text-sm font-bold text-slate-600">
+            {sw
+              ? 'Onyesha ushahidi na chaguo nyingine'
+              : 'Show evidence and other options'}
+          </summary>
+
+          <div className="border-t border-slate-200 p-4">
+            <p className="text-xs font-black uppercase tracking-wide text-slate-400">
+              {sw ? 'Ushahidi' : 'Evidence'}
+            </p>
+
+            <p className="mt-2 text-sm leading-6 text-slate-700">
+              {rec.evidence || '-'}
+            </p>
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700"
+                onClick={() =>
+                  onDecision(rec, 'Snoozed')
+                }
+              >
+                {sw
+                  ? 'Ficha siku 7'
+                  : 'Snooze 7 days'}
+              </button>
+
+              <button
+                type="button"
+                className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700"
+                onClick={() =>
+                  onDecision(rec, 'Not Relevant')
+                }
+              >
+                {sw
+                  ? 'Haihitajiki'
+                  : 'Not Relevant'}
+              </button>
+
+              <button
+                type="button"
+                className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700"
+                onClick={() =>
+                  onDecision(rec, 'Note')
+                }
+              >
+                {sw
+                  ? 'Weka Maelezo'
+                  : 'Add Note'}
+              </button>
+            </div>
           </div>
-        </div>
-        {rec.question ? <p className="mt-3 rounded-2xl bg-blue-50 p-3 text-sm font-semibold text-blue-800">{rec.question}</p> : null}
-        <div className="mt-4 flex flex-wrap gap-2">
-          <button className="rounded-2xl bg-emerald-100 px-3 py-2 text-xs font-black text-emerald-700" onClick={() => onDecision(rec, 'Done')}>{sw ? 'Imefanyika' : 'Done'}</button>
-          <button className="rounded-2xl bg-blue-100 px-3 py-2 text-xs font-black text-blue-700" onClick={() => onDecision(rec, 'Planned')}>{sw ? 'Imepangwa' : 'Planned'}</button>
-          <button className="rounded-2xl bg-purple-100 px-3 py-2 text-xs font-black text-purple-700" onClick={() => onDecision(rec, 'Snoozed')}>{sw ? 'Ficha siku 7' : 'Snooze 7d'}</button>
-          <button className="rounded-2xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-700" onClick={() => onDecision(rec, 'Not Relevant')}>{sw ? 'Haihitajiki' : 'Not relevant'}</button>
-          <button className="rounded-2xl bg-yellow-100 px-3 py-2 text-xs font-black text-yellow-800" onClick={() => onDecision(rec, 'Note')}>{sw ? 'Maelezo' : 'Note'}</button>
-        </div>
+        </details>
+
         {actionRecord?.status ? (
-          <div className={`mt-3 inline-flex rounded-full px-3 py-1 text-xs font-black ${statusBadge(actionRecord.status)}`}>{actionRecord.status}</div>
+          <div
+            className={`mt-4 inline-flex rounded-full px-3 py-1 text-xs font-black ${statusBadge(
+              actionRecord.status
+            )}`}
+          >
+            {actionRecord.status}
+          </div>
         ) : null}
       </div>
     </div>
@@ -5309,7 +5445,7 @@ ${effectiveQuestion || (language === 'en' ? 'Explain the business performance an
                           : 'This shows products close to expiry. Actions include selling early, discounting, transferring where demand exists, or stopping reorders.')}
                 </p>
 
-                <div className="grid gap-4 lg:grid-cols-2">
+                <div className="space-y-4">
                   {(riskView === 'reorder-needed'
                     ? reorderNeededRecommendations
                     : riskView === 'expired-stock'
@@ -5463,67 +5599,230 @@ ${effectiveQuestion || (language === 'en' ? 'Explain the business performance an
 
           {viewMode === 'action' ? (
             <>
-          {warningHistory.some((item) => item?.eventType === 'AUTO_RESOLVED') ? (
-            <div className="mb-4 rounded-[26px] border border-emerald-200 bg-emerald-50 p-4 shadow-sm">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-black text-emerald-800">
-                    {sw ? 'Kuna tahadhari zilizotatuliwa' : 'Some warnings have been resolved'}
-                  </p>
-                  <p className="mt-1 text-xs font-semibold leading-5 text-emerald-700">
-                    {sw
-                      ? 'Mfumo umeona baadhi ya changamoto hazionekani tena kwenye taarifa za sasa. Angalia Historia ya Tahadhari kwa maelezo.'
-                      : 'The system detected that some issues no longer appear in the current data. Check Warning History for details.'}
-                  </p>
-                </div>
+              <div className="mb-5 overflow-hidden rounded-3xl border border-emerald-200 bg-emerald-50 text-emerald-950 shadow-sm">
+                <div className="flex flex-col gap-5 p-6 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">
+                      {sw
+                        ? 'Kipaumbele cha Sasa'
+                        : 'Current Priority'}
+                    </p>
 
-                <div className="rounded-full bg-white px-4 py-2 text-xs font-black text-emerald-700 shadow-sm">
-                  {sw ? 'Hili limetatuliwa' : 'Resolved'}
+                    <h3 className="mt-2 text-2xl font-black">
+                      {visibleRecommendations.length > 0
+                        ? sw
+                          ? `${visibleRecommendations.length} zinahitaji hatua`
+                          : `${visibleRecommendations.length} require action`
+                        : sw
+                          ? 'Hakuna tahadhari inayosubiri'
+                          : 'No alert is waiting'}
+                    </h3>
+
+                    <p className="mt-2 max-w-2xl text-sm leading-6 text-emerald-800">
+                      {visibleRecommendations.length > 0
+                        ? sw
+                          ? 'Anza na tahadhari ya kwanza hapa chini. Baada ya kuchukua hatua, bonyeza Thibitisha Imefanyika.'
+                          : 'Start with the first alert below. After taking action, select Confirm Completed.'
+                        : sw
+                          ? 'Taarifa zote muhimu zimepatiwa hatua kwa sasa.'
+                          : 'All important alerts have been handled for now.'}
+                    </p>
+                  </div>
+
+                  <div className="flex gap-3">
+                    <div className="min-w-28 rounded-2xl border border-amber-200 bg-amber-100 px-5 py-4 text-center text-amber-950">
+                      <p className="text-3xl font-black">
+                        {
+                          visibleRecommendations.filter(
+                            (rec) =>
+                              rec.priority === 'Critical' ||
+                              rec.priority === 'High'
+                          ).length
+                        }
+                      </p>
+
+                      <p className="mt-1 text-xs font-bold text-amber-800">
+                        {sw ? 'Za Haraka' : 'Urgent'}
+                      </p>
+                    </div>
+
+                    <div className="min-w-28 rounded-2xl border border-emerald-200 bg-white px-5 py-4 text-center text-emerald-950">
+                      <p className="text-3xl font-black">
+                        {visibleRecommendations.length}
+                      </p>
+
+                      <p className="mt-1 text-xs font-bold text-emerald-700">
+                        {sw ? 'Zote' : 'Total'}
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-          ) : null}
 
-          <DropdownPanel title={t('auditTrail')} subtitle={t('actionPlanNote')} badge={`${auditTrail.length} ${sw ? 'hatua' : 'actions'}`} defaultOpen={viewMode === 'action'} tone="slate">
+              <DropdownPanel
+                title={
+                  sw
+                    ? 'Tahadhari Zinazohitaji Hatua'
+                    : 'Alerts Requiring Action'
+                }
+                subtitle={
+                  sw
+                    ? 'Anza na tahadhari ya kwanza. Thibitisha baada ya hatua kukamilika.'
+                    : 'Start with the first alert and confirm when the action is completed.'
+                }
+                badge={`${visibleRecommendations.length} ${
+                  sw
+                    ? 'zinahitaji hatua'
+                    : 'require action'
+                }`}
+                defaultOpen
+                tone="amber"
+              >
+                <div className="space-y-4">
+                  {visibleRecommendations
+                    .slice(0, 12)
+                    .map((rec) => (
+                      <RecommendationCard
+                        key={rec.id}
+                        rec={rec}
+                        actionRecord={actions[rec.id]}
+                        onDecision={handleDecision}
+                        language={language}
+                      />
+                    ))}
+
+                  {!visibleRecommendations.length ? (
+                    <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-6 text-center">
+                      <p className="text-base font-black text-emerald-800">
+                        {sw
+                          ? 'Hakuna tahadhari inayohitaji hatua kwa sasa.'
+                          : 'No alerts require action at the moment.'}
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+              </DropdownPanel>
+
+              {warningHistory.some(
+                (item) =>
+                  item?.eventType === 'AUTO_RESOLVED'
+              ) ? (
+                <div className="mb-4 rounded-[26px] border border-emerald-200 bg-emerald-50 p-4 shadow-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-black text-emerald-800">
+                        {sw
+                          ? 'Kuna tahadhari zilizotatuliwa'
+                          : 'Some warnings have been resolved'}
+                      </p>
+
+                      <p className="mt-1 text-xs font-semibold leading-5 text-emerald-700">
+                        {sw
+                          ? 'Mfumo umeona baadhi ya changamoto hazionekani tena kwenye taarifa za sasa. Angalia Historia ya Tahadhari kwa maelezo.'
+                          : 'The system detected that some issues no longer appear in the current data. Check Warning History for details.'}
+                      </p>
+                    </div>
+
+                    <div className="rounded-full bg-white px-4 py-2 text-xs font-black text-emerald-700 shadow-sm">
+                      {sw
+                        ? 'Hili limetatuliwa'
+                        : 'Resolved'}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              <DropdownPanel
+                title={t('auditTrail')}
+                subtitle={t('actionPlanNote')}
+                badge={`${auditTrail.length} ${
+                  sw ? 'hatua' : 'actions'
+                }`}
+                defaultOpen={false}
+                tone="slate"
+              >
                 <CompactTable
                   rows={auditTrail.slice(0, 80)}
                   emptyText={t('noAuditTrail')}
                   columns={[
-                    { key: 'updatedAt', label: t('actionDate'), render: (row) => String(row.updatedAt || '').slice(0, 10) },
-                    { key: 'challenge', label: t('challenge') },
-                    { key: 'status', label: t('status'), render: (row) => <span className={`rounded-full px-3 py-1 text-xs font-black ${statusBadge(row.status)}`}>{row.status}</span> },
-                    { key: 'note', label: t('response') },
+                    {
+                      key: 'updatedAt',
+                      label: t('actionDate'),
+                      render: (row) =>
+                        String(
+                          row.updatedAt || ''
+                        ).slice(0, 10),
+                    },
+                    {
+                      key: 'challenge',
+                      label: t('challenge'),
+                    },
+                    {
+                      key: 'status',
+                      label: t('status'),
+                      render: (row) => (
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-black ${statusBadge(
+                            row.status
+                          )}`}
+                        >
+                          {row.status}
+                        </span>
+                      ),
+                    },
+                    {
+                      key: 'note',
+                      label: t('response'),
+                    },
                   ]}
                 />
               </DropdownPanel>
 
-                          <DropdownPanel
-                title={sw ? 'Historia ya Tahadhari' : 'Warning History'}
+              <DropdownPanel
+                title={
+                  sw
+                    ? 'Historia ya Tahadhari'
+                    : 'Warning History'
+                }
                 subtitle={
                   sw
                     ? 'Inaonyesha tahadhari zilizorekodiwa, zilizofichwa, na zilizotatuliwa ndani ya mfumo.'
                     : 'Shows recorded, hidden, and resolved warnings inside the system.'
                 }
-                badge={`${warningHistory.length} ${sw ? 'rekodi' : 'records'}`}
-                defaultOpen={warningHistory.length > 0}
+                badge={`${warningHistory.length} ${
+                  sw ? 'rekodi' : 'records'
+                }`}
+                defaultOpen={false}
                 tone="emerald"
               >
                 <CompactTable
                   rows={warningHistory.slice(0, 120)}
-                  emptyText={sw ? 'Hakuna historia ya tahadhari bado.' : 'No warning history yet.'}
+                  emptyText={
+                    sw
+                      ? 'Hakuna historia ya tahadhari bado.'
+                      : 'No warning history yet.'
+                  }
                   columns={[
                     {
                       key: 'createdAt',
                       label: sw ? 'Tarehe' : 'Date',
-                      render: (row) => String(row.createdAt || '').slice(0, 10),
+                      render: (row) =>
+                        String(
+                          row.createdAt || ''
+                        ).slice(0, 10),
                     },
                     {
                       key: 'eventType',
                       label: sw ? 'Tukio' : 'Event',
                       render: (row) =>
-                        row.eventType === 'AUTO_RESOLVED'
-                          ? (sw ? 'Limetatuliwa' : 'Resolved')
-                          : (sw ? 'Hatua Imehifadhiwa' : 'Action Recorded'),
+                        row.eventType ===
+                        'AUTO_RESOLVED'
+                          ? sw
+                            ? 'Limetatuliwa'
+                            : 'Resolved'
+                          : sw
+                            ? 'Hatua Imehifadhiwa'
+                            : 'Action Recorded',
                     },
                     {
                       key: 'shopName',
@@ -5535,28 +5834,25 @@ ${effectiveQuestion || (language === 'en' ? 'Explain the business performance an
                     },
                     {
                       key: 'message',
-                      label: sw ? 'Ujumbe' : 'Message',
+                      label: sw
+                        ? 'Ujumbe'
+                        : 'Message',
                     },
                     {
                       key: 'status',
                       label: t('status'),
                       render: (row) => (
-                        <span className={`rounded-full px-3 py-1 text-xs font-black ${statusBadge(row.status)}`}>
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-black ${statusBadge(
+                            row.status
+                          )}`}
+                        >
                           {row.status}
                         </span>
                       ),
                     },
                   ]}
                 />
-              </DropdownPanel>
-
-              <DropdownPanel title={sw ? 'Mapendekezo Yanayosubiri Uamuzi' : 'Recommendations Awaiting Decision'} subtitle={sw ? 'Chagua Imefanyika, Imepangwa, Ficha siku 7 au Haihitajiki.' : 'Mark as done, planned, snoozed or not relevant.'} badge={`${visibleRecommendations.length} ${sw ? 'mapendekezo' : 'recommendations'}`} defaultOpen tone="amber">
-                <div className="grid gap-4 lg:grid-cols-2">
-                  {visibleRecommendations.slice(0, 12).map((rec) => (
-                    <RecommendationCard key={rec.id} rec={rec} actionRecord={actions[rec.id]} onDecision={handleDecision} language={language} />
-                  ))}
-                  {!visibleRecommendations.length ? <div className="rounded-3xl bg-white/70 p-5 text-sm text-slate-500">{t('noData')}</div> : null}
-                </div>
               </DropdownPanel>
             </>
           ) : null}
