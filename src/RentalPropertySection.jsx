@@ -13657,34 +13657,63 @@ const serviceChargeSections = [
       </div>
 
       <div className="overflow-x-auto border-t border-slate-100">
-        <table className="min-w-full text-sm">
+        <table className="min-w-[1900px] text-sm">
           <thead>
             <tr className="bg-slate-100 text-left text-slate-600">
               <th className="px-4 py-3">
                 {t(language, 'House', 'Nyumba')}
               </th>
+
               <th className="px-4 py-3">
-                {t(language, 'Tenant', 'Mpangaji')}
+                {t(language, 'Meter Number', 'Namba ya Mita')}
               </th>
+
               <th className="px-4 py-3">
-  {t(language, 'Reading Date', 'Tarehe ya Usomaji')}
-</th>
+                {t(language, 'Tenant / Occupant', 'Mpangaji / Mkazi')}
+              </th>
 
-<th className="px-4 py-3">
-  {t(language, 'Payment Date', 'Tarehe ya Malipo')}
-</th>
+              <th className="px-4 py-3">
+                {t(language, 'Reading Date', 'Tarehe ya Usomaji')}
+              </th>
 
-<th className="px-4 py-3">
-  {t(language, 'Bill Amount', 'Kiasi cha Ankara')}
-</th>
+              <th className="px-4 py-3">
+                {t(language, 'Previous Reading', 'Usomaji Uliopita')}
+              </th>
+
+              <th className="px-4 py-3">
+                {t(language, 'Current Reading', 'Usomaji wa Sasa')}
+              </th>
+
+              <th className="px-4 py-3">
+                {t(language, 'Units Used', 'Uniti Zilizotumika')}
+              </th>
+
+              <th className="px-4 py-3">
+                {t(language, 'Price per Unit', 'Bei kwa Uniti')}
+              </th>
+
+              <th className="px-4 py-3">
+                {t(language, 'Total Bill', 'Jumla ya Ankara')}
+              </th>
+
               <th className="px-4 py-3">
                 {t(language, 'Amount Paid', 'Kiasi Kilicholipwa')}
               </th>
+
               <th className="px-4 py-3">
                 {t(language, 'Balance', 'Salio')}
               </th>
+
+              <th className="px-4 py-3">
+                {t(language, 'Payment Date', 'Tarehe ya Malipo')}
+              </th>
+
               <th className="px-4 py-3">
                 {t(language, 'Status', 'Hali')}
+              </th>
+
+              <th className="px-4 py-3">
+                {t(language, 'Action', 'Hatua')}
               </th>
             </tr>
           </thead>
@@ -13693,7 +13722,7 @@ const serviceChargeSections = [
             {waterBills.length === 0 ? (
               <tr>
                 <td
-                  colSpan={8}
+                  colSpan={14}
                   className="px-4 py-8 text-center text-slate-500"
                 >
                   {t(
@@ -13706,128 +13735,202 @@ const serviceChargeSections = [
             ) : (
               waterBills.map((bill) => {
                 const billAmount = Number(
-  bill.currentBillAmount ||
-    bill.totalAmount ||
-    bill.amount ||
-    0
-);
+                  bill.currentBillAmount ||
+                    bill.totalPayable ||
+                    bill.totalAmount ||
+                    bill.amount ||
+                    0
+                );
 
-                const balance = Number(bill.balance || 0);
+                const previousReading = Number(
+                  bill.previousUnits || 0
+                );
+
+                const currentReading = Number(
+                  bill.currentUnits || 0
+                );
+
+                const unitsUsed = Number(
+                  bill.unitsUsed ??
+                    Math.max(
+                      0,
+                      currentReading - previousReading
+                    )
+                );
+
+                const pricePerUnit = Number(
+                  bill.costPerUnit || WATER_UNIT_PRICE || 0
+                );
+
+                const balance = Math.max(
+                  0,
+                  Number(bill.balance || 0)
+                );
 
                 const amountPaid = Math.max(
-  0,
-  Number(
-    bill.amountPaid ??
-      (billAmount - balance)
-  )
-);
+                  0,
+                  Number(
+                    bill.amountPaid ??
+                      (billAmount - balance)
+                  )
+                );
 
-const paymentIdsForBill = waterPaymentAllocations
-  .filter(
-    (allocation) =>
-      String(allocation.billId || '') ===
-      String(bill.id || '')
-  )
-  .map((allocation) =>
-    String(allocation.paymentId || '')
-  );
+                const hasNoConsumption =
+                  unitsUsed <= 0 && billAmount <= 0;
 
-const paymentDatesForBill = waterPayments
-  .filter((payment) =>
-    paymentIdsForBill.includes(String(payment.id || ''))
-  )
-  .map(
-    (payment) =>
-      payment.paymentDate ||
-      payment.paidAt?.slice(0, 10) ||
-      payment.created_at?.slice(0, 10) ||
-      ''
-  )
-  .filter(Boolean)
-  .sort();
+                const paymentIdsForBill =
+                  waterPaymentAllocations
+                    .filter(
+                      (allocation) =>
+                        String(allocation.billId || '') ===
+                        String(bill.id || '')
+                    )
+                    .map((allocation) =>
+                      String(allocation.paymentId || '')
+                    );
 
-const latestPaymentDate =
-  paymentDatesForBill.length > 0
-    ? paymentDatesForBill[
-        paymentDatesForBill.length - 1
-      ]
-    : '-';
+                const paymentDatesForBill =
+                  waterPayments
+                    .filter((payment) =>
+                      paymentIdsForBill.includes(
+                        String(payment.id || '')
+                      )
+                    )
+                    .map(
+                      (payment) =>
+                        payment.paymentDate ||
+                        payment.paidAt?.slice(0, 10) ||
+                        payment.created_at?.slice(0, 10) ||
+                        ''
+                    )
+                    .filter(Boolean)
+                    .sort();
 
-return (
+                const latestPaymentDate =
+                  paymentDatesForBill.length > 0
+                    ? paymentDatesForBill[
+                        paymentDatesForBill.length - 1
+                      ]
+                    : '-';
+
+                return (
                   <tr
                     key={`water-billing-${bill.id}`}
                     className="border-t border-slate-100 transition hover:bg-slate-50"
                   >
-                    <td className="px-4 py-3 font-semibold text-slate-900">
+                    <td className="whitespace-nowrap px-4 py-3 font-semibold text-slate-900">
                       {bill.houseNumber || '-'}
                     </td>
 
-                    <td className="px-4 py-3 text-slate-700">
+                    <td className="whitespace-nowrap px-4 py-3 font-semibold text-cyan-800">
+                      {bill.meterNumber || '-'}
+                    </td>
+
+                    <td className="whitespace-nowrap px-4 py-3 text-slate-700">
                       {bill.tenantName || '-'}
                     </td>
 
-                    <td className="px-4 py-3 text-slate-700">
-  {bill.readingDate ||
-    bill.billDate ||
-    bill.created_at?.slice(0, 10) ||
-    '-'}
-</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+                      {bill.readingDate ||
+                        bill.billDate ||
+                        bill.created_at?.slice(0, 10) ||
+                        '-'}
+                    </td>
 
-<td className="px-4 py-3">
-  {latestPaymentDate === '-' ? (
-    <span className="font-semibold text-amber-700">
-      {t(language, 'Not paid', 'Haijalipwa')}
-    </span>
-  ) : (
-    <span className="font-semibold text-emerald-700">
-      {latestPaymentDate}
-    </span>
-  )}
-</td>
+                    <td className="px-4 py-3 font-semibold text-slate-700">
+                      {formatQty(previousReading)}
+                    </td>
 
-<td className="px-4 py-3 text-slate-700">
-  TZS {currency(billAmount)}
-</td>
-                    <td className="px-4 py-3 font-semibold text-emerald-700">
+                    <td className="px-4 py-3 font-semibold text-blue-700">
+                      {formatQty(currentReading)}
+                    </td>
+
+                    <td className="px-4 py-3 font-semibold text-cyan-700">
+                      {formatQty(unitsUsed)}
+                    </td>
+
+                    <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+                      TZS {currency(pricePerUnit)}
+                    </td>
+
+                    <td className="whitespace-nowrap px-4 py-3 font-semibold text-blue-800">
+                      TZS {currency(billAmount)}
+                    </td>
+
+                    <td className="whitespace-nowrap px-4 py-3 font-semibold text-emerald-700">
                       TZS {currency(amountPaid)}
                     </td>
 
-                    <td className="px-4 py-3 font-semibold text-amber-700">
+                    <td className="whitespace-nowrap px-4 py-3 font-semibold text-amber-700">
                       TZS {currency(balance)}
+                    </td>
+
+                    <td className="whitespace-nowrap px-4 py-3">
+                      {latestPaymentDate === '-' ? (
+                        <span className="text-slate-500">
+                          -
+                        </span>
+                      ) : (
+                        <span className="font-semibold text-emerald-700">
+                          {latestPaymentDate}
+                        </span>
+                      )}
                     </td>
 
                     <td className="px-4 py-3">
                       <span
-                        className={`rounded-full px-3 py-1 text-xs font-bold ${
-                          balance <= 0
-                            ? 'bg-emerald-100 text-emerald-700'
-                            : amountPaid > 0
-                              ? 'bg-blue-100 text-blue-700'
-                              : 'bg-amber-100 text-amber-700'
+                        className={`whitespace-nowrap rounded-full px-3 py-1 text-xs font-bold ${
+                          hasNoConsumption
+                            ? 'bg-slate-100 text-slate-700'
+                            : balance <= 0
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : amountPaid > 0
+                                ? 'bg-blue-100 text-blue-700'
+                                : 'bg-amber-100 text-amber-700'
                         }`}
                       >
-                        {balance <= 0
-                          ? t(language, 'Paid', 'Imelipwa')
-                          : amountPaid > 0
+                        {hasNoConsumption
+                          ? t(
+                              language,
+                              'No Consumption',
+                              'Hakuna Matumizi'
+                            )
+                          : balance <= 0
                             ? t(
                                 language,
-                                'Partly Paid',
-                                'Imelipwa Sehemu'
+                                'Paid',
+                                'Imelipwa'
                               )
-                            : t(
-                                language,
-                                'Unpaid',
-                                'Haijalipwa'
-                              )}
+                            : amountPaid > 0
+                              ? t(
+                                  language,
+                                  'Partly Paid',
+                                  'Imelipwa Sehemu'
+                                )
+                              : t(
+                                  language,
+                                  'Unpaid',
+                                  'Haijalipwa'
+                                )}
                       </span>
                     </td>
 
                     <td className="px-4 py-3">
-                      {balance > 0 ? (
+                      {hasNoConsumption ? (
+                        <span className="whitespace-nowrap font-semibold text-slate-500">
+                          {t(
+                            language,
+                            'No Payment Required',
+                            'Hakuna Malipo'
+                          )}
+                        </span>
+                      ) : balance > 0 ? (
                         <Button
                           type="button"
                           className="whitespace-nowrap bg-emerald-700 hover:bg-emerald-800"
-                          onClick={() => startWaterPayment(bill)}
+                          onClick={() =>
+                            startWaterPayment(bill)
+                          }
                         >
                           {t(
                             language,
@@ -13836,7 +13939,7 @@ return (
                           )}
                         </Button>
                       ) : (
-                        <span className="font-semibold text-emerald-700">
+                        <span className="whitespace-nowrap font-semibold text-emerald-700">
                           {t(
                             language,
                             'Fully Paid',
