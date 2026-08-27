@@ -5772,15 +5772,7 @@ console.log('SALE DATE TEST', {
       String(savedSale?.id || '') === String(saleRecord.id)
   );
 
-  const saleQueuedForSync = readSyncQueue().some(
-    (queueItem) =>
-      queueItem?.actionType === 'sale_created' &&
-      queueItem?.synced === false &&
-      String(queueItem?.payload?.id || '') ===
-        String(saleRecord.id)
-  );
-
-  if (!saleSavedLocally || !saleQueuedForSync) {
+  if (!saleSavedLocally) {
     throw new Error(
       'Sale could not be verified in permanent local storage. The cart has not been cleared.'
     );
