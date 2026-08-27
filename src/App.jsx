@@ -5721,6 +5721,13 @@ console.log('SALE DATE TEST', {
   localReadable: new Date(saleRecord.created_at).toLocaleString(),
   localDateFromCreatedAt: todayISO(new Date(saleRecord.created_at)),
 });
+
+  saveData({
+    ...data,
+    products: nextProducts,
+    sales: [...data.sales, saleRecord],
+  });
+
   const salePayload = {
     ...saleRecord,
     products: nextProducts
@@ -5749,42 +5756,6 @@ console.log('SALE DATE TEST', {
       }),
   };
 
-  // Preserve the synchronization instruction first.
-  // If Supabase is unavailable, this permanent queue will retry later.
-  addToSyncQueue('sale_created', salePayload);
-
-  // Permanently save the sale on this computer before clearing the cart.
-  await saveData({
-    ...data,
-    products: nextProducts,
-    sales: [...data.sales, saleRecord],
-  });
-
-  // Read the saved data back and confirm that this exact sale exists.
-  const locallySavedData = await readFromDB(DB_DATA_KEY);
-
-  const saleSavedLocally = (
-    Array.isArray(locallySavedData?.sales)
-      ? locallySavedData.sales
-      : []
-  ).some(
-    (savedSale) =>
-      String(savedSale?.id || '') === String(saleRecord.id)
-  );
-
-  if (!saleSavedLocally) {
-    throw new Error(
-      'Sale could not be verified in permanent local storage. The cart has not been cleared.'
-    );
-  }
-
-    setSyncMessage(
-    t(
-      language,
-      'Sale saved safely on this computer. It will be sent to the system when the internet is available.',
-      'Mauzo yamehifadhiwa salama kwenye kompyuta. Yatatumwa kwenye mfumo mtandao utakapopatikana.'
-    )
-  );
   addToSyncQueue('sale_created', salePayload);
 
   if (navigator.onLine) {
@@ -5821,11 +5792,7 @@ const currentSaleStillPending = readSyncQueue().some(
 
 if (currentSaleStillPending) {
   setSyncMessage(
-    t(
-      language,
-      'Sale saved safely on this computer. It will be sent to the system when the internet is available.',
-      'Mauzo yamehifadhiwa salama kwenye kompyuta. Yatatumwa kwenye mfumo mtandao utakapopatikana.'
-    )
+    'Sync pending - this sale has not yet been confirmed by Supabase.'
   );
   return;
 }
@@ -5883,13 +5850,7 @@ if (currentSaleStillPending) {
 
         writeStorage(STORAGE_LAST_SYNC_KEY, Date.now());
 
-        setSyncMessage(
-          t(
-            language,
-            'Sale saved completely.',
-            'Mauzo yamehifadhiwa kikamilifu.'
-          )
-        );
+        setSyncMessage('Sync complete');
       } catch (syncError) {
         console.error('Queued sales sync error:', syncError);
       }
@@ -5906,15 +5867,7 @@ if (currentSaleStillPending) {
   setSaleError('');
 } catch (err) {
   console.error('Unexpected commitSale error:', err);
-
-  const safeSaleErrorMessage = t(
-    language,
-    'The sale was not saved. Your products are still in the cart. Please press Confirm Cash Sale again.',
-    'Mauzo hayajahifadhiwa. Bidhaa zako bado zipo kwenye kikapu. Tafadhali bonyeza tena Kamilisha Mauzo ya Fedha.'
-  );
-
-  setSaleError(safeSaleErrorMessage);
-  alert(safeSaleErrorMessage);
+  alert(`Unexpected sale error: ${err.message || err}`);
 } finally {
   setSaleSaving(false);
   saleLock.current = false;
