@@ -11493,33 +11493,74 @@ const pendingQueueItems = readSyncQueue().filter(
           ? confirmedResult.sales
           : [];
 
-        const previousSalesById = new Map(
-          previousSales.map((sale) => [
-            String(sale?.id || '').trim(),
-            sale,
-          ])
+        const authoritativeSalesDate = todayISO();
+
+        const pendingSaleIds = new Set(
+          readSyncQueue()
+            .filter(
+              (item) =>
+                item?.actionType === 'sale_created' &&
+                item?.synced === false
+            )
+            .map((item) =>
+              String(item?.payload?.id || '').trim()
+            )
+            .filter(Boolean)
+        );
+
+        const isInsideAuthoritativeSalesScope = (sale) => {
+          const saleDate = String(
+            sale?.date ||
+              (sale?.created_at
+                ? String(sale.created_at).slice(0, 10)
+                : '')
+          ).trim();
+
+          if (saleDate !== authoritativeSalesDate) {
+            return false;
+          }
+
+          if (confirmedResult.isOwnerUser) {
+            return true;
+          }
+
+          const saleShopId = String(
+            sale?.shop_id ||
+              sale?.shopId ||
+              sale?.shopid ||
+              ''
+          ).trim();
+
+          return (
+            saleShopId ===
+            String(confirmedResult.shopId || '').trim()
+          );
+        };
+
+        const preservedPreviousSales =
+          previousSales.filter((sale) => {
+            if (!isInsideAuthoritativeSalesScope(sale)) {
+              return true;
+            }
+
+            const saleId = String(
+              sale?.id || ''
+            ).trim();
+
+            return (
+              sale?.confirmed === false &&
+              pendingSaleIds.has(saleId)
+            );
+          });
+
+        const nextSales = mergeRowsById(
+          preservedPreviousSales,
+          confirmedSales
         );
 
         const confirmedSalesChanged =
-          confirmedSales.some((incomingSale) => {
-            const saleId = String(
-              incomingSale?.id || ''
-            ).trim();
-
-            if (!saleId) return true;
-
-            const existingSale =
-              previousSalesById.get(saleId);
-
-            if (!existingSale) return true;
-
-            return (
-              JSON.stringify({
-                ...existingSale,
-                ...incomingSale,
-              }) !== JSON.stringify(existingSale)
-            );
-          });
+          JSON.stringify(previousSales) !==
+          JSON.stringify(nextSales);
 
         const previousCentralFundTransactions =
           Array.isArray(
@@ -11551,11 +11592,6 @@ const pendingQueueItems = readSyncQueue().filter(
         ) {
           return prev;
         }
-
-        const nextSales = mergeRowsById(
-          previousSales,
-          confirmedSales
-        );
 
         const previousProducts = Array.isArray(
           prev.products
