@@ -397,44 +397,51 @@ if (Array.isArray(item.payload.products)) {
   }
 }
 }
-           } else if (item.actionType === 'purchase_created') {
-        const purchasePayload = {
-          id: item.payload.id,
-          shop_id: item.payload.shop_id,
-          productId: item.payload.productId,
-          quantity: item.payload.quantity,
-          unitCost: item.payload.unitCost,
-          notes: item.payload.notes || '',
-          date: item.payload.date,
-          confirmed: item.payload.confirmed ?? true,
-        };
 
-        await supabase.from('purchases').upsert([purchasePayload], { onConflict: 'id' });
+} else if (item.actionType === 'purchase_created') {
+  const queuedPurchase = item.payload || {};
 
-        if (Array.isArray(item.payload.products) && item.payload.products.length) {
-  const safeProductRows = item.payload.products
-    .filter((p) => p.id && p.shop_id && p.name)
-    .map((p) => ({
-  id: p.id,
-  name: String(p.name || '').trim(),
-  standard_product_code: String(p.standard_product_code || p.standardProductCode || '').trim(),
-  buyingprice: Number(p.buyingprice ?? p.buyPrice ?? 0),
-  sellingprice: Number(p.sellingprice ?? p.sellPrice ?? 0),
-  stock: Number(p.stock ?? p.stockBaseQty ?? 0),
-  shop_id: p.shop_id,
-  baseunit: p.baseunit || p.baseUnit || 'pc',
-  expirydate: p.expirydate || p.expiryDate || null,
-  created_at: p.created_at || new Date().toISOString(),
-}));
+  const targetProduct = Array.isArray(
+    queuedPurchase.products
+  )
+    ? queuedPurchase.products.find(
+        (product) =>
+          String(product.id) ===
+          String(queuedPurchase.productId)
+      )
+    : null;
 
-  if (safeProductRows.length) {
-    await supabase
-      .from('products')
-      .upsert(safeProductRows, { onConflict: 'id' });
+  const { error: queuedPurchaseError } =
+    await supabase.rpc('record_existing_purchases', {
+      p_shop_id: String(queuedPurchase.shop_id || ''),
+      p_rows: [
+        {
+          purchaseId: queuedPurchase.id,
+          productId: queuedPurchase.productId,
+          quantity: Number(queuedPurchase.quantity || 0),
+          unitCost: Number(queuedPurchase.unitCost || 0),
+          sellingPrice: Number(
+            targetProduct?.sellingprice ??
+              targetProduct?.sellPrice ??
+              0
+          ),
+          date:
+            queuedPurchase.date ||
+            todayISO(),
+          expiryDate:
+            queuedPurchase.expiryDate ||
+            queuedPurchase.expirydate ||
+            '',
+          notes: queuedPurchase.notes || '',
+        },
+      ],
+    });
+
+  if (queuedPurchaseError) {
+    throw queuedPurchaseError;
   }
-}
-      } else if (item.actionType === 'product_saved') {
-        const productPayload = item.payload || {};
+} else if (item.actionType === 'product_saved') {
+  const productPayload = item.payload || {};
 
         const productRow = {
   id: productPayload.id,
@@ -3926,7 +3933,19 @@ const bankCapital = latest
 );
 }
    
-function ShopDashboard({ shop, data, saveData, backToOwner, logout, canBack, language, setLanguage, exportBackup, dashboardDataReady }) {
+function ShopDashboard({
+  shop,
+  data,
+  saveData,
+  backToOwner,
+  logout,
+  canBack,
+  language,
+  setLanguage,
+  exportBackup,
+  dashboardDataReady,
+  setSyncMessage,
+}) {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [quickSearch, setQuickSearch] = useState('');
   const dashboardLoadingText = 'Inapakia taarifa...';
@@ -4471,10 +4490,14 @@ const [monthlyCommissionForm, setMonthlyCommissionForm] = useState({
   notes: '',
 });
 
-    const products = data.products
-    .filter((p) => String(p?.shop_id || '') === String(shop.id))
-    .map(normalizeProduct)
-    .filter((p) => p.id && String(p.name || '').trim());
+const products = data.products
+  .filter((p) => String(p?.shop_id || '') === String(shop.id))
+  .map(normalizeProduct)
+  .filter((p) => p.id && String(p.name || '').trim());
+
+const activePurchaseProducts = products.filter(
+  (product) => product.archived !== true
+);
 
 const sales = data.sales.filter(
   (s) => String(s.shop_id) === String(shop.id)
@@ -4588,7 +4611,7 @@ const purchases = data.purchases.filter(
 );
 
 const todayPurchases = purchases.filter(
-  (p) => p.date === todayISO() && !p.confirmed
+  (purchase) => purchase.date === todayISO()
 );
 
 const todayProducts = data.products
@@ -6294,161 +6317,368 @@ const prepared = normalizeProduct({
     setPurchaseRows((prev) => prev.map((row, i) => (i === index ? { ...row, [field]: value } : row)));
   const removePurchaseRow = (index) => setPurchaseRows((prev) => (prev.length === 1 ? prev : prev.filter((_, i) => i !== index)));
 
- const savePurchaseRows = () => {
-  // VALIDATION BEFORE ANYTHING
-for (const row of purchaseRows) {
-  if (!row.productId) {
-    alert(t(language, 'Please select a product', 'Tafadhali chagua bidhaa'));
+const savePurchaseRows = async () => {
+  if (!navigator.onLine) {
+    alert(
+      t(
+        language,
+        'An internet connection is required to record purchases safely. Nothing has been saved.',
+        'Muunganisho wa intaneti unahitajika ili kuhifadhi manunuzi kwa usalama. Hakuna kilichohifadhiwa.'
+      )
+    );
     return;
   }
 
-  if (!row.quantity) {
-    alert(t(language, 'Please enter quantity', 'Tafadhali weka idadi'));
-    return;
-  }
+  const roundUpToNearest50 = (value) =>
+    Math.ceil(Number(value || 0) / 50) * 50;
 
-  if (!row.unitCost) {
-    alert(t(language, 'Please enter unit cost', 'Tafadhali weka bei ya kununua'));
-    return;
-  }
-}
+  const preparedRows = [];
+  const selectedProductIds = new Set();
 
-const rows = purchaseRows;
-
-  const roundUpToNearest50 = (value) => Math.ceil(Number(value || 0) / 50) * 50;
-
-  const nextPurchases = [...data.purchases];
-  const nextProducts = [...data.products];
-  const newlyPreparedPurchases = [];
-
-  for (const [idx, row] of rows.entries()) {
-    if (!row.productId || !row.quantity || !row.unitCost) continue;
-
-    const quantity = Number(row.quantity || 0);
-    const unitCost = Number(row.unitCost || 0);
-
-    const preparedPurchase = {
-  id: row.id || `purchase-${Date.now()}-${idx}`,
-  shop_id: shop.id,
-  productId: row.productId,
-  quantity,
-  unitCost,
-  expiryDate: row.expiryDate || '',
-  notes: row.notes || '',
-  date: row.date || todayISO(),
-  confirmed: true,
-};
-
-    newlyPreparedPurchases.push(preparedPurchase);
-
-    const existingPurchaseIndex = nextPurchases.findIndex(
-      (p) => p.id === preparedPurchase.id
+  for (const [index, row] of purchaseRows.entries()) {
+    const selectedProduct = activePurchaseProducts.find(
+      (product) => String(product.id) === String(row.productId)
     );
 
-    if (existingPurchaseIndex >= 0) {
-      nextPurchases[existingPurchaseIndex] = preparedPurchase;
-    } else {
-      nextPurchases.push(preparedPurchase);
+    if (!selectedProduct) {
+      alert(
+        t(
+          language,
+          `Please select an active product on row ${index + 1}.`,
+          `Tafadhali chagua bidhaa halali kwenye mstari wa ${index + 1}.`
+        )
+      );
+      return;
     }
 
-    const productIndex = nextProducts.findIndex((p) => p.id === preparedPurchase.productId);
+    if (selectedProductIds.has(String(selectedProduct.id))) {
+      alert(
+        t(
+          language,
+          `The product "${selectedProduct.name}" appears more than once. Combine its quantity into one row.`,
+          `Bidhaa "${selectedProduct.name}" imechaguliwa zaidi ya mara moja. Unganisha idadi yake kwenye mstari mmoja.`
+        )
+      );
+      return;
+    }
 
-    if (productIndex >= 0) {
-      const currentProduct = nextProducts[productIndex];
-      const oldBuyPrice = Number(currentProduct.buyPrice || 0);
-      const oldSellPrice = Number(currentProduct.sellPrice || 0);
-      const newBuyPrice = Number(preparedPurchase.unitCost || oldBuyPrice || 0);
+    selectedProductIds.add(String(selectedProduct.id));
 
-      let nextSellPrice = oldSellPrice;
+    const quantity = Number(row.quantity);
+    const unitCost = Number(row.unitCost);
 
-      if (newBuyPrice !== oldBuyPrice) {
-        const oldProfitAmount = oldSellPrice - oldBuyPrice;
-        const suggestedBase =
-          oldProfitAmount > 0 ? newBuyPrice + oldProfitAmount : newBuyPrice + 50;
-        const suggestedSellPrice = roundUpToNearest50(suggestedBase);
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      alert(
+        t(
+          language,
+          `Enter a valid quantity for ${selectedProduct.name}.`,
+          `Weka idadi sahihi ya ${selectedProduct.name}.`
+        )
+      );
+      return;
+    }
 
-        const enteredPrice = window.prompt(
-  t(
-    language,
-    `Buy price changed from TZS ${oldBuyPrice} to TZS ${newBuyPrice}.
-Suggested new sell price is TZS ${suggestedSellPrice}.
-Enter new sell price or leave the suggested amount.`,
-    `Bei ya kununua imebadilika kutoka TZS ${oldBuyPrice} hadi TZS ${newBuyPrice}.
-Bei mpya ya kuuza inayopendekezwa ni TZS ${suggestedSellPrice}.
-Weka bei mpya ya kuuza au acha iliyopendekezwa.`
-  ),
-  String(suggestedSellPrice)
-);
+    if (!Number.isFinite(unitCost) || unitCost <= 0) {
+      alert(
+        t(
+          language,
+          `Enter a valid purchase price for ${selectedProduct.name}.`,
+          `Weka bei sahihi ya kununua ${selectedProduct.name}.`
+        )
+      );
+      return;
+    }
 
-        if (enteredPrice === null) {
-          alert('Purchase save cancelled. No changes were saved.');
-          return;
-        }
+    if (!row.date) {
+      alert(
+        t(
+          language,
+          `Enter the purchase date for ${selectedProduct.name}.`,
+          `Weka tarehe ya manunuzi ya ${selectedProduct.name}.`
+        )
+      );
+      return;
+    }
 
-        const parsedSellPrice = Number(enteredPrice);
+    const oldBuyPrice = Number(selectedProduct.buyPrice || 0);
+    const oldSellPrice = Number(selectedProduct.sellPrice || 0);
+    let nextSellPrice = oldSellPrice;
 
-        if (!Number.isFinite(parsedSellPrice) || parsedSellPrice <= newBuyPrice) {
-          alert('Selling price must be greater than the new buying price.');
-          return;
-        }
+    if (unitCost !== oldBuyPrice) {
+      const oldProfitAmount = oldSellPrice - oldBuyPrice;
+      const suggestedBase =
+        oldProfitAmount > 0
+          ? unitCost + oldProfitAmount
+          : unitCost + 50;
 
-        if (parsedSellPrice % 50 !== 0) {
-          alert('Selling price must follow TZS 50 steps, for example 50, 100, 150, 200.');
-          return;
-        }
+      const suggestedSellPrice =
+        roundUpToNearest50(suggestedBase);
 
-        nextSellPrice = parsedSellPrice;
+      const enteredPrice = window.prompt(
+        t(
+          language,
+          `Buy price for ${selectedProduct.name} changed from TZS ${oldBuyPrice} to TZS ${unitCost}.
+Suggested selling price: TZS ${suggestedSellPrice}.
+Confirm or enter another selling price.`,
+          `Bei ya kununua ${selectedProduct.name} imebadilika kutoka TZS ${oldBuyPrice} hadi TZS ${unitCost}.
+Bei ya kuuza inayopendekezwa: TZS ${suggestedSellPrice}.
+Thibitisha au weka bei nyingine ya kuuza.`
+        ),
+        String(suggestedSellPrice)
+      );
 
+      if (enteredPrice === null) {
         alert(
-  t(
-    language,
-    `Selling price for ${currentProduct.name} has been updated from TZS ${oldSellPrice} to TZS ${nextSellPrice}.`,
-    `Bei ya kuuza ya ${currentProduct.name} imebadilishwa kutoka TZS ${oldSellPrice} hadi TZS ${nextSellPrice}.`
-  )
-);
+          t(
+            language,
+            'Purchase recording was cancelled. Nothing was saved.',
+            'Uhifadhi wa manunuzi umeghairiwa. Hakuna kilichohifadhiwa.'
+          )
+        );
+        return;
       }
 
-     nextProducts[productIndex] = {
-  ...nextProducts[productIndex],
-  stockBaseQty:
-    Number(nextProducts[productIndex].stockBaseQty || 0) +
-    Number(preparedPurchase.quantity || 0),
-  buyPrice: newBuyPrice,
-  sellPrice: nextSellPrice,
-  expiryDate: preparedPurchase.expiryDate || nextProducts[productIndex].expiryDate || '',
-};
+      const parsedSellPrice = Number(enteredPrice);
+
+      if (
+        !Number.isFinite(parsedSellPrice) ||
+        parsedSellPrice <= unitCost
+      ) {
+        alert(
+          t(
+            language,
+            'The selling price must be greater than the purchase price.',
+            'Bei ya kuuza lazima iwe kubwa kuliko bei ya kununua.'
+          )
+        );
+        return;
+      }
+
+      if (parsedSellPrice % 50 !== 0) {
+        alert(
+          t(
+            language,
+            'The selling price must follow TZS 50 steps.',
+            'Bei ya kuuza lazima ifuate hatua za TZS 50.'
+          )
+        );
+        return;
+      }
+
+      nextSellPrice = parsedSellPrice;
     }
+
+    preparedRows.push({
+      purchaseId:
+        row.id ||
+        `purchase-${crypto.randomUUID()}`,
+      productId: selectedProduct.id,
+      quantity,
+      unitCost,
+      sellingPrice: nextSellPrice,
+      date: row.date || todayISO(),
+      expiryDate: row.expiryDate || '',
+      notes: row.notes || '',
+    });
   }
 
-  saveData({ ...data, purchases: nextPurchases, products: nextProducts });
+  if (!preparedRows.length) {
+    alert(
+      t(
+        language,
+        'Add at least one purchase.',
+        'Weka angalau manunuzi moja.'
+      )
+    );
+    return;
+  }
 
- const productRowsForSync = nextProducts
-  .filter((p) => String(p.shop_id) === String(shop.id))
-  .map((p) => ({
-    id: p.id,
-    name: p.name,
-    buyingprice: Number(p.buyPrice || 0),
-    sellingprice: Number(p.sellPrice || 0),
-    stock: Number(p.stockBaseQty || 0),
-    shop_id: p.shop_id,
-    baseunit: p.baseUnit || 'pc',
-    expirydate: p.expiryDate ? p.expiryDate : null,
-    created_at: p.created_at || (p.createdAt ? new Date(p.createdAt).toISOString() : new Date().toISOString()),
-  }));
+  try {
+    setSyncMessage(
+      t(
+        language,
+        'Saving purchases securely...',
+        'Inahifadhi manunuzi kwa usalama...'
+      )
+    );
 
-  newlyPreparedPurchases.forEach((purchase) =>
-    addToSyncQueue('purchase_created', {
-      ...purchase,
-      products: productRowsForSync,
-    })
-  );
+    const { data: savedResult, error: saveError } =
+      await supabase.rpc('record_existing_purchases', {
+        p_shop_id: String(shop.id),
+        p_rows: preparedRows,
+      });
 
-  setPurchaseRows([{ ...emptyPurchaseRow, productSearch: '' }]);
+    if (saveError) {
+      throw saveError;
+    }
 
-  if (navigator.onLine) {
-    processSyncQueue().catch((syncError) => {
-      console.error('Queued purchases sync error:', syncError);
+    if (
+      !Array.isArray(savedResult) ||
+      savedResult.length !== preparedRows.length
+    ) {
+      throw new Error(
+        'Supabase did not confirm every purchase row.'
+      );
+    }
+
+    const affectedProductIds = [
+      ...new Set(
+        preparedRows.map((row) => String(row.productId))
+      ),
+    ];
+
+    const savedPurchaseIds = preparedRows.map(
+      (row) => String(row.purchaseId)
+    );
+
+    const [
+      { data: freshProductRows, error: productRefreshError },
+      { data: freshPurchaseRows, error: purchaseRefreshError },
+    ] = await Promise.all([
+      supabase
+        .from('products')
+        .select('*')
+        .eq('shop_id', String(shop.id))
+        .in('id', affectedProductIds),
+
+      supabase
+        .from('purchases')
+        .select('*')
+        .eq('shop_id', String(shop.id))
+        .in('id', savedPurchaseIds),
+    ]);
+
+    if (productRefreshError) {
+      throw productRefreshError;
+    }
+
+    if (purchaseRefreshError) {
+      throw purchaseRefreshError;
+    }
+
+    if (
+      !Array.isArray(freshProductRows) ||
+      freshProductRows.length !== affectedProductIds.length
+    ) {
+      throw new Error(
+        'The updated product stock could not be fully verified.'
+      );
+    }
+
+    if (
+      !Array.isArray(freshPurchaseRows) ||
+      freshPurchaseRows.length !== savedPurchaseIds.length
+    ) {
+      throw new Error(
+        'The saved purchases could not be fully verified.'
+      );
+    }
+
+    const refreshedProducts = freshProductRows.map(
+      (product) =>
+        normalizeProduct({
+          ...product,
+          buyPrice: Number(product.buyingprice || 0),
+          sellPrice: Number(product.sellingprice || 0),
+          stockBaseQty: Number(product.stock || 0),
+          stockQty: Number(product.stock || 0),
+          baseUnit: product.baseunit || 'pc',
+          expiryDate: product.expirydate || '',
+          minStockLevel: Number(
+            product.minstocklevel || 5
+          ),
+          standardProductCode:
+            product.standard_product_code || '',
+          archived: Boolean(product.archived),
+          confirmed: true,
+        })
+    );
+
+    const affectedProductIdSet = new Set(
+      affectedProductIds
+    );
+
+    const savedPurchaseIdSet = new Set(
+      savedPurchaseIds
+    );
+
+    const nextProducts = [
+      ...data.products.filter(
+        (product) =>
+          !affectedProductIdSet.has(String(product.id))
+      ),
+      ...refreshedProducts,
+    ];
+
+    const nextPurchases = [
+      ...data.purchases.filter(
+        (purchase) =>
+          !savedPurchaseIdSet.has(String(purchase.id))
+      ),
+      ...freshPurchaseRows.map((purchase) => ({
+        ...purchase,
+        shop_id: String(purchase.shop_id || '').trim(),
+        date:
+          purchase.date ||
+          String(purchase.created_at || '').slice(0, 10) ||
+          todayISO(),
+        confirmed: true,
+      })),
+    ];
+
+    await saveData({
+      ...data,
+      products: nextProducts,
+      purchases: nextPurchases,
     });
+
+    setPurchaseRows([
+      {
+        ...emptyPurchaseRow,
+        productSearch: '',
+      },
+    ]);
+
+    setSyncMessage(
+      t(
+        language,
+        'Purchases saved and stock confirmed in Supabase',
+        'Manunuzi yamehifadhiwa na stock imethibitishwa Supabase'
+      )
+    );
+
+    alert(
+      t(
+        language,
+        'Purchases and product stock were saved successfully.',
+        'Manunuzi na stock ya bidhaa vimehifadhiwa kikamilifu.'
+      )
+    );
+  } catch (purchaseError) {
+    console.error(
+      'Secure purchase recording failed:',
+      purchaseError
+    );
+
+    setSyncMessage(
+      t(
+        language,
+        'Purchase saving failed',
+        'Uhifadhi wa manunuzi umeshindikana'
+      )
+    );
+
+    alert(
+      t(
+        language,
+        `Purchases were not completed: ${
+          purchaseError?.message || 'Unknown error'
+        }. The form has not been cleared.`,
+        `Manunuzi hayajakamilika: ${
+          purchaseError?.message || 'Hitilafu isiyojulikana'
+        }. Fomu haijafutwa.`
+      )
+    );
   }
 };
 
@@ -8243,58 +8473,98 @@ sendingSupabaseSalesCount > 0 ? (
             </CardHeader>
             <CardContent className="space-y-4">
               {purchaseRows.map((row, index) => {
-                const selectedProduct = products.find((p) => p.id === row.productId);
+                const selectedProduct = activePurchaseProducts.find(
+  (product) =>
+    String(product.id) === String(row.productId)
+);
                 return (
                   <div key={index} className="grid gap-3 rounded-2xl border border-slate-200 p-3 md:grid-cols-2">
-                    <Input
-  placeholder={t(language, 'Search product...', 'Tafuta bidhaa...')}
+
+
+<Input
+  placeholder={t(
+    language,
+    'Search existing product...',
+    'Tafuta bidhaa iliyopo...'
+  )}
   value={row.productSearch || ''}
-  onChange={(e) => {
-    const search = e.target.value;
-    updatePurchaseRow(index, 'productSearch', search);
+  onChange={(event) => {
+    updatePurchaseRow(
+      index,
+      'productSearch',
+      event.target.value
+    );
 
-    const match = products.find((p) =>
-  String(p.name || '').toLowerCase().includes(search.toLowerCase())
-);
-
-    if (match) {
-      updatePurchaseRow(index, 'productId', match.id);
-    }
+    updatePurchaseRow(index, 'productId', '');
   }}
 />
 
-{row.productSearch && (
-  <div className="rounded-2xl border border-slate-200 bg-white max-h-40 overflow-y-auto text-sm">
-    {products
-      .filter((p) =>
-        String(p.name || '').toLowerCase().includes(
-          String(row.productSearch || '').toLowerCase()
-        )
+{row.productSearch && !row.productId ? (
+  <div className="max-h-40 overflow-y-auto rounded-2xl border border-slate-200 bg-white text-sm">
+    {activePurchaseProducts
+      .filter((product) =>
+        String(product.name || '')
+          .toLowerCase()
+          .includes(
+            String(row.productSearch || '')
+              .trim()
+              .toLowerCase()
+          )
       )
-      .slice(0, 6)
-      .map((p) => (
-        <div
-          key={p.id}
-          className="cursor-pointer px-3 py-2 hover:bg-slate-100"
+      .slice(0, 8)
+      .map((product) => (
+        <button
+          key={product.id}
+          type="button"
+          className="block w-full border-b border-slate-100 px-3 py-2 text-left last:border-b-0 hover:bg-emerald-50"
           onClick={() => {
-            setPurchaseRows((prev) =>
-              prev.map((purchaseRow, i) =>
-                i === index
-                  ? {
-                      ...purchaseRow,
-                      productId: p.id,
-                      productSearch: p.name,
-                    }
-                  : purchaseRow
+            setPurchaseRows((previousRows) =>
+              previousRows.map(
+                (purchaseRow, rowIndex) =>
+                  rowIndex === index
+                    ? {
+                        ...purchaseRow,
+                        productId: product.id,
+                        productSearch: product.name,
+                        unitCost: String(
+                          product.buyPrice || ''
+                        ),
+                      }
+                    : purchaseRow
               )
             );
           }}
         >
-          {p.name}
-        </div>
+          <span className="font-semibold">
+            {product.name}
+          </span>
+
+          <span className="ml-2 text-xs text-slate-500">
+            {formatQty(product.stockBaseQty)}{' '}
+            {product.baseUnit}
+          </span>
+        </button>
       ))}
+
+    {activePurchaseProducts.filter((product) =>
+      String(product.name || '')
+        .toLowerCase()
+        .includes(
+          String(row.productSearch || '')
+            .trim()
+            .toLowerCase()
+        )
+    ).length === 0 ? (
+      <div className="px-3 py-3 text-slate-500">
+        {t(
+          language,
+          'No active existing product was found. Register a new product through Record Products.',
+          'Hakuna bidhaa iliyopo iliyopatikana. Sajili bidhaa mpya kupitia Sajili Bidhaa.'
+        )}
+      </div>
+    ) : null}
   </div>
-)}
+) : null}
 
                     <div className="rounded-2xl bg-slate-50 px-3 py-2 text-sm text-slate-600">
                       {selectedProduct
@@ -8357,92 +8627,8 @@ sendingSupabaseSalesCount > 0 ? (
               <CardTitle>{t(language, 'Recent Purchases', 'Manunuzi ya Karibuni')}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
-<div className="mb-3">
-  <Button
-    type="button"
-    onClick={async () => {
-      const purchasesToConfirm = data.purchases.filter(
-  (purchase) => String(purchase.shop_id) === String(shop.id) && !purchase.confirmed
-);
 
-      if (!purchasesToConfirm.length) {
-        alert('No unconfirmed purchases found.');
-        return;
-      }
-
-      const nextProducts = [...data.products];
-
-      const nextPurchases = data.purchases.map((purchase) => {
-        if (String(purchase.shop_id) !== String(shop.id) || purchase.confirmed) return purchase;
-
-        const pIdx = nextProducts.findIndex((p) => p.id === purchase.productId);
-
-        if (pIdx >= 0) {
-          nextProducts[pIdx] = {
-            ...nextProducts[pIdx],
-            stockBaseQty:
-              Number(nextProducts[pIdx].stockBaseQty || 0) +
-              Number(purchase.quantity || 0),
-            buyPrice:
-              Number(purchase.unitCost || nextProducts[pIdx].buyPrice || 0),
-          };
-        }
-
-        return { ...purchase, confirmed: true };
-      });
-
-      saveData({
-        ...data,
-        products: nextProducts,
-        purchases: nextPurchases,
-      });
-
-     const productRows = nextProducts
-  .filter((p) => String(p.shop_id) === String(shop.id))
-  .map((p) => ({
-    id: p.id,
-    name: p.name,
-    standard_product_code:
-      String(p.standard_product_code || p.standardProductCode || '').trim() ||
-      buildStandardProductCode(p.name, p.baseUnit || 'pc'),
-    buyingprice: Number(p.buyPrice || 0),
-    sellingprice: Number(p.sellPrice || 0),
-    stock: Number(p.stockBaseQty || 0),
-    shop_id: p.shop_id,
-  }));
-
-      const { error: productError } = await supabase
-        .from('products')
-        .upsert(productRows, { onConflict: 'id' });
-
-      if (productError) {
-        alert(`Products sync failed: ${productError.message}`);
-        return;
-      }
-
-     const purchaseRows = purchasesToConfirm.map((purchase) => ({
-  ...purchase,
-  shop_id: purchase.shop_id,
-  confirmed: true,
-  created_at: purchase.created_at || new Date().toISOString(),
-}));
-
-      const { error: purchaseError } = await supabase
-        .from('purchases')
-        .upsert(purchaseRows, { onConflict: 'id' });
-
-      if (purchaseError) {
-        alert(`Purchases sync failed: ${purchaseError.message}`);
-        return;
-      }
-
-      alert('Purchases confirmed successfully.');
-    }}
-  >
-    {t(language, 'Confirm Purchases', 'Thibitisha Manunuzi')}
-  </Button>
-</div>
-              {todayPurchases.length === 0 ? (
+           {todayPurchases.length === 0 ? (
                 <div className="text-slate-500">{t(language, 'No purchases recorded yet.', 'Hakuna manunuzi yaliyorekodiwa bado.')}</div>
               ) : (
                 todayPurchases
@@ -8451,64 +8637,26 @@ sendingSupabaseSalesCount > 0 ? (
                   .map((p) => {
                     const product = data.products.find((x) => x.id === p.productId);
                     return (
-                      <div key={p.id} className="rounded-2xl bg-slate-50 p-3">
-  <div className="flex items-start justify-between gap-2">
+
+<div key={p.id} className="rounded-2xl bg-slate-50 p-3">
+  <div className="flex items-start justify-between gap-3">
     <div>
-      <div className="font-medium">{product?.name || '-'}</div>
+      <div className="font-medium">
+        {product?.name || '-'}
+      </div>
+
       <div className="mt-1 text-slate-500">
-        {formatQty(p.quantity)} - TZS {currency(p.unitCost)} - {p.date}
+        {formatQty(p.quantity)} - TZS{' '}
+        {currency(p.unitCost)} - {p.date}
       </div>
     </div>
 
-    <div className="flex items-center gap-2">
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={() => {
-          setPurchaseRows([
-            {
-              id: p.id,
-              productId: p.productId,
-              productSearch: product?.name || '',
-              quantity: String(p.quantity || ''),
-              unitCost: String(p.unitCost || ''),
-              date: p.date || todayISO(),
-              notes: p.notes || '',
-            },
-          ]);
-        }}
-      >
-        <Pencil className="h-4 w-4" />
-      </Button>
-
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={() => {
-  const nextPurchases = data.purchases.filter((x) => x.id !== p.id);
-  const nextProducts = data.products.map((item) =>
-    item.id === p.productId
-      ? {
-          ...item,
-          stockBaseQty: Math.max(
-            0,
-            Number(item.stockBaseQty || 0) - Number(p.quantity || 0)
-          ),
-        }
-      : item
-  );
-
-  saveData({
-    ...data,
-    purchases: nextPurchases,
-    products: nextProducts,
-  });
-}}
-      >
-        <Trash2 className="h-4 w-4" />
-      </Button>
+    <div className="shrink-0 rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">
+      {t(
+        language,
+        'Saved in Supabase',
+        'Imehifadhiwa Supabase'
+      )}
     </div>
   </div>
 </div>
@@ -13001,6 +13149,7 @@ return (
   setLanguage={setLanguage}
   exportBackup={exportBackup}
   dashboardDataReady={dashboardDataReady}
+  setSyncMessage={setSyncMessage}
 />
 
 
