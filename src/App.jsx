@@ -2050,8 +2050,36 @@ function TabsTrigger({ value, activeValue, onClick, children }) {
     </button>
   );
 }
-function TabsContent({ value, activeValue, children }) {
-  return value === activeValue ? <div>{children}</div> : null;
+function TabsContent({
+  value,
+  activeValue,
+  children,
+  keepAlive = false,
+}) {
+  const isActive = value === activeValue;
+
+  const [hasBeenOpened, setHasBeenOpened] = useState(
+    isActive
+  );
+
+  useEffect(() => {
+    if (isActive && !hasBeenOpened) {
+      setHasBeenOpened(true);
+    }
+  }, [isActive, hasBeenOpened]);
+
+  if (!isActive && (!keepAlive || !hasBeenOpened)) {
+    return null;
+  }
+
+  return (
+    <div
+      className={isActive ? 'block' : 'hidden'}
+      aria-hidden={!isActive}
+    >
+      {children}
+    </div>
+  );
 }
 
         function StatCard({ title, value, subtitle = '', icon: Icon, color = 'bg-orange-300' }) {
@@ -9169,7 +9197,11 @@ sendingSupabaseSalesCount > 0 ? (
         </div>
       </TabsContent>
 
-      <TabsContent value="remittance" activeValue={activeTab}>
+      <TabsContent
+  value="remittance"
+  activeValue={activeTab}
+  keepAlive
+>
       <DailyRemittanceCentre
   data={shopCalculationData}
   saveData={saveData}
@@ -9183,7 +9215,11 @@ sendingSupabaseSalesCount > 0 ? (
 />
       </TabsContent>
 
-      <TabsContent value="homeExpenses" activeValue={activeTab}>
+      <TabsContent
+  value="homeExpenses"
+  activeValue={activeTab}
+  keepAlive
+>
         <HomeExpensesCentre
   data={shopCalculationData}
           saveData={saveData}

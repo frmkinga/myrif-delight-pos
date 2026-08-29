@@ -2054,10 +2054,10 @@ const [shortReason, setShortReason] = useState('');
 const [otherReason, setOtherReason] = useState('');
   const [localConfirmed, setLocalConfirmed] = useState(false);
 const [localMonthlyDrafts, setLocalMonthlyDrafts] = useState({});
-const [remittanceCloudLoaded, setRemittanceCloudLoaded] = useState(false);
-const [expenseFundsCloudLoaded, setExpenseFundsCloudLoaded] = useState(false);
+const [remittanceCloudLoaded, setRemittanceCloudLoaded] = useState(true);
+const [expenseFundsCloudLoaded, setExpenseFundsCloudLoaded] = useState(true);
 const [fundAllocationsCloudLoaded, setFundAllocationsCloudLoaded] =
-  useState(false);
+  useState(true);
  const [shopSettingsCloudLoaded, setShopSettingsCloudLoaded] =
   useState(false);
 
@@ -3870,10 +3870,18 @@ useEffect(() => {
     const previousMonthEndKey =
       formatDateKey(previousMonthEnd);
 
-  const { data: cloudSales, error } = await supabase
+  const previousMonthEffectiveStartKey =
+  previousMonthStartKey <
+  AUTOMATIC_EXPENSE_ACTIVATION_DATE
+    ? AUTOMATIC_EXPENSE_ACTIVATION_DATE
+    : previousMonthStartKey;
+
+const { data: cloudSales, error } = await supabase
   .from('sales')
-  .select('*')
-  .gte('date', AUTOMATIC_EXPENSE_ACTIVATION_DATE)
+  .select(
+    'id, shop_id, items, total, type, date, created_at'
+  )
+  .gte('date', previousMonthEffectiveStartKey)
   .lte('date', previousMonthEndKey)
   .order('created_at', { ascending: true });
 
