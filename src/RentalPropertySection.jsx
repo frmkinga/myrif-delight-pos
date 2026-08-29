@@ -4,6 +4,12 @@ import { supabase } from './supabaseClient';
 const currency = (value) =>
   new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(Number(value || 0));
 
+const formatQty = (value) =>
+  new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(Number(value || 0));
+
 const formatPersonName = (value) =>
   String(value || '')
     .toLowerCase()

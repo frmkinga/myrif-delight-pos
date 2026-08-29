@@ -4210,8 +4210,13 @@ const [expenseReportMonth, setExpenseReportMonth] = useState(() => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 });
 
-const [reportSalesSource, setReportSalesSource] = useState([]);
-const [reportSalesLoading, setReportSalesLoading] = useState(false);
+const [reportSalesSource, setReportSalesSource] =
+  useState([]);
+
+const [reportSalesLoading, setReportSalesLoading] =
+  useState(false);
+
+const reportSalesCacheRef = useRef(new Map());
   const [productFormError, setProductFormError] = useState('');
   const [saleError, setSaleError] = useState('');
 const [saleSaving, setSaleSaving] = useState(false);
@@ -4490,38 +4495,66 @@ const [monthlyCommissionForm, setMonthlyCommissionForm] = useState({
   notes: '',
 });
 
-const products = data.products
-  .filter((p) => String(p?.shop_id || '') === String(shop.id))
-  .map(normalizeProduct)
-  .filter((p) => p.id && String(p.name || '').trim());
-
-const activePurchaseProducts = products.filter(
-  (product) => product.archived !== true
+const products = useMemo(
+  () =>
+    (data.products || [])
+      .filter((product) =>
+        String(product?.shop_id || '') === String(shop.id)
+      )
+      .map(normalizeProduct)
+      .filter(
+        (product) =>
+          product.id &&
+          String(product.name || '').trim()
+      ),
+  [data.products, shop.id]
 );
 
-const sales = data.sales.filter(
-  (s) => String(s.shop_id) === String(shop.id)
+const activePurchaseProducts = useMemo(
+  () =>
+    products.filter(
+      (product) => product.archived !== true
+    ),
+  [products]
 );
 
-const confirmedSales =
-  String(data.currentUser?.role || '') === 'owner'
-    ? sales.filter((sale) => sale.confirmed !== false)
-    : sales;
+const sales = useMemo(
+  () =>
+    (data.sales || []).filter(
+      (sale) =>
+        String(sale.shop_id || sale.shopId || '') ===
+        String(shop.id)
+    ),
+  [data.sales, shop.id]
+);
 
-const shopCalculationData =
-  String(data.currentUser?.role || '') === 'owner'
-    ? {
-        ...data,
-        sales: (Array.isArray(data?.sales)
-          ? data.sales
-          : []
-        ).filter(
-          (sale) => sale?.confirmed !== false
-        ),
-      }
-    : data;
-    const pendingSupabaseSales = sales.filter(
-  (sale) => sale.confirmed === false
+const confirmedSales = useMemo(
+  () =>
+    String(data.currentUser?.role || '') === 'owner'
+      ? sales.filter((sale) => sale.confirmed !== false)
+      : sales,
+  [sales, data.currentUser?.role]
+);
+
+const shopCalculationData = useMemo(
+  () =>
+    String(data.currentUser?.role || '') === 'owner'
+      ? {
+          ...data,
+          sales: (data.sales || []).filter(
+            (sale) => sale?.confirmed !== false
+          ),
+        }
+      : data,
+  [data, data.currentUser?.role]
+);
+
+const pendingSupabaseSales = useMemo(
+  () =>
+    sales.filter(
+      (sale) => sale.confirmed === false
+    ),
+  [sales]
 );
 
 const pendingSaleQueueItems = readSyncQueue().filter(
@@ -4554,75 +4587,113 @@ const sendingSupabaseSales = pendingSupabaseSales.filter((sale) => {
   return queueItem && queueItem?.status !== 'failed';
 });
 
-const pendingSupabaseSalesCount =
-  pendingSupabaseSales.length;
+const pendingSupabaseSalesCount = pendingSupabaseSales.length;
 
-const pendingSupabaseSalesAmount =
-  pendingSupabaseSales.reduce(
-    (total, sale) =>
-      total + Math.max(0, Number(sale?.total || 0)),
-    0
-  );
-
-const failedSupabaseSalesCount =
-  failedSupabaseSales.length;
-
-const failedSupabaseSalesAmount =
-  failedSupabaseSales.reduce(
-    (total, sale) =>
-      total + Math.max(0, Number(sale?.total || 0)),
-    0
-  );
-
-const sendingSupabaseSalesCount =
-  sendingSupabaseSales.length;
-
-const sendingSupabaseSalesAmount =
-  sendingSupabaseSales.reduce(
-    (total, sale) =>
-      total + Math.max(0, Number(sale?.total || 0)),
-    0
-  );
-console.log('SHOP SALES SNAPSHOT', {
-  shopId: shop.id,
-  totalSalesRowsInData: Array.isArray(data.sales) ? data.sales.length : 0,
-  shopSalesRows: Array.isArray(sales) ? sales.length : 0,
-  latestFiveShopSales: Array.isArray(sales) ? sales.slice(-5) : [],
-});
-
-const creditSales = data.creditSales.filter(
-  (s) => String(s.shop_id) === String(shop.id)
+const pendingSupabaseSalesAmount = pendingSupabaseSales.reduce(
+  (total, sale) =>
+    total + Math.max(0, Number(sale?.total || 0)),
+  0
 );
 
-const changeLedger = data.changeLedger.filter(
-  (s) => String(s.shop_id) === String(shop.id)
+const failedSupabaseSalesCount = failedSupabaseSales.length;
+
+const failedSupabaseSalesAmount = failedSupabaseSales.reduce(
+  (total, sale) =>
+    total + Math.max(0, Number(sale?.total || 0)),
+  0
 );
 
-const expenses = data.expenses.filter(
-  (e) => String(e.shop_id) === String(shop.id)
+const sendingSupabaseSalesCount = sendingSupabaseSales.length;
+
+const sendingSupabaseSalesAmount = sendingSupabaseSales.reduce(
+  (total, sale) =>
+    total + Math.max(0, Number(sale?.total || 0)),
+  0
 );
 
-const expenseEntries = data.expenses
-  .map((e, originalIndex) => ({ ...e, originalIndex }))
-  .filter((e) => String(e.shop_id) === String(shop.id));
-
-const purchases = data.purchases.filter(
-  (p) => String(p.shop_id) === String(shop.id)
+const creditSales = useMemo(
+  () =>
+    (data.creditSales || []).filter(
+      (sale) => String(sale.shop_id) === String(shop.id)
+    ),
+  [data.creditSales, shop.id]
 );
 
-const todayPurchases = purchases.filter(
-  (purchase) => purchase.date === todayISO()
+const changeLedger = useMemo(
+  () =>
+    (data.changeLedger || []).filter(
+      (entry) => String(entry.shop_id) === String(shop.id)
+    ),
+  [data.changeLedger, shop.id]
 );
 
-const todayProducts = data.products
-  .filter((p) => String(p.shop_id) === String(shop.id) && p.confirmed !== true)
-  .map(normalizeProduct);
-
-const mobileMoneyEntries = data.mobileMoneyEntries.filter(
-  (m) => String(m.shop_id) === String(shop.id)
+const expenses = useMemo(
+  () =>
+    (data.expenses || []).filter(
+      (expense) => String(expense.shop_id) === String(shop.id)
+    ),
+  [data.expenses, shop.id]
 );
 
-const todayMobileMoneyEntries = mobileMoneyEntries.filter((m) => m.date === todayISO());
+const expenseEntries = useMemo(
+  () =>
+    (data.expenses || [])
+      .map((expense, originalIndex) => ({
+        ...expense,
+        originalIndex,
+      }))
+      .filter(
+        (expense) =>
+          String(expense.shop_id) === String(shop.id)
+      ),
+  [data.expenses, shop.id]
+);
+
+const purchases = useMemo(
+  () =>
+    (data.purchases || []).filter(
+      (purchase) =>
+        String(purchase.shop_id) === String(shop.id)
+    ),
+  [data.purchases, shop.id]
+);
+
+const todayPurchases = useMemo(
+  () =>
+    purchases.filter(
+      (purchase) => purchase.date === todayIso
+    ),
+  [purchases, todayIso]
+);
+
+const todayProducts = useMemo(
+  () =>
+    (data.products || [])
+      .filter(
+        (product) =>
+          String(product.shop_id) === String(shop.id) &&
+          product.confirmed !== true
+      )
+      .map(normalizeProduct),
+  [data.products, shop.id]
+);
+
+const mobileMoneyEntries = useMemo(
+  () =>
+    (data.mobileMoneyEntries || []).filter(
+      (entry) =>
+        String(entry.shop_id) === String(shop.id)
+    ),
+  [data.mobileMoneyEntries, shop.id]
+);
+
+const todayMobileMoneyEntries = useMemo(
+  () =>
+    mobileMoneyEntries.filter(
+      (entry) => entry.date === todayIso
+    ),
+  [mobileMoneyEntries, todayIso]
+);
 const isOwnerUser = String(data.currentUser?.role || '') === 'owner';
 const isEditingMobileMoney = Boolean(mobileMoneyForm.id);
 const shouldShowMobileMoneyWarning = !isOwnerUser && todayMobileMoneyEntries.length > 0;
@@ -4795,7 +4866,16 @@ const reportDateValue =
     ? { start: reportStartDate, end: reportEndDate }
     : reportDate;
 
-const shouldLoadOldSalesFromSupabase = false;
+const historicalSalesPresets = new Set([
+  'lastmonth',
+  '3months',
+  '6months',
+  'year',
+  'date',
+]);
+
+const shouldLoadOldSalesFromSupabase =
+  historicalSalesPresets.has(reportPreset);
 
 useEffect(() => {
   if (!shouldLoadOldSalesFromSupabase) {
@@ -4804,82 +4884,257 @@ useEffect(() => {
     return;
   }
 
-  const loadOldSalesForReport = async () => {
+  let cancelled = false;
+
+  const loadHistoricalSalesForReport = async () => {
+    const now = startOfDay(new Date());
+
+    const startOfThisMonthForReport =
+      startOfMonth(now);
+
+    const startOfLastMonth = new Date(
+      now.getFullYear(),
+      now.getMonth() - 1,
+      1
+    );
+
+    const endOfLastMonth = addDays(
+      startOfThisMonthForReport,
+      -1
+    );
+
+    let startDate = todayISO();
+    let endDate = todayISO();
+
+    if (reportPreset === 'lastmonth') {
+      startDate = todayISO(startOfLastMonth);
+      endDate = todayISO(endOfLastMonth);
+    } else if (reportPreset === '3months') {
+      startDate = daysAgoISO(89);
+    } else if (reportPreset === '6months') {
+      startDate = daysAgoISO(179);
+    } else if (reportPreset === 'year') {
+      startDate = todayISO(
+        new Date(now.getFullYear(), 0, 1)
+      );
+    } else if (reportPreset === 'date') {
+      startDate = reportStartDate;
+      endDate = reportEndDate;
+    }
+
+    if (!startDate || !endDate) {
+      setReportSalesSource([]);
+      setReportSalesLoading(false);
+      return;
+    }
+
+    if (startDate > endDate) {
+      setReportSalesSource([]);
+      setReportSalesLoading(false);
+
+      console.error(
+        'Historical sales start date cannot be after the end date.'
+      );
+      return;
+    }
+
+    const cacheKey = [
+      String(shop.id),
+      String(reportPreset),
+      String(startDate),
+      String(endDate),
+    ].join('|');
+
+    const cachedSales =
+      reportSalesCacheRef.current.get(cacheKey);
+
+    if (Array.isArray(cachedSales)) {
+      setReportSalesSource(cachedSales);
+      setReportSalesLoading(false);
+      return;
+    }
+
     try {
       setReportSalesLoading(true);
 
-      let startDate = daysAgoISO(30);
-      let endDate = todayISO();
+      const { data: historicalSales, error } =
+        await supabase
+          .from('sales')
+          .select(
+            'id, shop_id, items, total, type, date, created_at'
+          )
+          .eq('shop_id', String(shop.id))
+          .gte('date', startDate)
+          .lte('date', endDate)
+          .order('created_at', {
+            ascending: false,
+          });
 
-      const now = startOfDay(new Date());
-
-      const getStartOfWeekForReport = (date) => {
-        const d = startOfDay(date);
-        const day = d.getDay();
-        const diff = day === 0 ? -6 : 1 - day;
-        return addDays(d, diff);
-      };
-
-      const startOfThisWeek = getStartOfWeekForReport(now);
-      const startOfLastWeek = addDays(startOfThisWeek, -7);
-      const endOfLastWeek = addDays(startOfThisWeek, -1);
-
-      const startOfThisMonthForReport = startOfMonth(now);
-      const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const endOfLastMonth = addDays(startOfThisMonthForReport, -1);
-
-      if (reportPreset === 'lastweek') {
-        startDate = todayISO(startOfLastWeek);
-        endDate = todayISO(endOfLastWeek);
-      } else if (reportPreset === 'lastmonth') {
-        startDate = todayISO(startOfLastMonth);
-        endDate = todayISO(endOfLastMonth);
-      } else if (reportPreset === '3months') {
-        startDate = daysAgoISO(89);
-      } else if (reportPreset === '6months') {
-        startDate = daysAgoISO(179);
-      } else if (reportPreset === 'year') {
-        startDate = daysAgoISO(364);
-      } else if (reportPreset === 'date') {
-        startDate = reportStartDate;
-        endDate = reportEndDate;
+      if (error) {
+        throw error;
       }
 
-      const { data: oldSales, error } = await supabase
-        .from('sales')
-        .select('*')
-        .eq('shop_id', shop.id)
-        .gte('date', startDate)
-        .lte('date', endDate)
-        .order('created_at', { ascending: false });
+      if (cancelled) return;
 
-      if (error) throw error;
+      const confirmedHistoricalSales = (
+        Array.isArray(historicalSales)
+          ? historicalSales
+          : []
+      ).map((sale) => ({
+        ...sale,
+        shop_id: String(
+          sale?.shop_id || shop.id
+        ).trim(),
+        date:
+          sale?.date ||
+          (sale?.created_at
+            ? String(sale.created_at).slice(0, 10)
+            : todayISO()),
+        confirmed: true,
+      }));
 
-      setReportSalesSource(oldSales || []);
-    } catch (error) {
-      console.error('Failed to load old sales for sales report:', error);
+      reportSalesCacheRef.current.set(
+        cacheKey,
+        confirmedHistoricalSales
+      );
+
+      setReportSalesSource(
+        confirmedHistoricalSales
+      );
+    } catch (historicalSalesError) {
+      if (cancelled) return;
+
+      console.error(
+        'Failed to load the selected historical sales period:',
+        historicalSalesError
+      );
+
       setReportSalesSource([]);
+
+      alert(
+        t(
+          language,
+          'The selected historical sales period could not be loaded. Current operational information remains available.',
+          'Mauzo ya kipindi ulichochagua hayakuweza kupakiwa. Taarifa za sasa zinaendelea kupatikana.'
+        )
+      );
     } finally {
-      setReportSalesLoading(false);
+      if (!cancelled) {
+        setReportSalesLoading(false);
+      }
     }
   };
 
-  loadOldSalesForReport();
-}, [shop.id, reportPreset, reportStartDate, reportEndDate, shouldLoadOldSalesFromSupabase]);
+  loadHistoricalSalesForReport();
 
-const salesSourceForFiltering = shouldLoadOldSalesFromSupabase ? reportSalesSource : confirmedSales;
-
-const filteredSales = filterByPreset(
-  salesSourceForFiltering.map((s) => ({
-    ...s,
-    date: s.created_at ? todayISO(new Date(s.created_at)) : s.date,
-  })),
+  return () => {
+    cancelled = true;
+  };
+}, [
+  shop.id,
   reportPreset,
-  reportDateValue
+  reportStartDate,
+  reportEndDate,
+  shouldLoadOldSalesFromSupabase,
+  language,
+]);
+
+const salesSourceForFiltering =
+  shouldLoadOldSalesFromSupabase
+    ? mergeRowsById(
+        reportSalesSource,
+        confirmedSales
+      )
+    : confirmedSales;
+
+const filteredSales = useMemo(
+  () =>
+    filterByPreset(
+      salesSourceForFiltering.map((sale) => ({
+        ...sale,
+        date: sale.created_at
+          ? todayISO(new Date(sale.created_at))
+          : sale.date,
+      })),
+      reportPreset,
+      reportPreset === 'date'
+        ? {
+            start: reportStartDate,
+            end: reportEndDate,
+          }
+        : reportDate
+    ),
+  [
+    salesSourceForFiltering,
+    reportPreset,
+    reportDate,
+    reportStartDate,
+    reportEndDate,
+  ]
 );
-const filteredPurchases = filterByPreset(purchases, reportPreset, reportDateValue);
-const filteredExpenses = filterByPreset(expenses, reportPreset, reportDateValue);
-const filteredMobileMoney = filterByPreset(mobileMoneyEntries, reportPreset, reportDateValue);
+
+const filteredPurchases = useMemo(
+  () =>
+    filterByPreset(
+      purchases,
+      reportPreset,
+      reportPreset === 'date'
+        ? {
+            start: reportStartDate,
+            end: reportEndDate,
+          }
+        : reportDate
+    ),
+  [
+    purchases,
+    reportPreset,
+    reportDate,
+    reportStartDate,
+    reportEndDate,
+  ]
+);
+
+const filteredExpenses = useMemo(
+  () =>
+    filterByPreset(
+      expenses,
+      reportPreset,
+      reportPreset === 'date'
+        ? {
+            start: reportStartDate,
+            end: reportEndDate,
+          }
+        : reportDate
+    ),
+  [
+    expenses,
+    reportPreset,
+    reportDate,
+    reportStartDate,
+    reportEndDate,
+  ]
+);
+
+const filteredMobileMoney = useMemo(
+  () =>
+    filterByPreset(
+      mobileMoneyEntries,
+      reportPreset,
+      reportPreset === 'date'
+        ? {
+            start: reportStartDate,
+            end: reportEndDate,
+          }
+        : reportDate
+    ),
+  [
+    mobileMoneyEntries,
+    reportPreset,
+    reportDate,
+    reportStartDate,
+    reportEndDate,
+  ]
+);
 
 const mobileMoneyReportRows = useMemo(
   () =>
@@ -4959,20 +5214,32 @@ const dashboardDateValue =
     ? { start: reportStartDate, end: reportEndDate }
     : reportDate;
 
-const dashboardSales = confirmedSales.map((s) => {
-  const computedDate =
-    String(s.date || '').slice(0, 10) ||
-    (s.created_at
-      ? todayISO(new Date(s.created_at))
-      : '');
+const dashboardSales = useMemo(
+  () =>
+    confirmedSales.map((sale) => {
+      const computedDate =
+        String(sale.date || '').slice(0, 10) ||
+        (sale.created_at
+          ? todayISO(new Date(sale.created_at))
+          : '');
 
-  return {
-    ...s,
-    date: computedDate,
-  };
-});
+      return {
+        ...sale,
+        date: computedDate,
+      };
+    }),
+  [confirmedSales]
+);
 
-const dashboardFilteredSales = filterByPreset(dashboardSales, reportPreset, dashboardDateValue);
+const dashboardFilteredSales = useMemo(
+  () =>
+    filterByPreset(
+      dashboardSales,
+      reportPreset,
+      dashboardDateValue
+    ),
+  [dashboardSales, reportPreset, dashboardDateValue]
+);
 
 if (String(shop.id) === 'shop-2' && reportPreset === 'today') {
   console.log('LIVE SHOP2 TODAY CHECK', {
@@ -11867,11 +12134,54 @@ const pendingQueueItems = readSyncQueue().filter(
     syncAndReloadConfirmedSales('Checking sync...');
   }
 
-  refreshTimer = window.setInterval(() => {
-    if (navigator.onLine) {
-      syncAndReloadConfirmedSales('Refreshing confirmed sales...');
+ refreshTimer = window.setInterval(async () => {
+  if (!navigator.onLine) return;
+
+  const pendingBeforeSync = readSyncQueue().filter(
+    (queueItem) => queueItem?.synced === false
+  );
+
+  if (!pendingBeforeSync.length) {
+    return;
+  }
+
+  setSyncMessage(
+    `Synchronizing ${pendingBeforeSync.length} pending record(s)...`
+  );
+
+  try {
+    await processSyncQueue();
+
+    const pendingAfterSync = readSyncQueue().filter(
+      (queueItem) => queueItem?.synced === false
+    );
+
+    const failedAfterSync = pendingAfterSync.filter(
+      (queueItem) => queueItem?.status === 'failed'
+    );
+
+    if (failedAfterSync.length > 0) {
+      setSyncMessage(
+        `Sync pending: ${failedAfterSync.length} record(s) still require synchronization.`
+      );
+    } else if (pendingAfterSync.length > 0) {
+      setSyncMessage(
+        `Sync pending: ${pendingAfterSync.length} record(s) are still being synchronized.`
+      );
+    } else {
+      setSyncMessage('Sync complete');
     }
-  }, 15000);
+  } catch (syncError) {
+    console.error(
+      'Pending-record synchronization failed:',
+      syncError
+    );
+
+    setSyncMessage(
+      'Some records are still waiting for synchronization.'
+    );
+  }
+}, 15000);
 
   return () => {
     window.removeEventListener('online', goOnline);
@@ -12046,12 +12356,32 @@ useEffect(() => {
   };
 }, [activeShopId]);
 
-
 useEffect(() => {
   if (!activeShopId) return;
 
   const channelShopId = String(activeShopId).trim();
   let cancelled = false;
+
+  const preserveRealtimeData = (nextData) => {
+    const persist = () => {
+      writeToDB(DB_DATA_KEY, nextData).catch(
+        (databaseError) => {
+          console.error(
+            'Failed to preserve incremental sales update:',
+            databaseError
+          );
+        }
+      );
+    };
+
+    if ('requestIdleCallback' in window) {
+      window.requestIdleCallback(persist, {
+        timeout: 2000,
+      });
+    } else {
+      window.setTimeout(persist, 0);
+    }
+  };
 
   const salesChannel = supabase
     .channel(`sales-changes-${channelShopId}`)
@@ -12063,79 +12393,106 @@ useEffect(() => {
         table: 'sales',
         filter: `shop_id=eq.${channelShopId}`,
       },
-      async () => {
-        const { data: sales, error } = await supabase
-          .from('sales')
-          .select('*')
-          .eq('shop_id', channelShopId);
-
+      (payload) => {
         if (cancelled) return;
 
-        if (error) {
-          console.error(
-            'Realtime sales refresh failed; preserving local sales:',
-            error
+        const eventType = String(
+          payload?.eventType || ''
+        ).toUpperCase();
+
+        const changedRow =
+          eventType === 'DELETE'
+            ? payload?.old
+            : payload?.new;
+
+        const changedSaleId = String(
+          changedRow?.id || ''
+        ).trim();
+
+        if (!changedSaleId) {
+          console.warn(
+            'Realtime sales event had no sale ID:',
+            payload
           );
           return;
         }
 
-        if (!Array.isArray(sales)) {
-          console.error(
-            'Realtime sales refresh returned an invalid list; preserving local sales.'
-          );
-          return;
-        }
+        setData((previousData) => {
+          const previousSales = Array.isArray(
+            previousData.sales
+          )
+            ? previousData.sales
+            : [];
 
-        const pendingSaleIds = new Set(
-          (readSyncQueue() || [])
-            .filter(
-              (queueItem) =>
-                queueItem?.actionType === 'sale_created' &&
-                queueItem?.synced === false
-            )
-            .map((queueItem) =>
-              String(queueItem?.payload?.id || '').trim()
-            )
-            .filter(Boolean)
-        );
+          let nextSales;
 
-        const confirmedShopSales = sales.map((sale) => {
-          const saleId = String(sale?.id || '').trim();
+          if (eventType === 'DELETE') {
+            nextSales = previousSales.filter(
+              (sale) =>
+                String(sale?.id || '').trim() !==
+                changedSaleId
+            );
+          } else {
+            const confirmedSale = {
+              ...changedRow,
+              id: changedSaleId,
+              shop_id: String(
+                changedRow?.shop_id ||
+                  changedRow?.shopId ||
+                  changedRow?.shopid ||
+                  channelShopId
+              ).trim(),
+              date:
+                changedRow?.date ||
+                (changedRow?.created_at
+                  ? String(
+                      changedRow.created_at
+                    ).slice(0, 10)
+                  : todayISO()),
+              confirmed: true,
+            };
 
-          return {
-            ...sale,
-            shop_id: String(
-              sale.shop_id ||
-                sale.shopId ||
-                sale.shopid ||
-                channelShopId
-            ).trim(),
-            date:
-              sale.date ||
-              (sale.created_at
-                ? String(sale.created_at).slice(0, 10)
-                : todayISO()),
-            confirmed: !pendingSaleIds.has(saleId),
-          };
-        });
-
-        setData((prev) => {
-          const nextData = normalizeData({
-            ...prev,
-            sales: mergeRowsById(
-              Array.isArray(prev.sales) ? prev.sales : [],
-              confirmedShopSales
-            ),
-          });
-
-          writeToDB(DB_DATA_KEY, nextData).catch(
-            (dbError) => {
-              console.error(
-                'Failed to preserve realtime merged sales:',
-                dbError
+            const existingSaleIndex =
+              previousSales.findIndex(
+                (sale) =>
+                  String(sale?.id || '').trim() ===
+                  changedSaleId
               );
+
+            if (existingSaleIndex >= 0) {
+              const existingSale =
+                previousSales[existingSaleIndex];
+
+              const saleIsUnchanged =
+                existingSale?.confirmed === true &&
+                Number(existingSale?.total || 0) ===
+                  Number(confirmedSale.total || 0) &&
+                String(existingSale?.date || '') ===
+                  String(confirmedSale.date || '') &&
+                String(existingSale?.type || '') ===
+                  String(confirmedSale.type || '');
+
+              if (saleIsUnchanged) {
+                return previousData;
+              }
+
+              nextSales = [...previousSales];
+              nextSales[existingSaleIndex] =
+                confirmedSale;
+            } else {
+              nextSales = [
+                ...previousSales,
+                confirmedSale,
+              ];
             }
-          );
+          }
+
+          const nextData = {
+            ...previousData,
+            sales: nextSales,
+          };
+
+          preserveRealtimeData(nextData);
 
           return nextData;
         });
@@ -12908,66 +13265,51 @@ rentSmsAttempts: mergedRentSmsAttempts,
       });
     };
 
-const loadBackgroundLayers = async () => {
+const loadCurrentOperationalData = async () => {
   try {
     setSyncMessage(
       t(
         language,
-        'You are seeing the last confirmed data. New information is loading in the background.',
-        'Unaona taarifa za mwisho zilizothibitishwa. Taarifa mpya zinaendelea kupakiwa.'
+        'Loading current shop information...',
+        'Inapakia taarifa za sasa za duka...'
       )
     );
 
-    const monthLoaded = await readData({ preferFresh: true, salesMode: 'month' });
-    applyBackgroundData(monthLoaded);
+    const operationalData = await readData({
+      preferFresh: true,
+      salesMode: 'month',
+    });
 
-    setSyncMessage(
-      t(
-        language,
-        'New information is still loading. Please wait a little.',
-        'Taarifa mpya bado zinaendelea kupakiwa. Tafadhali subiri kidogo.'
-      )
-    );
-
-    const sixMonthsLoaded = await readData({ preferFresh: true, salesMode: 'sixMonths' });
-    applyBackgroundData(sixMonthsLoaded);
-
-    setSyncMessage(
-      t(
-        language,
-        'New information is still loading. Please wait a little.',
-        'Taarifa mpya bado zinaendelea kupakiwa. Tafadhali subiri kidogo.'
-      )
-    );
-
-    const yearLoaded = await readData({ preferFresh: true, salesMode: 'year' });
-    applyBackgroundData(yearLoaded);
+    applyBackgroundData(operationalData);
 
     setDashboardDataReady(true);
 
     setSyncMessage(
       t(
         language,
-        'New information is complete. Please continue.',
-        'Taarifa mpya zimekamilika. Tafadhali endelea.'
+        'Current information is ready.',
+        'Taarifa za sasa zimekamilika.'
       )
     );
   } catch (error) {
-    console.error('Background layered history loading failed:', error);
+    console.error(
+      'Current operational data loading failed:',
+      error
+    );
 
     setDashboardDataReady(true);
 
     setSyncMessage(
       t(
         language,
-        'Some information is still loading. Please continue carefully.',
-        'Baadhi ya taarifa bado zinapakiwa. Tafadhali endelea kwa umakini.'
+        'Using the last confirmed saved information.',
+        'Mfumo unatumia taarifa za mwisho zilizothibitishwa.'
       )
     );
   }
 };
 
-    loadBackgroundLayers();
+loadCurrentOperationalData();
   }
 };
 
