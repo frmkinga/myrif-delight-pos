@@ -1185,6 +1185,132 @@ expectedHome,
 outstanding,
   };
 };
+
+/*
+ * Build the sales position once for each shop and date.
+ * Both Remittance and Home Expenses reuse this index instead
+ * of repeatedly searching through the complete sales history.
+ */
+const remittanceSalesPositionIndexCache = new WeakMap();
+
+const getRemittanceSalesPositionIndex = (
+  salesSource,
+  productsSource
+) => {
+  const sales = Array.isArray(salesSource)
+    ? salesSource
+    : [];
+
+  const products = Array.isArray(productsSource)
+    ? productsSource
+    : [];
+
+  let productCaches =
+    remittanceSalesPositionIndexCache.get(sales);
+
+  if (!productCaches) {
+    productCaches = new WeakMap();
+    remittanceSalesPositionIndexCache.set(
+      sales,
+      productCaches
+    );
+  }
+
+  const cachedIndex = productCaches.get(products);
+
+  if (cachedIndex) {
+    return cachedIndex;
+  }
+
+  const productById = new Map(
+    products.map((product) => [
+      String(product?.id || ''),
+      product,
+    ])
+  );
+
+  const positionIndex = new Map();
+
+  sales.forEach((sale) => {
+    const saleShopId = String(
+      sale?.shop_id ||
+        sale?.shopId ||
+        sale?.shopid ||
+        ''
+    );
+
+    const saleDateKey = String(
+      sale?.date ||
+        sale?.created_at ||
+        ''
+    ).slice(0, 10);
+
+    if (!saleShopId || !saleDateKey) {
+      return;
+    }
+
+    const indexKey =
+      `${saleShopId}::${saleDateKey}`;
+
+    const previousPosition =
+      positionIndex.get(indexKey) || {
+        sales: 0,
+        replacement: 0,
+        grossProfit: 0,
+      };
+
+    const saleAmount = Number(
+      sale?.total || 0
+    );
+
+    const replacementAmount = (
+      Array.isArray(sale?.items)
+        ? sale.items
+        : []
+    ).reduce((itemTotal, item) => {
+      const product = productById.get(
+        String(item?.productId || '')
+      );
+
+      const quantity = Number(
+        item?.quantity || 0
+      );
+
+      const buyingPrice = Number(
+        item?.buyPrice ||
+          product?.buyPrice ||
+          product?.buyingprice ||
+          0
+      );
+
+      return (
+        itemTotal +
+        quantity * buyingPrice
+      );
+    }, 0);
+
+    const totalSales =
+      previousPosition.sales + saleAmount;
+
+    const totalReplacement =
+      previousPosition.replacement +
+      replacementAmount;
+
+    positionIndex.set(indexKey, {
+      sales: totalSales,
+      replacement: totalReplacement,
+      grossProfit: Math.max(
+        0,
+        totalSales - totalReplacement
+      ),
+    });
+  });
+
+  productCaches.set(products, positionIndex);
+
+  return positionIndex;
+};
+
 export const getLiveRemittanceShopPosition = ({
   data,
   shopId,
@@ -1259,81 +1385,22 @@ const homeExpensesSnapshots = Array.isArray(
       name: selectedShopId,
     };
 
-  const productById = new Map(
-    products.map((product) => [
-      String(product?.id || ''),
-      product,
-    ])
-  );
-
-  const getSalesPositionForDate = (dateKey) => {
-    const dateSales = sales.filter((sale) => {
-      const saleShopId = String(
-        sale?.shop_id ||
-          sale?.shopId ||
-          sale?.shopid ||
-          ''
-      );
-
-      const saleDateKey = String(
-        sale?.date || sale?.created_at || ''
-      ).slice(0, 10);
-
-      return (
-        saleShopId === selectedShopId &&
-        saleDateKey === dateKey
-      );
-    });
-
-    const salesAmount = dateSales.reduce(
-      (sum, sale) =>
-        sum + Number(sale?.total || 0),
-      0
+  const salesPositionIndex =
+    getRemittanceSalesPositionIndex(
+      sales,
+      products
     );
 
-    const replacementAmount = dateSales.reduce(
-      (saleTotal, sale) => {
-        const items = Array.isArray(sale?.items)
-          ? sale.items
-          : [];
-
-        return (
-          saleTotal +
-          items.reduce((itemTotal, item) => {
-            const product = productById.get(
-              String(item?.productId || '')
-            );
-
-            const quantity = Number(
-              item?.quantity || 0
-            );
-
-            const buyingPrice = Number(
-              item?.buyPrice ||
-                product?.buyPrice ||
-                product?.buyingprice ||
-                0
-            );
-
-            return (
-              itemTotal +
-              quantity * buyingPrice
-            );
-          }, 0)
-        );
-      },
-      0
-    );
-
-    return {
-      sales: salesAmount,
-      replacement: replacementAmount,
-      grossProfit: Math.max(
-        0,
-        salesAmount - replacementAmount
-      ),
+  const getSalesPositionForDate = (
+    dateKey
+  ) =>
+    salesPositionIndex.get(
+      `${selectedShopId}::${dateKey}`
+    ) || {
+      sales: 0,
+      replacement: 0,
+      grossProfit: 0,
     };
-  };
 
   const currentDate = new Date(
     `${todayKey}T00:00:00`
@@ -2640,14 +2707,7 @@ const automaticHistoricalExpenseFunding = useMemo(() => {
     ? data.products
     : [];
 
-  const productById = new Map(
-    products.map((product) => [
-      String(product?.id || ''),
-      product,
-    ])
-  );
-
-  const formatDateKey = (date) =>
+      const formatDateKey = (date) =>
     `${date.getFullYear()}-${String(
       date.getMonth() + 1
     ).padStart(2, '0')}-${String(
@@ -2658,7 +2718,9 @@ const automaticHistoricalExpenseFunding = useMemo(() => {
   today.setHours(0, 0, 0, 0);
 
   const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
+  yesterday.setDate(
+    yesterday.getDate() - 1
+  );
 
   const finalHistoryDateKey =
     formatDateKey(yesterday);
@@ -2670,82 +2732,32 @@ const automaticHistoricalExpenseFunding = useMemo(() => {
     return new Map();
   }
 
-  const historyDateKeys = getExpenseDateKeys(
-    AUTOMATIC_EXPENSE_ACTIVATION_DATE,
-    finalHistoryDateKey
-  );
+  const historyDateKeys =
+    getExpenseDateKeys(
+      AUTOMATIC_EXPENSE_ACTIVATION_DATE,
+      finalHistoryDateKey
+    );
 
   const fundingByFundKey = new Map();
+  const salesPositionIndex =
+    getRemittanceSalesPositionIndex(
+      sales,
+      products
+    );
 
   const getGrossProfitForDate = (
     shopId,
     dateKey
-  ) => {
-    const dateSales = sales.filter((sale) => {
-      const saleShopId = String(
-        sale?.shop_id ||
-          sale?.shopId ||
-          sale?.shopid ||
-          ''
-      ).trim();
-
-      const saleDateKey = String(
-        sale?.date ||
-          sale?.created_at ||
-          ''
-      ).slice(0, 10);
-
-      return (
-        saleShopId === String(shopId) &&
-        saleDateKey === dateKey
-      );
-    });
-
-    const salesAmount = dateSales.reduce(
-      (sum, sale) =>
-        sum + Number(sale?.total || 0),
-      0
-    );
-
-    const replacementAmount =
-      dateSales.reduce((saleTotal, sale) => {
-        const items = Array.isArray(sale?.items)
-          ? sale.items
-          : [];
-
-        return (
-          saleTotal +
-          items.reduce((itemTotal, item) => {
-            const product = productById.get(
-              String(item?.productId || '')
-            );
-
-            const quantity = Number(
-              item?.quantity || 0
-            );
-
-            const buyingPrice = Number(
-              item?.buyPrice ||
-                product?.buyPrice ||
-                product?.buyingprice ||
-                0
-            );
-
-            return (
-              itemTotal +
-              quantity * buyingPrice
-            );
-          }, 0)
-        );
-      }, 0);
-
-    return Math.max(
+  ) =>
+    Math.max(
       0,
-      salesAmount - replacementAmount
+      Number(
+        salesPositionIndex.get(
+          `${String(shopId)}::${dateKey}`
+        )?.grossProfit || 0
+      )
     );
-  };
-
-  shops.forEach((shop) => {
+      shops.forEach((shop) => {
     const shopId = String(
       shop?.id || ''
     ).trim();

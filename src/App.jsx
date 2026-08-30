@@ -249,12 +249,39 @@ function clearSyncedQueueItems() {
   writeSyncQueue(remaining);
 }
 
+let activeSyncQueuePromise = null;
+
 async function processSyncQueue() {
+  if (activeSyncQueuePromise) {
+    return activeSyncQueuePromise;
+  }
+
+  activeSyncQueuePromise =
+    runSyncQueue();
+
+  try {
+    return await activeSyncQueuePromise;
+  } finally {
+    activeSyncQueuePromise = null;
+  }
+}
+
+async function runSyncQueue() {
   const queue = readSyncQueue();
 
   if (!queue.length) return false;
 
-  const updatedQueue = [...queue];
+  const updatedQueue = [
+  ...queue.filter(
+    (item) =>
+      item?.actionType === 'sale_created'
+  ),
+  ...queue.filter(
+    (item) =>
+      item?.actionType !== 'sale_created'
+  ),
+];
+
 let syncedSomething = false;
 
   for (let i = 0; i < updatedQueue.length; i += 1) {
@@ -262,141 +289,82 @@ let syncedSomething = false;
 
     if (item.synced) continue;
 
-    try {
-      if (item.actionType === 'sale_created') {
-const saleRowToSync = {
-  id: item.payload.id,
-  shop_id: item.payload.shop_id,
-  items: item.payload.items,
-  total: item.payload.total,
-  type: item.payload.type,
-  date: item.payload.date,
-  created_at:
-    item.payload.created_at ||
-    new Date().toISOString(),
-};
+const attemptCount = Number(
+  item.attempts || 0
+);
 
-const {
-  data: savedSupabaseSale,
-  error: saleQueueError,
-} = await supabase
-  .from('sales')
-  .upsert([saleRowToSync], { onConflict: 'id' })
-  .select(
-    'id, shop_id, items, total, type, date, created_at'
-  )
-  .single();
+const lastAttemptAt = Number(
+  item.lastAttemptAt || 0
+);
 
-if (saleQueueError) {
-  throw saleQueueError;
-}
-
-if (!savedSupabaseSale) {
-  throw new Error(
-    'Supabase did not return the saved sale for verification.'
-  );
-}
-
-const normalizeItemsForVerification = (items = []) =>
-  (Array.isArray(items) ? items : []).map((saleItem) => ({
-    productId: String(
-      saleItem?.productId || ''
-    ),
-    name: String(saleItem?.name || ''),
-    unit: String(saleItem?.unit || ''),
-    quantity: Number(saleItem?.quantity || 0),
-    price: Number(
-      saleItem?.price ??
-        saleItem?.sellPrice ??
-        0
-    ),
-    buyPrice: Number(saleItem?.buyPrice || 0),
-    sellPrice: Number(
-      saleItem?.sellPrice ??
-        saleItem?.price ??
-        0
-    ),
-    total: Number(saleItem?.total || 0),
-  }));
-
-const localVerificationCopy = {
-  id: String(saleRowToSync.id || ''),
-  shop_id: String(saleRowToSync.shop_id || ''),
-  date: String(saleRowToSync.date || ''),
-  type: String(saleRowToSync.type || ''),
-  total: Number(saleRowToSync.total || 0),
-  items: normalizeItemsForVerification(
-    saleRowToSync.items
-  ),
-};
-
-const supabaseVerificationCopy = {
-  id: String(savedSupabaseSale.id || ''),
-  shop_id: String(savedSupabaseSale.shop_id || ''),
-  date: String(savedSupabaseSale.date || ''),
-  type: String(savedSupabaseSale.type || ''),
-  total: Number(savedSupabaseSale.total || 0),
-  items: normalizeItemsForVerification(
-    savedSupabaseSale.items
-  ),
-};
+const retryDelayMs = Math.min(
+  5 * 60 * 1000,
+  15 *
+    1000 *
+    2 **
+      Math.min(
+        Math.max(
+          attemptCount - 1,
+          0
+        ),
+        5
+      )
+);
 
 if (
-  JSON.stringify(localVerificationCopy) !==
-  JSON.stringify(supabaseVerificationCopy)
+  attemptCount > 0 &&
+  lastAttemptAt > 0 &&
+  Date.now() - lastAttemptAt <
+    retryDelayMs
 ) {
-  throw new Error(
-    `Supabase sale verification failed for ${saleRowToSync.id}. Local sale has been preserved.`
-  );
+  continue;
 }
-if (Array.isArray(item.payload.products)) {
-  const safeProductRows = item.payload.products
-    .filter((p) => p.id && p.shop_id && p.name)
-    .map((p) => ({
-  id: p.id,
-  name: String(p.name || '').trim(),
-  standard_product_code: String(p.standard_product_code || p.standardProductCode || '').trim(),
-  buyingprice: Number(p.buyPrice || 0),
-  sellingprice: Number(p.sellPrice || 0),
-  stock: Number(p.stockBaseQty || 0),
-  shop_id: p.shop_id,
-  baseunit: p.baseUnit || 'pc',
-  created_at: p.created_at || new Date().toISOString(),
-}));
 
-   if (safeProductRows.length) {
-  const { error: saleProductQueueError } = await supabase
-    .from('products')
-    .upsert(safeProductRows, { onConflict: 'id' });
+try {
 
-  if (saleProductQueueError) {
-    console.error(
-      'Sale reached Supabase, but its product stock still requires synchronization:',
-      saleProductQueueError
-    );
+      if (item.actionType === 'sale_created') {
+        const salePayload = item.payload || {};
 
-    safeProductRows.forEach((productRow) => {
-      const productAlreadyQueued = updatedQueue.some(
-        (queueItem) =>
-          queueItem?.actionType === 'product_saved' &&
-          queueItem?.synced === false &&
-          String(queueItem?.payload?.id || '') === String(productRow.id)
-      );
-
-      if (!productAlreadyQueued) {
-        updatedQueue.push({
-          id: `sync-product-${Date.now()}-${productRow.id}`,
-          actionType: 'product_saved',
-          payload: productRow,
-          createdAt: Date.now(),
-          synced: false,
-          status: 'pending',
+        const {
+          data: saleResult,
+          error: saleQueueError,
+        } = await supabase.rpc('record_pos_sale', {
+          p_sale_id: String(
+            salePayload.id || ''
+          ),
+          p_shop_id: String(
+            salePayload.shop_id || ''
+          ),
+          p_items: Array.isArray(
+            salePayload.items
+          )
+            ? salePayload.items
+            : [],
+          p_total: Number(
+            salePayload.total || 0
+          ),
+          p_type:
+            salePayload.type || 'cash',
+          p_sale_date:
+            salePayload.date || todayISO(),
+          p_created_at:
+            salePayload.created_at ||
+            new Date().toISOString(),
         });
-      }
-    });
-  }
-}
-}
+
+        if (saleQueueError) {
+          throw saleQueueError;
+        }
+
+        if (
+          !saleResult ||
+          String(saleResult.saleId || '') !==
+            String(salePayload.id || '')
+        ) {
+          throw new Error(
+            'Supabase did not confirm the correct sale ID.'
+          );
+        }
 
 } else if (item.actionType === 'purchase_created') {
   const queuedPurchase = item.payload || {};
@@ -440,37 +408,212 @@ if (Array.isArray(item.payload.products)) {
   if (queuedPurchaseError) {
     throw queuedPurchaseError;
   }
+
 } else if (item.actionType === 'product_saved') {
-  const productPayload = item.payload || {};
+  const isLegacySaleProduct =
+    String(item?.id || '').startsWith(
+      'sync-product-'
+    );
 
-        const productRow = {
-  id: productPayload.id,
-  name: String(productPayload.name || '').trim(),
-  standard_product_code: String(productPayload.standard_product_code || productPayload.standardProductCode || '').trim(),
-  buyingprice: Number(productPayload.buyingprice ?? productPayload.buyPrice ?? 0),
-  sellingprice: Number(productPayload.sellingprice ?? productPayload.sellPrice ?? 0),
-  stock: Number(productPayload.stock ?? productPayload.stockBaseQty ?? 0),
-  shop_id: productPayload.shop_id,
-  baseunit: productPayload.baseunit || productPayload.baseUnit || 'pc',
-  minstocklevel: Number(productPayload.minstocklevel ?? productPayload.minStockLevel ?? 5),
-  expirydate: productPayload.expirydate || productPayload.expiryDate || null,
-  qrcode: productPayload.qrcode || productPayload.qrCode || '',
-  subunitsraw: productPayload.subunitsraw || productPayload.subUnitsRaw || '',
-  archived: Boolean(productPayload.archived),
-  created_at: productPayload.created_at || new Date().toISOString(),
-};
+  const currentProductShopId =
+    String(
+      item?.payload?.shop_id || ''
+    ).trim();
 
-        if (!productRow.id || !productRow.shop_id || !productRow.name) {
-          throw new Error('Product sync skipped because id, shop_id, or name is missing.');
-        }
+  const productQueueItems =
+    isLegacySaleProduct
+      ? updatedQueue.filter(
+          (queueItem) =>
+            queueItem?.actionType ===
+              'product_saved' &&
+            queueItem?.synced === false &&
+            String(
+              queueItem?.id || ''
+            ).startsWith(
+              'sync-product-'
+            ) &&
+            String(
+              queueItem?.payload
+                ?.shop_id || ''
+            ).trim() ===
+              currentProductShopId
+        )
+      : [item];
 
-        const { error: productQueueError } = await supabase
-          .from('products')
-          .upsert([productRow], { onConflict: 'id' });
+  const productRowsById = new Map();
 
-        if (productQueueError) {
-          throw productQueueError;
-        }
+  productQueueItems.forEach(
+    (queueItem) => {
+      const productPayload =
+        queueItem?.payload || {};
+
+      const productRow = {
+        id: productPayload.id,
+        name: String(
+          productPayload.name || ''
+        ).trim(),
+        standard_product_code:
+          String(
+            productPayload
+              .standard_product_code ||
+              productPayload
+                .standardProductCode ||
+              ''
+          ).trim(),
+        buyingprice: Number(
+          productPayload.buyingprice ??
+            productPayload.buyPrice ??
+            0
+        ),
+        sellingprice: Number(
+          productPayload.sellingprice ??
+            productPayload.sellPrice ??
+            0
+        ),
+        stock: Number(
+          productPayload.stock ??
+            productPayload
+              .stockBaseQty ??
+            0
+        ),
+        shop_id:
+          productPayload.shop_id,
+        baseunit:
+          productPayload.baseunit ||
+          productPayload.baseUnit ||
+          'pc',
+        minstocklevel: Number(
+          productPayload.minstocklevel ??
+            productPayload
+              .minStockLevel ??
+            5
+        ),
+        expirydate:
+          productPayload.expirydate ||
+          productPayload.expiryDate ||
+          null,
+        qrcode:
+          productPayload.qrcode ||
+          productPayload.qrCode ||
+          '',
+        subunitsraw:
+          productPayload.subunitsraw ||
+          productPayload
+            .subUnitsRaw ||
+          '',
+        archived: Boolean(
+          productPayload.archived
+        ),
+        created_at:
+          productPayload.created_at ||
+          new Date().toISOString(),
+      };
+
+      if (
+        !productRow.id ||
+        !productRow.shop_id ||
+        !productRow.name
+      ) {
+        throw new Error(
+          'Product sync skipped because id, shop_id, or name is missing.'
+        );
+      }
+
+      productRowsById.set(
+        String(productRow.id),
+        productRow
+      );
+    }
+  );
+
+  const productRows = Array.from(
+    productRowsById.values()
+  );
+
+  const { error: productQueueError } =
+    await supabase
+      .from('products')
+      .upsert(productRows, {
+        onConflict: 'id',
+      });
+
+ if (productQueueError) {
+  if (isLegacySaleProduct) {
+    const failedAt = Date.now();
+
+    const failedQueueIds = new Set(
+      productQueueItems.map(
+        (queueItem) => queueItem.id
+      )
+    );
+
+    for (
+      let failedIndex = 0;
+      failedIndex <
+      updatedQueue.length;
+      failedIndex += 1
+    ) {
+      const failedQueueItem =
+        updatedQueue[failedIndex];
+
+      if (
+        failedQueueIds.has(
+          failedQueueItem?.id
+        )
+      ) {
+        updatedQueue[failedIndex] = {
+          ...failedQueueItem,
+          synced: false,
+          status: 'failed',
+          attempts:
+            Number(
+              failedQueueItem
+                ?.attempts || 0
+            ) + 1,
+          lastAttemptAt: failedAt,
+          lastError:
+            productQueueError
+              ?.message ||
+            String(
+              productQueueError
+            ),
+        };
+      }
+    }
+
+    writeSyncQueue(updatedQueue);
+    continue;
+  }
+
+  throw productQueueError;
+}
+
+  if (isLegacySaleProduct) {
+    const completedQueueIds = new Set(
+      productQueueItems.map(
+        (queueItem) => queueItem.id
+      )
+    );
+
+    for (
+      let productIndex = 0;
+      productIndex <
+      updatedQueue.length;
+      productIndex += 1
+    ) {
+      if (
+        completedQueueIds.has(
+          updatedQueue[productIndex]?.id
+        )
+      ) {
+        updatedQueue[productIndex] = {
+          ...updatedQueue[productIndex],
+          synced: true,
+          syncedAt: Date.now(),
+        };
+      }
+    }
+  }
 
       } else if (item.actionType === 'expense_created') {
         const payload = item.payload || {};
@@ -4558,10 +4701,10 @@ const sales = useMemo(
 
 const confirmedSales = useMemo(
   () =>
-    String(data.currentUser?.role || '') === 'owner'
-      ? sales.filter((sale) => sale.confirmed !== false)
-      : sales,
-  [sales, data.currentUser?.role]
+    sales.filter(
+      (sale) => sale.confirmed !== false
+    ),
+  [sales]
 );
 
 const shopCalculationData = useMemo(
@@ -6046,90 +6189,71 @@ console.log('SALE DATE TEST', {
     sales: [...data.sales, saleRecord],
   });
 
+
   const salePayload = {
-    ...saleRecord,
-    products: nextProducts
-      .filter((p) => String(p.shop_id) === String(shop.id))
-      .map((p) => {
-        const normalizedProduct = normalizeProduct(p);
-
-        return {
-          id: normalizedProduct.id,
-          name: String(normalizedProduct.name || '').trim(),
-          buyPrice: Number(normalizedProduct.buyPrice || 0),
-          sellPrice: Number(normalizedProduct.sellPrice || 0),
-          stockBaseQty: Number(
-            normalizedProduct.stockBaseQty || 0
-          ),
-          shop_id: normalizedProduct.shop_id || shop.id,
-          baseUnit: normalizedProduct.baseUnit || 'pc',
-          created_at:
-            normalizedProduct.created_at ||
-            (normalizedProduct.createdAt
-              ? new Date(
-                  normalizedProduct.createdAt
-                ).toISOString()
-              : new Date().toISOString()),
-        };
-      }),
+    id: saleRecord.id,
+    shop_id: saleRecord.shop_id,
+    items: saleRecord.items,
+    total: saleRecord.total,
+    type: saleRecord.type,
+    date: saleRecord.date,
+    created_at: saleRecord.created_at,
   };
-
   addToSyncQueue('sale_created', salePayload);
 
-  if (navigator.onLine) {
-  supabase
-    .from('sales')
-    .upsert(
-      [
-        {
-          id: saleRecord.id,
-          shop_id: saleRecord.shop_id,
-          items: saleRecord.items,
-          total: saleRecord.total,
-          type: saleRecord.type,
-          date: saleRecord.date,
-          created_at: saleRecord.created_at,
-        },
-      ],
-      { onConflict: 'id' }
-    )
-    .then(async ({ error: saleSyncError }) => {
-      if (saleSyncError) {
-        console.error('Immediate sale sync error:', saleSyncError);
+
+if (navigator.onLine) {
+  Promise.resolve()
+    .then(async () => {
+      await processSyncQueue();
+
+      const currentSaleStillPending =
+        readSyncQueue().some(
+          (item) =>
+            item?.actionType ===
+              'sale_created' &&
+            item?.synced === false &&
+            String(
+              item?.payload?.id || ''
+            ) === String(saleRecord.id)
+        );
+
+      if (currentSaleStillPending) {
+        setSyncMessage(
+          'Mauzo yamehifadhiwa kwenye kompyuta na yanasubiri kuthibitishwa Supabase.'
+        );
         return;
       }
 
-      try {
-        await processSyncQueue();
-const currentSaleStillPending = readSyncQueue().some(
-  (item) =>
-    item?.actionType === 'sale_created' &&
-    item?.synced === false &&
-    String(item?.payload?.id || '') === String(saleRecord.id)
-);
+      const {
+        data: confirmedShopSales,
+        error: confirmedSalesError,
+      } = await supabase
+        .from('sales')
+        .select('*')
+        .eq('shop_id', shop.id)
+        .gte('date', daysAgoISO(30))
+        .order('created_at', {
+          ascending: false,
+        });
 
-if (currentSaleStillPending) {
-  setSyncMessage(
-    'Sync pending - this sale has not yet been confirmed by Supabase.'
-  );
-  return;
-}
+      if (confirmedSalesError) {
+        throw confirmedSalesError;
+      }
 
-        const { data: confirmedShopSales, error: confirmedSalesError } = await supabase
-          .from('sales')
-          .select('*')
-          .eq('shop_id', shop.id)
-          .gte('date', daysAgoISO(30))
-          .order('created_at', { ascending: false });
+      if (
+        !Array.isArray(
+          confirmedShopSales
+        )
+      ) {
+        throw new Error(
+          'Supabase confirmed sales response was not a valid list.'
+        );
+      }
 
-        if (confirmedSalesError) throw confirmedSalesError;
-
-        if (!Array.isArray(confirmedShopSales)) {
-          throw new Error('Supabase confirmed sales response was not a valid list.');
-        }
-
-        const mappedConfirmedShopSales =
-          confirmedShopSales.map((sale) => ({
+      const mappedConfirmedShopSales =
+        confirmedShopSales.map(
+          (sale) => ({
             ...sale,
             shop_id: String(
               sale.shop_id ||
@@ -6140,41 +6264,54 @@ if (currentSaleStillPending) {
             date:
               sale.date ||
               (sale.created_at
-                ? String(sale.created_at).slice(0, 10)
+                ? String(
+                    sale.created_at
+                  ).slice(0, 10)
                 : todayISO()),
             confirmed: true,
-          }));
+          })
+        );
 
-        setData((prev) => {
-          const nextData = normalizeData({
-            ...prev,
-            sales: mergeRowsById(
-              Array.isArray(prev.sales) ? prev.sales : [],
-              mappedConfirmedShopSales
-            ),
-          });
-
-          writeToDB(DB_DATA_KEY, nextData).catch(
-            (dbError) => {
-              console.error(
-                'Failed to preserve merged confirmed sales:',
-                dbError
-              );
-            }
-          );
-
-          return nextData;
+      setData((prev) => {
+        const nextData = normalizeData({
+          ...prev,
+          sales: mergeRowsById(
+            Array.isArray(prev.sales)
+              ? prev.sales
+              : [],
+            mappedConfirmedShopSales
+          ),
         });
 
-        writeStorage(STORAGE_LAST_SYNC_KEY, Date.now());
+        writeToDB(
+          DB_DATA_KEY,
+          nextData
+        ).catch((dbError) => {
+          console.error(
+            'Failed to preserve merged confirmed sales:',
+            dbError
+          );
+        });
 
-        setSyncMessage('Sync complete');
-      } catch (syncError) {
-        console.error('Queued sales sync error:', syncError);
-      }
+        return nextData;
+      });
+
+      writeStorage(
+        STORAGE_LAST_SYNC_KEY,
+        Date.now()
+      );
+
+      setSyncMessage('Sync complete');
     })
     .catch((syncError) => {
-      console.error('Immediate sale sync exception:', syncError);
+      console.error(
+        'Atomic sale sync failed:',
+        syncError
+      );
+
+      setSyncMessage(
+        'Mauzo yamehifadhiwa kwenye kompyuta na yanasubiri kuthibitishwa Supabase.'
+      );
     });
 }
 

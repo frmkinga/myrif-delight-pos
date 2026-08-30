@@ -1985,6 +1985,12 @@ return {
   );
 
   const dailyFundReportRows = useMemo(() => {
+  // The daily report is expensive. Prepare it only when
+  // the user actually opens the Reports tab.
+  if (activeTab !== 'reports') {
+    return [];
+  }
+
   const allHomeExpenseItems = getHomeExpenseItemRows(
     data?.sales || []
   );
@@ -2194,6 +2200,7 @@ return {
       String(b.date).localeCompare(String(a.date))
     );
 }, [
+  activeTab,
   data,
   reportRange,
   cashTransactions,
