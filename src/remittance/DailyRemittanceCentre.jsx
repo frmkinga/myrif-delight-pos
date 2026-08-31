@@ -1365,16 +1365,83 @@ export const getLiveRemittanceShopPosition = ({
 const homeExpensesSnapshots = Array.isArray(
   safeData.centralFundTransactions
 )
-  ? safeData.centralFundTransactions.filter(
-      (transaction) =>
-        String(transaction?.status || '') === 'snapshot' &&
-        [
-          'home_expense_shop_snapshot',
-          'home_expense_gas_snapshot',
-        ].includes(
-          String(transaction?.transaction_type || '')
-        )
-    )
+  ? safeData.centralFundTransactions
+      .filter((transaction) => {
+        const transactionDateKey = String(
+          transaction?.transactionDate ||
+            transaction?.transaction_date ||
+            transaction?.created_at ||
+            ''
+        ).slice(0, 10);
+
+        const transactionType = String(
+          transaction?.transactionType ||
+            transaction?.transaction_type ||
+            ''
+        ).toLowerCase();
+
+        const transactionStatus = String(
+          transaction?.status || ''
+        ).toLowerCase();
+
+        const destinationFundKey = String(
+          transaction?.destinationFundKey ||
+            transaction?.destination_fund_key ||
+            ''
+        ).trim();
+
+        const transactionId = String(
+          transaction?.id || ''
+        );
+
+        /*
+         * Before September preserve the old snapshot history.
+         */
+        if (transactionDateKey < '2026-09-01') {
+          return (
+            transactionStatus === 'snapshot' &&
+            [
+              'home_expense_shop_snapshot',
+              'home_expense_gas_snapshot',
+            ].includes(transactionType)
+          );
+        }
+
+        /*
+         * From September onward Home Expenses is ONE permanent
+         * pooled fund.
+         *
+         * Also count genuine confirmed Commission support because
+         * that money has already funded Home Expenses and must not
+         * be requested again tomorrow.
+         */
+        return (
+          transactionStatus === 'confirmed' &&
+          destinationFundKey === 'homeExpenses' &&
+          (
+            (
+              transactionType === 'fund_accrual' &&
+              transactionId.endsWith('-home-pooled')
+            ) ||
+            transactionType ===
+              'home_expense_commission_confirmed'
+          )
+        );
+      })
+      .map((transaction) => ({
+        ...transaction,
+
+        /*
+         * Normalize the date because the existing calculation
+         * below reads transaction_date.
+         */
+        transaction_date: String(
+          transaction?.transactionDate ||
+            transaction?.transaction_date ||
+            transaction?.created_at ||
+            ''
+        ).slice(0, 10),
+      }))
   : [];
   const selectedShop =
     shops.find(
@@ -1521,6 +1588,300 @@ const homeExpensesSnapshots = Array.isArray(
         centralUnpaid: 0,
       }
     );
+
+    
+
+
+
+
+
+
+
+
+
+
+  
+/*
+ * CATEGORY BREAKDOWN OF PREVIOUS CENTRAL ARREARS
+ *
+ * The existing previousUnpaidExpensePosition above remains
+ * untouched and continues controlling the actual total arrears.
+ *
+ * This parallel calculation only remembers WHICH central
+ * expense owns that same outstanding balance.
+ */
+const previousCentralExpenseArrearsByCategory =
+  previousExpenseDateKeys.reduce(
+    (position, expenseDateKey) => {
+      const dailyRequirement =
+        getShopDailyExpenseRequirement(
+          selectedShopId,
+          expenseDateKey
+        );
+
+      const dailyGrossProfit =
+        getSalesPositionForDate(
+          expenseDateKey
+        ).grossProfit;
+
+      /*
+       * Reproduce the existing local-expense priority first,
+       * because only the profit remaining after local expenses
+       * is available for central expenses.
+       */
+      const previousLocalPaid = Math.min(
+        dailyGrossProfit,
+        Number(position.localUnpaid || 0)
+      );
+
+      const grossAfterPreviousLocal = Math.max(
+        0,
+        dailyGrossProfit - previousLocalPaid
+      );
+
+      const todayLocalPaid = Math.min(
+        grossAfterPreviousLocal,
+        Number(dailyRequirement.localRequired || 0)
+      );
+
+      const localUnpaid = Math.max(
+        0,
+        Number(position.localUnpaid || 0) +
+          Number(dailyRequirement.localRequired || 0) -
+          previousLocalPaid -
+          todayLocalPaid
+      );
+
+      const grossAfterLocal = Math.max(
+        0,
+        grossAfterPreviousLocal - todayLocalPaid
+      );
+
+      /*
+       * These are the same genuine central expense categories
+       * used by the existing arrangement.
+       *
+       * Once the performance-based Home Expenses arrangement is
+       * active, fixed Home Expenses is excluded from shop arrears.
+       */
+      const centralExpenseEntries = Object.entries(
+        MASTER_EXPENSE_SETUP[
+          selectedShopId
+        ]?.expenses || {}
+      ).filter(
+        ([expenseKey, expense]) =>
+          expense?.location === 'owner' &&
+          !(
+            todayKey >=
+              HOME_EXPENSES_PERFORMANCE_START_DATE &&
+            (
+              expenseKey === 'homeExpenses' ||
+              String(expense?.name || '')
+                .trim()
+                .toLowerCase() ===
+                'home expenses'
+            )
+          )
+      );
+
+      const centralUnpaidByExpense = {
+        ...(position.centralUnpaidByExpense || {}),
+      };
+
+      /*
+       * First clear OLD central arrears using today's available
+       * profit, exactly like previousCentralPaid in the existing
+       * calculation above.
+       */
+      const previousCentralOutstanding =
+        centralExpenseEntries.reduce(
+          (sum, [expenseKey]) =>
+            sum +
+            Math.max(
+              0,
+              Number(
+                centralUnpaidByExpense[
+                  expenseKey
+                ]?.outstanding || 0
+              )
+            ),
+          0
+        );
+
+      const previousCentralPaid = Math.min(
+        grossAfterLocal,
+        previousCentralOutstanding
+      );
+
+      let remainingPreviousCentralPaid =
+        previousCentralPaid;
+
+      centralExpenseEntries.forEach(
+        ([expenseKey, expense]) => {
+          if (
+            remainingPreviousCentralPaid <= 0
+          ) {
+            return;
+          }
+
+          const existingOutstanding =
+            Math.max(
+              0,
+              Number(
+                centralUnpaidByExpense[
+                  expenseKey
+                ]?.outstanding || 0
+              )
+            );
+
+          const amountPaid = Math.min(
+            existingOutstanding,
+            remainingPreviousCentralPaid
+          );
+
+          centralUnpaidByExpense[
+            expenseKey
+          ] = {
+            key: expenseKey,
+            name:
+              expense?.name || expenseKey,
+            outstanding: Math.max(
+              0,
+              existingOutstanding -
+                amountPaid
+            ),
+          };
+
+          remainingPreviousCentralPaid =
+            Math.max(
+              0,
+              remainingPreviousCentralPaid -
+                amountPaid
+            );
+        }
+      );
+
+      const grossAfterPreviousCentral =
+        Math.max(
+          0,
+          grossAfterLocal -
+            previousCentralPaid
+        );
+
+      /*
+       * Add today's central requirements to their own funds.
+       */
+      let todayCentralRequired = 0;
+
+      centralExpenseEntries.forEach(
+        ([expenseKey, expense]) => {
+          const requiredToday = Math.max(
+            0,
+            Number(
+              getExpenseRequiredAmountForDate(
+                expense,
+                expenseDateKey
+              ) || 0
+            )
+          );
+
+          todayCentralRequired +=
+            requiredToday;
+
+          const existingOutstanding =
+            Math.max(
+              0,
+              Number(
+                centralUnpaidByExpense[
+                  expenseKey
+                ]?.outstanding || 0
+              )
+            );
+
+          centralUnpaidByExpense[
+            expenseKey
+          ] = {
+            key: expenseKey,
+            name:
+              expense?.name || expenseKey,
+            outstanding:
+              existingOutstanding +
+              requiredToday,
+          };
+        }
+      );
+
+      /*
+       * Then apply the money available for TODAY'S requirements.
+       */
+      const todayCentralPaid = Math.min(
+        grossAfterPreviousCentral,
+        todayCentralRequired
+      );
+
+      let remainingTodayCentralPaid =
+        todayCentralPaid;
+
+      centralExpenseEntries.forEach(
+        ([expenseKey, expense]) => {
+          if (
+            remainingTodayCentralPaid <= 0
+          ) {
+            return;
+          }
+
+          const existingOutstanding =
+            Math.max(
+              0,
+              Number(
+                centralUnpaidByExpense[
+                  expenseKey
+                ]?.outstanding || 0
+              )
+            );
+
+          const amountPaid = Math.min(
+            existingOutstanding,
+            remainingTodayCentralPaid
+          );
+
+          centralUnpaidByExpense[
+            expenseKey
+          ] = {
+            key: expenseKey,
+            name:
+              expense?.name || expenseKey,
+            outstanding: Math.max(
+              0,
+              existingOutstanding -
+                amountPaid
+            ),
+          };
+
+          remainingTodayCentralPaid =
+            Math.max(
+              0,
+              remainingTodayCentralPaid -
+                amountPaid
+            );
+        }
+      );
+
+      return {
+        localUnpaid,
+        centralUnpaidByExpense,
+      };
+    },
+    {
+      localUnpaid: 0,
+      centralUnpaidByExpense: {},
+    }
+  );
+
+const previousUnpaidCentralExpensesByCategory =
+  previousCentralExpenseArrearsByCategory
+    .centralUnpaidByExpense || {};
+
   const previousUnpaidLocalExpenses =
     Number(
       previousUnpaidExpensePosition.localUnpaid ||
@@ -1613,7 +1974,81 @@ const homeExpensesSnapshots = Array.isArray(
     todayRemittance?.localConfirmed
   ),
 });
+/*
+ * CENTRAL ARREARS PAID TODAY — BY EXPENSE
+ *
+ * basePosition.previousCentralExpensesPaid is still the
+ * authoritative total.
+ *
+ * This only divides that same amount among the expense
+ * categories whose arrears existed before today.
+ */
+let remainingPreviousCentralExpensesPaid =
+  Math.max(
+    0,
+    Number(
+      basePosition.previousCentralExpensesPaid || 0
+    )
+  );
 
+const previousCentralExpensesPaidBreakdown =
+  Object.entries(
+    MASTER_EXPENSE_SETUP[
+      selectedShopId
+    ]?.expenses || {}
+  )
+    .filter(
+      ([expenseKey, expense]) =>
+        expense?.location === 'owner' &&
+        !(
+          todayKey >=
+            HOME_EXPENSES_PERFORMANCE_START_DATE &&
+          (
+            expenseKey === 'homeExpenses' ||
+            String(expense?.name || '')
+              .trim()
+              .toLowerCase() ===
+              'home expenses'
+          )
+        )
+    )
+    .map(([expenseKey, expense]) => {
+      const outstandingBeforeToday =
+        Math.max(
+          0,
+          Number(
+            previousUnpaidCentralExpensesByCategory[
+              expenseKey
+            ]?.outstanding || 0
+          )
+        );
+
+      const amountFunded = Math.min(
+        outstandingBeforeToday,
+        remainingPreviousCentralExpensesPaid
+      );
+
+      remainingPreviousCentralExpensesPaid =
+        Math.max(
+          0,
+          remainingPreviousCentralExpensesPaid -
+            amountFunded
+        );
+
+      return {
+        key: expenseKey,
+        name:
+          expense?.name || expenseKey,
+        amountFunded,
+        outstandingBeforeToday,
+        isArrearsCatchUp: true,
+        isManual: false,
+      };
+    })
+    .filter(
+      (expense) =>
+        Number(expense?.amountFunded || 0) > 0
+    );
 const todayShopGasEntries = (
   Array.isArray(safeData.gasEntries)
     ? safeData.gasEntries
@@ -1875,6 +2310,8 @@ const confirmedHomeExpensesBeforeToday =
 
 return {
   ...basePosition,
+
+  previousCentralExpensesPaidBreakdown,
 
   /*
    * Raw recursive positions retain the full owner-side capacity.
@@ -2329,10 +2766,76 @@ const remittanceRecords = Array.isArray(data?.dailyRemittances)
       summaryEndKey
     );
 
-  const selectedPeriodReceived =
-    calculateCentralCollectionForDates(
-      selectedPeriodDateKeys
-    );
+  /*
+ * SELECTED-PERIOD CENTRAL RECEIPTS
+ *
+ * Before 1 September 2026 retain the historical calculation.
+ * From 1 September onward use permanent Supabase inflows.
+ *
+ * A custom/report period crossing August and September combines:
+ *   - historical calculation for the August portion; and
+ *   - permanent ledger receipts for the September portion.
+ */
+const PERMANENT_RECEIPTS_START_DATE =
+  '2026-09-01';
+
+const historicalSelectedPeriodReceived =
+  calculateCentralCollectionForDates(
+    selectedPeriodDateKeys.filter(
+      (dateKey) =>
+        dateKey < PERMANENT_RECEIPTS_START_DATE
+    )
+  );
+
+const permanentSelectedPeriodReceived =
+  transactions.reduce((sum, transaction) => {
+    const transactionDateKey = String(
+      transaction?.transactionDate ||
+        transaction?.transaction_date ||
+        transaction?.created_at ||
+        ''
+    ).slice(0, 10);
+
+    const transactionStatus = String(
+      transaction?.status || ''
+    ).toLowerCase();
+
+    const transactionType = String(
+      transaction?.transactionType ||
+        transaction?.transaction_type ||
+        ''
+    ).toLowerCase();
+
+    if (
+      transactionStatus !== 'confirmed' ||
+      transactionDateKey <
+        PERMANENT_RECEIPTS_START_DATE ||
+      transactionDateKey < summaryStartKey ||
+      transactionDateKey > summaryEndKey
+    ) {
+      return sum;
+    }
+
+    if (
+      transactionType === 'fund_accrual' ||
+      transactionType ===
+        'home_expense_commission_confirmed'
+    ) {
+      return (
+        sum +
+        Math.max(
+          0,
+          Number(transaction?.amount || 0)
+        )
+      );
+    }
+
+    return sum;
+  }, 0);
+
+const selectedPeriodReceived =
+  historicalSelectedPeriodReceived +
+  permanentSelectedPeriodReceived;
 
   const cumulativeReceivedThroughPeriodEnd =
     calculateCentralCollectionForDates(
@@ -2405,32 +2908,56 @@ const remittanceRecords = Array.isArray(data?.dailyRemittances)
 
       return sum;
     }, 0);
-      const selectedPeriodWithdrawals =
-    selectedPeriodTransactions.reduce(
-      (sum, transaction) => {
-        const transactionType = String(
-          transaction?.transactionType ||
-            transaction?.transaction_type ||
-            ''
-        ).toLowerCase();
 
-        const amount = Math.max(
-          0,
-          Number(transaction?.amount || 0)
-        );
+const selectedPeriodWithdrawals =
+  selectedPeriodTransactions.reduce(
+    (sum, transaction) => {
+      const transactionType = String(
+        transaction?.transactionType ||
+          transaction?.transaction_type ||
+          ''
+      ).toLowerCase();
 
-        if (withdrawalTypes.has(transactionType)) {
-          return sum + amount;
-        }
+      const transactionDateKey = String(
+        transaction?.transactionDate ||
+          transaction?.transaction_date ||
+          transaction?.created_at ||
+          ''
+      ).slice(0, 10);
 
-        if (transactionType === 'reversal') {
-          return sum - amount;
-        }
+      const amount = Math.max(
+        0,
+        Number(transaction?.amount || 0)
+      );
 
-        return sum;
-      },
-      0
-    );
+      /*
+       * Existing withdrawals keep their historical behaviour.
+       */
+      if (withdrawalTypes.has(transactionType)) {
+        return sum + amount;
+      }
+
+      /*
+       * From 1 September 2026, Home Expenses cash taken is
+       * also real cash leaving the manager's permanent fund.
+       *
+       * August is deliberately left unchanged.
+       */
+      if (
+        transactionDateKey >= '2026-09-01' &&
+        transactionType === 'home_expense_cash_taken'
+      ) {
+        return sum + amount;
+      }
+
+      if (transactionType === 'reversal') {
+        return sum - amount;
+      }
+
+      return sum;
+    },
+    0
+  );
   const ownerProfitBreakdownTotals =
   cumulativeDateKeys.reduce(
     (periodTotal, dateKey) => {
@@ -2631,11 +3158,175 @@ const ownerProfitAccumulated =
       );
     }, 0);
 
-  const centralFundsHeld = Math.max(
+  /*
+ * PERMANENT CENTRAL CASH
+ *
+ * The new permanent system starts at zero on 1 September 2026.
+ *
+ * From that date, "Fedha zilizopo kwa msimamizi" is no longer
+ * reconstructed from historical sales. It is the actual permanent
+ * money recorded in centralFundTransactions, less actual withdrawals.
+ */
+const PERMANENT_CENTRAL_FUNDS_START_DATE =
+  '2026-09-01';
+
+const permanentCentralFundsHeld =
+  transactions.reduce((balance, transaction) => {
+    const transactionDateKey = String(
+      transaction?.transactionDate ||
+        transaction?.transaction_date ||
+        transaction?.created_at ||
+        ''
+    ).slice(0, 10);
+
+    const transactionStatus = String(
+      transaction?.status || ''
+    ).toLowerCase();
+
+    const transactionType = String(
+      transaction?.transactionType ||
+        transaction?.transaction_type ||
+        ''
+    ).toLowerCase();
+
+    const amount = Math.max(
+      0,
+      Number(transaction?.amount || 0)
+    );
+
+    if (
+      transactionStatus !== 'confirmed' ||
+      transactionDateKey <
+        PERMANENT_CENTRAL_FUNDS_START_DATE ||
+      transactionDateKey > summaryEndKey ||
+      !amount
+    ) {
+      return balance;
+    }
+
+    /*
+     * Money genuinely entering the permanent central funds.
+     */
+    if (
+      transactionType === 'fund_accrual' ||
+      transactionType ===
+        'home_expense_commission_confirmed'
+    ) {
+      return balance + amount;
+    }
+
+    /*
+     * Money genuinely leaving the manager's central cash.
+     *
+     * Internal fund transfers and emergency borrowing do not
+     * change total cash held because the money only moves from
+     * one central fund to another.
+     */
+    if (
+      [
+        'expense_payment',
+        'owner_drawing',
+        'home_expense_cash_taken',
+        'refund',
+      ].includes(transactionType)
+    ) {
+      return balance - amount;
+    }
+
+    /*
+     * A reversal restores money previously removed.
+     */
+    if (transactionType === 'reversal') {
+      return balance + amount;
+    }
+
+    return balance;
+  }, 0);
+/*
+ * Home Expenses products physically taken from shop stock
+ * are genuine use of the permanent Home Expenses fund.
+ *
+ * They therefore reduce the manager's permanent central
+ * balance just like Home Expenses cash taken.
+ */
+const permanentHomeExpenseProductUsage = (
+  Array.isArray(data?.sales)
+    ? data.sales
+    : []
+)
+  .filter((sale) => {
+    const saleDateKey = String(
+      sale?.date ||
+        sale?.created_at ||
+        ''
+    ).slice(0, 10);
+
+    return (
+      saleDateKey >=
+        PERMANENT_CENTRAL_FUNDS_START_DATE &&
+      saleDateKey <= summaryEndKey
+    );
+  })
+  .reduce((saleTotal, sale) => {
+    const items = Array.isArray(sale?.items)
+      ? sale.items
+      : [];
+
+    return (
+      saleTotal +
+      items.reduce((itemTotal, item) => {
+        const isHomeExpenseItem =
+          item?.homeExpense === true ||
+          item?.home_expense === true ||
+          item?.metadata?.homeExpense === true ||
+          item?.meta?.homeExpense === true;
+
+        if (!isHomeExpenseItem) {
+          return itemTotal;
+        }
+
+        const quantity = Number(
+          item?.quantity || 0
+        );
+
+        const itemAmount = Number(
+          item?.total ||
+            item?.lineTotal ||
+            item?.amount ||
+            item?.sellTotal ||
+            0
+        );
+
+        if (itemAmount > 0) {
+          return itemTotal + itemAmount;
+        }
+
+        const sellPrice = Number(
+          item?.sellPrice ||
+            item?.price ||
+            0
+        );
+
+        return (
+          itemTotal +
+          quantity * sellPrice
+        );
+      }, 0)
+    );
+  }, 0);
+const centralFundsHeld =
+  summaryEndKey >=
+  PERMANENT_CENTRAL_FUNDS_START_DATE
+    ? Math.max(
     0,
-    cumulativeReceivedThroughPeriodEnd -
-      cumulativeWithdrawals
-  );
+    permanentCentralFundsHeld -
+      permanentHomeExpenseProductUsage
+  )
+    : Math.max(
+        0,
+        cumulativeReceivedThroughPeriodEnd -
+          cumulativeWithdrawals
+      );
 
   const outstandingEmergencyBorrowing = Math.max(
     0,
@@ -3173,12 +3864,72 @@ const accumulatedAmount =
       });
     });
 
-const ownerProfitAccumulated = Math.max(
-  0,
-  Number(
-    centralFundSummary.ownerProfitAccumulated || 0
-  )
-);
+/*
+ * PERMANENT OWNER PROFIT
+ *
+ * Before 1 September 2026 keep the existing historical
+ * calculation unchanged.
+ *
+ * From 1 September onward, Owner Profit is read from the
+ * permanent fund_accrual ledger only.
+ */
+const PERMANENT_OWNER_PROFIT_START_DATE =
+  '2026-09-01';
+
+const permanentOwnerProfitAccumulated =
+  transactions.reduce((sum, transaction) => {
+    const transactionDateKey = String(
+      transaction?.transactionDate ||
+        transaction?.transaction_date ||
+        transaction?.created_at ||
+        ''
+    ).slice(0, 10);
+
+    const transactionType = String(
+      transaction?.transactionType ||
+        transaction?.transaction_type ||
+        ''
+    ).toLowerCase();
+
+    const transactionStatus = String(
+      transaction?.status || ''
+    ).toLowerCase();
+
+    const destinationFundKey = String(
+      transaction?.destinationFundKey ||
+        transaction?.destination_fund_key ||
+        ''
+    ).trim();
+
+    if (
+      transactionDateKey <
+        PERMANENT_OWNER_PROFIT_START_DATE ||
+      transactionDateKey > todayKey ||
+      transactionType !== 'fund_accrual' ||
+      transactionStatus !== 'confirmed' ||
+      destinationFundKey !== 'owner-profit'
+    ) {
+      return sum;
+    }
+
+    return (
+      sum +
+      Math.max(
+        0,
+        Number(transaction?.amount || 0)
+      )
+    );
+  }, 0);
+
+const ownerProfitAccumulated =
+  todayKey >= PERMANENT_OWNER_PROFIT_START_DATE
+    ? permanentOwnerProfitAccumulated
+    : Math.max(
+        0,
+        Number(
+          centralFundSummary.ownerProfitAccumulated || 0
+        )
+      );
 
   accountsMap.set('owner-profit', {
     key: 'owner-profit',
@@ -3250,22 +4001,42 @@ const ownerProfitAccumulated = Math.max(
           ''
       ).trim();
 
-      const destinationFundKey = String(
-        transaction?.destinationFundKey ||
-          transaction?.destination_fund_key ||
-          ''
-      ).trim();
+     const destinationFundKey = String(
+  transaction?.destinationFundKey ||
+    transaction?.destination_fund_key ||
+    ''
+).trim();
 
-      if (
-        [
-          'expense_payment',
-          'owner_drawing',
-          'emergency_borrowing',
-          'emergency_repayment',
-          'fund_transfer',
-          'refund',
-        ].includes(transactionType)
-      ) {
+const transactionDateKey = String(
+  transaction?.transactionDate ||
+    transaction?.transaction_date ||
+    transaction?.created_at ||
+    ''
+).slice(0, 10);
+
+/*
+ * Fresh permanent Owner Profit begins on 1 September 2026.
+ *
+ * Any transaction that moved money out of Owner Profit before
+ * that date belongs to the old historical system and must not
+ * reduce the new permanent September balance.
+ */
+const ignoreOldOwnerProfitMovement =
+  todayKey >= '2026-09-01' &&
+  sourceFundKey === 'owner-profit' &&
+  transactionDateKey < '2026-09-01';
+
+if (
+  !ignoreOldOwnerProfitMovement &&
+  [
+    'expense_payment',
+    'owner_drawing',
+    'emergency_borrowing',
+    'emergency_repayment',
+    'fund_transfer',
+    'refund',
+  ].includes(transactionType)
+) {
         const sourceAccount = ensureAccount({
           key:
             sourceFundKey ||
@@ -5384,9 +6155,26 @@ const automaticPreviousMonthCommissionAllocation =
           ? commissionOwnerProfit
           : 0;
 
-      const automaticCommissionAmount =
-        commissionForExpense +
-        commissionForOwnerProfit;
+      /*
+ * From 1 September 2026, permanent fund balances must contain
+ * only money actually persisted in the central ledger.
+ *
+ * Historical August keeps the existing automatic Commission
+ * allocation behaviour.
+ */
+const now = new Date();
+
+const commissionTodayKey = `${now.getFullYear()}-${String(
+  now.getMonth() + 1
+).padStart(2, '0')}-${String(
+  now.getDate()
+).padStart(2, '0')}`;
+
+const automaticCommissionAmount =
+  commissionTodayKey >= '2026-09-01'
+    ? 0
+    : commissionForExpense +
+      commissionForOwnerProfit;
 
       return {
         ...account,
@@ -6084,6 +6872,8 @@ const centralUnpaid = Math.max(
     }
   );
 
+
+
 const previousUnpaidLocalExpenses = Number(
   previousUnpaidExpensePosition.localUnpaid || 0
 );
@@ -6774,7 +7564,17 @@ const monthlyExpenseRows = useMemo(() => {
           )
       );
 
-    return monthFundingBreakdown.map((expense) => {
+    const effectiveMonthFundingBreakdown =
+  String(shopRow.calculationDate || '').slice(0, 10) >=
+  '2026-09-01'
+    ? monthFundingBreakdown.filter(
+        (expense) =>
+          String(expense?.key || '').trim() !==
+          'homeExpenses'
+      )
+    : monthFundingBreakdown;
+
+return effectiveMonthFundingBreakdown.map((expense) => {
       const targetAmount = Number(expense.target || 0);
 
       const calculationDateKey = String(
@@ -6835,7 +7635,73 @@ const monthlyExpenseRows = useMemo(() => {
                 : 0
               : 0;
 
-      const fundedThisMonthRaw = Number(
+      const permanentFundingStartDate =
+  '2026-09-01';
+
+const permanentDestinationFundKey =
+  `${shopRow.id}-${expense.key}`;
+
+const permanentFundedThisMonth =
+  calculationDateKey >=
+  permanentFundingStartDate
+    ? (
+        Array.isArray(
+          data?.centralFundTransactions
+        )
+          ? data.centralFundTransactions
+          : []
+      ).reduce((sum, transaction) => {
+        const transactionDateKey = String(
+          transaction?.transactionDate ||
+            transaction?.transaction_date ||
+            transaction?.created_at ||
+            ''
+        ).slice(0, 10);
+
+        const transactionType = String(
+          transaction?.transactionType ||
+            transaction?.transaction_type ||
+            ''
+        ).toLowerCase();
+
+        const transactionStatus = String(
+          transaction?.status || ''
+        ).toLowerCase();
+
+        const destinationFundKey = String(
+          transaction?.destinationFundKey ||
+            transaction?.destination_fund_key ||
+            ''
+        ).trim();
+
+        if (
+          transactionStatus !== 'confirmed' ||
+          transactionType !== 'fund_accrual' ||
+          destinationFundKey !==
+            permanentDestinationFundKey ||
+          transactionDateKey <
+            selectedMonthStartKey ||
+          transactionDateKey >
+            calculationDateKey
+        ) {
+          return sum;
+        }
+
+        return (
+          sum +
+          Math.max(
+            0,
+            Number(transaction?.amount || 0)
+          )
+        );
+      }, 0)
+    : 0;
+
+const fundedThisMonthRaw =
+  calculationDateKey >=
+  permanentFundingStartDate
+    ? permanentFundedThisMonth
+    : Number(
         expense.fundedThisMonth || 0
       );
 
@@ -6894,10 +7760,14 @@ const monthlyExpenseRows = useMemo(() => {
         outstanding: outstandingRounded,
       };
     });
-  });
-}, [rows]);
+   });
+}, [
+  rows,
+  data?.centralFundTransactions,
+]);
+
 const monthlyExpenseTotals = useMemo(() => {
-  return monthlyExpenseRows.reduce(
+  const legacyTotals = monthlyExpenseRows.reduce(
     (acc, row) => ({
       configured:
         acc.configured + Number(row.target || 0),
@@ -6919,10 +7789,111 @@ const monthlyExpenseTotals = useMemo(() => {
       outstanding: 0,
     }
   );
-}, [monthlyExpenseRows]);
+
+  const selectedDateKey = String(
+    rows?.[0]?.calculationDate || ''
+  ).slice(0, 10);
+
+  /*
+   * August and earlier keep the historical calculation.
+   */
+  if (
+    !selectedDateKey ||
+    selectedDateKey < '2026-09-01'
+  ) {
+    return legacyTotals;
+  }
+
+  const selectedMonthStartKey =
+    `${selectedDateKey.slice(0, 7)}-01`;
+
+  /*
+   * From September onward, "Fedha iliyotengwa kwa matumizi"
+   * is the permanent amount actually accrued into expense funds.
+   *
+   * Payments do NOT reduce this funded-to-month figure.
+   */
+  const permanentFundedThisMonth = (
+    Array.isArray(data?.centralFundTransactions)
+      ? data.centralFundTransactions
+      : []
+  ).reduce((sum, transaction) => {
+    const transactionDateKey = String(
+      transaction?.transactionDate ||
+        transaction?.transaction_date ||
+        transaction?.created_at ||
+        ''
+    ).slice(0, 10);
+
+    const transactionType = String(
+      transaction?.transactionType ||
+        transaction?.transaction_type ||
+        ''
+    ).toLowerCase();
+
+    const transactionStatus = String(
+      transaction?.status || ''
+    ).toLowerCase();
+
+    const destinationFundType = String(
+      transaction?.destinationFundType ||
+        transaction?.destination_fund_type ||
+        ''
+    ).toLowerCase();
+
+    const destinationFundKey = String(
+      transaction?.destinationFundKey ||
+        transaction?.destination_fund_key ||
+        ''
+    ).trim();
+
+    if (
+      transactionStatus !== 'confirmed' ||
+      transactionType !== 'fund_accrual' ||
+      destinationFundType !== 'expense_fund' ||
+      destinationFundKey === 'homeExpenses' ||
+      transactionDateKey < selectedMonthStartKey ||
+      transactionDateKey > selectedDateKey
+    ) {
+      return sum;
+    }
+
+    return (
+      sum +
+      Math.max(
+        0,
+        Number(transaction?.amount || 0)
+      )
+    );
+  }, 0);
+
+  return {
+    ...legacyTotals,
+
+    funded: permanentFundedThisMonth,
+
+    /*
+     * Outstanding is an obligation figure, not cash remaining.
+     * Paying an expense therefore does not make it outstanding again.
+     */
+    outstanding: Math.max(
+      0,
+      Number(legacyTotals.required || 0) -
+        permanentFundedThisMonth
+    ),
+  };
+}, [
+  monthlyExpenseRows,
+  rows,
+  data?.centralFundTransactions,
+]);
 const monthlyExpenseSummaryByShop = useMemo(() => {
   const shopMap = new Map();
 
+  /*
+   * First preserve the existing required amounts and historical
+   * figures. August and earlier continue using these unchanged.
+   */
   monthlyExpenseRows.forEach((row) => {
     const shopId = String(row.shop_id || '').trim();
 
@@ -6936,63 +7907,212 @@ const monthlyExpenseSummaryByShop = useMemo(() => {
       outstanding: 0,
     };
 
-    existing.required += Number(row.requiredThisMonthToDate || 0);
-    existing.funded += Number(row.fundedThisMonth || 0);
-    existing.outstanding += Number(row.outstanding || 0);
+    existing.required += Number(
+      row.requiredThisMonthToDate || 0
+    );
+
+    existing.funded += Number(
+      row.fundedThisMonth || 0
+    );
+
+    existing.outstanding += Number(
+      row.outstanding || 0
+    );
 
     shopMap.set(shopId, existing);
+  });
+
+  const selectedDateKey = String(
+    rows?.[0]?.calculationDate || ''
+  ).slice(0, 10);
+
+  /*
+   * August and earlier retain the existing replayed summary.
+   */
+  if (
+    !selectedDateKey ||
+    selectedDateKey < '2026-09-01'
+  ) {
+    return new Map(
+      Array.from(shopMap.entries()).map(
+        ([shopId, row]) => [
+          shopId,
+          {
+            ...row,
+            required: roundToCashStep(
+              row.required
+            ),
+            funded: roundToCashStep(
+              row.funded
+            ),
+            outstanding: roundToCashStep(
+              row.outstanding
+            ),
+          },
+        ]
+      )
+    );
+  }
+
+  const selectedMonthStartKey =
+    `${selectedDateKey.slice(0, 7)}-01`;
+
+  /*
+   * September onward:
+   * funded-to-month comes from permanent fund_accrual rows.
+   */
+  const permanentFundedByShop = new Map();
+
+  (
+    Array.isArray(data?.centralFundTransactions)
+      ? data.centralFundTransactions
+      : []
+  ).forEach((transaction) => {
+    const transactionDateKey = String(
+      transaction?.transactionDate ||
+        transaction?.transaction_date ||
+        transaction?.created_at ||
+        ''
+    ).slice(0, 10);
+
+    const transactionType = String(
+      transaction?.transactionType ||
+        transaction?.transaction_type ||
+        ''
+    ).toLowerCase();
+
+    const transactionStatus = String(
+      transaction?.status || ''
+    ).toLowerCase();
+
+    const destinationFundType = String(
+      transaction?.destinationFundType ||
+        transaction?.destination_fund_type ||
+        ''
+    ).toLowerCase();
+
+    const destinationFundKey = String(
+      transaction?.destinationFundKey ||
+        transaction?.destination_fund_key ||
+        ''
+    ).trim();
+
+    const transactionShopId = String(
+      transaction?.destinationShopId ||
+        transaction?.destination_shop_id ||
+        transaction?.sourceShopId ||
+        transaction?.source_shop_id ||
+        transaction?.shop_id ||
+        ''
+    ).trim();
+
+    if (
+      !transactionShopId ||
+      transactionStatus !== 'confirmed' ||
+      transactionType !== 'fund_accrual' ||
+      destinationFundType !== 'expense_fund' ||
+      destinationFundKey === 'homeExpenses' ||
+      transactionDateKey < selectedMonthStartKey ||
+      transactionDateKey > selectedDateKey
+    ) {
+      return;
+    }
+
+    permanentFundedByShop.set(
+      transactionShopId,
+      Number(
+        permanentFundedByShop.get(
+          transactionShopId
+        ) || 0
+      ) +
+        Math.max(
+          0,
+          Number(transaction?.amount || 0)
+        )
+    );
   });
 
   return new Map(
-    Array.from(shopMap.entries()).map(([shopId, row]) => [
-      shopId,
-      {
-        ...row,
-        required: roundToCashStep(row.required),
-        funded: roundToCashStep(row.funded),
-        outstanding: roundToCashStep(row.outstanding),
-      },
-    ])
+    Array.from(shopMap.entries()).map(
+      ([shopId, row]) => {
+        const permanentFunded = Math.max(
+          0,
+          Number(
+            permanentFundedByShop.get(
+              shopId
+            ) || 0
+          )
+        );
+
+        const required = Math.max(
+          0,
+          Number(row.required || 0)
+        );
+
+        return [
+          shopId,
+          {
+            ...row,
+
+            required:
+              roundToCashStep(required),
+
+            funded:
+              roundToCashStep(
+                permanentFunded
+              ),
+
+            outstanding:
+              roundToCashStep(
+                Math.max(
+                  0,
+                  required -
+                    permanentFunded
+                )
+              ),
+          },
+        ];
+      }
+    )
   );
-}, [monthlyExpenseRows]);
+}, [
+  monthlyExpenseRows,
+  rows,
+  data?.centralFundTransactions,
+]);
+
 const monthlyExpenseShortageByShop = useMemo(() => {
-  const shopMap = new Map();
-
-  monthlyExpenseRows.forEach((row) => {
-    const shopId = String(row.shop_id || '').trim();
-
-    if (!shopId) return;
-
-    const existing = shopMap.get(shopId) || {
-      shop_id: shopId,
-      shop: row.shop || shopId,
-      required: 0,
-      funded: 0,
-      outstanding: 0,
-    };
-
-    existing.required += Number(row.requiredThisMonthToDate || 0);
-    existing.funded += Number(row.fundedThisMonth || 0);
-    existing.outstanding += Number(row.outstanding || 0);
-
-    shopMap.set(shopId, existing);
-  });
-
-  return Array.from(shopMap.values())
-    .map((row) => ({
-      ...row,
-      required: roundToCashStep(row.required),
-      funded: roundToCashStep(row.funded),
-      outstanding: roundToCashStep(row.outstanding),
-    }))
-    .filter((row) => Number(row.outstanding || 0) > 0)
+  return Array.from(
+    monthlyExpenseSummaryByShop.values()
+  )
+    .filter(
+      (row) =>
+        Number(row?.outstanding || 0) > 0
+    )
     .sort(
       (a, b) =>
-        Number(b.outstanding || 0) -
-        Number(a.outstanding || 0)
+        Number(b?.outstanding || 0) -
+        Number(a?.outstanding || 0)
     );
-}, [monthlyExpenseRows]);
+}, [monthlyExpenseSummaryByShop]);
+
 const alignedLedgerFundAccounts = useMemo(() => {
+  const PERMANENT_FUNDS_START_DATE = '2026-09-01';
+
+  const now = new Date();
+
+  const todayKey = `${now.getFullYear()}-${String(
+    now.getMonth() + 1
+  ).padStart(2, '0')}-${String(
+    now.getDate()
+  ).padStart(2, '0')}`;
+
+  const permanentFundsAreActive =
+    todayKey >= PERMANENT_FUNDS_START_DATE;
+
+  /*
+   * Keep the old alignment untouched before 1 September 2026.
+   */
   const monthlyExpenseFundingMap = new Map();
 
   monthlyExpenseRows.forEach((row) => {
@@ -7001,63 +8121,273 @@ const alignedLedgerFundAccounts = useMemo(() => {
     monthlyExpenseFundingMap.set(fundKey, {
       funded: roundToCashStep(row.fundedThisMonth),
       outstanding: roundToCashStep(row.outstanding),
-      required: roundToCashStep(row.requiredThisMonthToDate),
+      required: roundToCashStep(
+        row.requiredThisMonthToDate
+      ),
     });
   });
 
-  return commissionAdjustedCentralFundAccounts.map((account) => {
-    const accountKey = String(account?.key || '').trim();
+  /*
+   * From 1 September onward these three maps are built ONLY
+   * from permanent centralFundTransactions.
+   */
+  const permanentAccrualByFundKey = new Map();
+  const permanentMoneyInByFundKey = new Map();
+  const permanentMoneyOutByFundKey = new Map();
 
-    const monthlyExpenseFunding =
-      monthlyExpenseFundingMap.get(accountKey);
+  const permanentTransactions = (
+    Array.isArray(data?.centralFundTransactions)
+      ? data.centralFundTransactions
+      : []
+  ).filter((transaction) => {
+    const status = String(
+      transaction?.status || ''
+    ).toLowerCase();
 
-    if (
-      String(account?.type || '') !== 'expense_fund' ||
-      !monthlyExpenseFunding
-    ) {
-      return account;
-    }
+    const transactionDateKey = String(
+      transaction?.transactionDate ||
+        transaction?.transaction_date ||
+        transaction?.created_at ||
+        ''
+    ).slice(0, 10);
 
-    const alignedBaseAmount = Math.max(
-      0,
-      Number(monthlyExpenseFunding.funded || 0)
+    return (
+      status === 'confirmed' &&
+      transactionDateKey >=
+        PERMANENT_FUNDS_START_DATE
     );
-
-    const moneyIn = Math.max(
-      0,
-      Number(account?.moneyIn || 0)
-    );
-
-    const moneyOut = Math.max(
-      0,
-      Number(account?.moneyOut || 0)
-    );
-
-    const automaticCommissionAmount = Math.max(
-      0,
-      Number(account?.automaticCommissionAmount || 0)
-    );
-
-    return {
-      ...account,
-      baseAmount: alignedBaseAmount,
-      moneyIn,
-      moneyOut,
-      automaticCommissionAmount,
-      availableBalance: Math.max(
-        0,
-        alignedBaseAmount +
-          moneyIn +
-          automaticCommissionAmount -
-          moneyOut
-      ),
-    };
   });
+
+  if (permanentFundsAreActive) {
+    permanentTransactions.forEach((transaction) => {
+      const transactionType = String(
+        transaction?.transactionType ||
+          transaction?.transaction_type ||
+          ''
+      ).toLowerCase();
+
+      const amount = Math.max(
+        0,
+        Number(transaction?.amount || 0)
+      );
+
+      if (!amount) {
+        return;
+      }
+
+      const sourceFundKey = String(
+        transaction?.sourceFundKey ||
+          transaction?.source_fund_key ||
+          ''
+      ).trim();
+
+      const destinationFundKey = String(
+        transaction?.destinationFundKey ||
+          transaction?.destination_fund_key ||
+          ''
+      ).trim();
+
+      /*
+       * Money permanently earned by the fund.
+       */
+      if (
+        transactionType === 'fund_accrual' &&
+        destinationFundKey
+      ) {
+        permanentAccrualByFundKey.set(
+          destinationFundKey,
+          Number(
+            permanentAccrualByFundKey.get(
+              destinationFundKey
+            ) || 0
+          ) + amount
+        );
+
+        return;
+      }
+
+      /*
+       * Real money leaving a fund.
+       */
+      if (
+        sourceFundKey &&
+        [
+          'expense_payment',
+          'emergency_borrowing',
+          'emergency_repayment',
+          'fund_transfer',
+          'refund',
+        ].includes(transactionType)
+      ) {
+        permanentMoneyOutByFundKey.set(
+          sourceFundKey,
+          Number(
+            permanentMoneyOutByFundKey.get(
+              sourceFundKey
+            ) || 0
+          ) + amount
+        );
+      }
+
+      /*
+       * Real money entering a fund from another fund.
+       */
+      if (
+        destinationFundKey &&
+        [
+          'emergency_borrowing',
+          'emergency_repayment',
+          'fund_transfer',
+        ].includes(transactionType)
+      ) {
+        permanentMoneyInByFundKey.set(
+          destinationFundKey,
+          Number(
+            permanentMoneyInByFundKey.get(
+              destinationFundKey
+            ) || 0
+          ) + amount
+        );
+      }
+    });
+  }
+
+  return commissionAdjustedCentralFundAccounts.map(
+    (account) => {
+      const accountKey = String(
+        account?.key || ''
+      ).trim();
+
+      /*
+       * Owner Profit and other non-expense accounts are not
+       * changed in this step.
+       */
+      if (
+        String(account?.type || '') !==
+        'expense_fund'
+      ) {
+        return account;
+      }
+
+      /*
+       * NEW PERMANENT ARRANGEMENT — 1 SEPTEMBER 2026+
+       */
+      if (permanentFundsAreActive) {
+        const permanentAccruedAmount = Math.max(
+          0,
+          Number(
+            permanentAccrualByFundKey.get(
+              accountKey
+            ) || 0
+          )
+        );
+
+        const moneyIn = Math.max(
+          0,
+          Number(
+            permanentMoneyInByFundKey.get(
+              accountKey
+            ) || 0
+          )
+        );
+
+        const moneyOut = Math.max(
+          0,
+          Number(
+            permanentMoneyOutByFundKey.get(
+              accountKey
+            ) || 0
+          )
+        );
+
+        /*
+         * Preserve the existing Commission arrangement.
+         * We are not changing Commission in this step.
+         */
+        const automaticCommissionAmount = Math.max(
+          0,
+          Number(
+            account?.automaticCommissionAmount || 0
+          )
+        );
+
+        return {
+          ...account,
+
+          /*
+           * This is now the permanent Supabase amount,
+           * not a reconstructed monthly amount.
+           */
+          baseAmount: permanentAccruedAmount,
+
+          moneyIn,
+          moneyOut,
+          automaticCommissionAmount,
+
+          availableBalance: Math.max(
+            0,
+            permanentAccruedAmount +
+              moneyIn +
+              automaticCommissionAmount -
+              moneyOut
+          ),
+        };
+      }
+
+      /*
+       * OLD ARRANGEMENT — retained untouched before September.
+       */
+      const monthlyExpenseFunding =
+        monthlyExpenseFundingMap.get(accountKey);
+
+      if (!monthlyExpenseFunding) {
+        return account;
+      }
+
+      const alignedBaseAmount = Math.max(
+        0,
+        Number(monthlyExpenseFunding.funded || 0)
+      );
+
+      const moneyIn = Math.max(
+        0,
+        Number(account?.moneyIn || 0)
+      );
+
+      const moneyOut = Math.max(
+        0,
+        Number(account?.moneyOut || 0)
+      );
+
+      const automaticCommissionAmount = Math.max(
+        0,
+        Number(
+          account?.automaticCommissionAmount || 0
+        )
+      );
+
+      return {
+        ...account,
+        baseAmount: alignedBaseAmount,
+        moneyIn,
+        moneyOut,
+        automaticCommissionAmount,
+
+        availableBalance: Math.max(
+          0,
+          alignedBaseAmount +
+            moneyIn +
+            automaticCommissionAmount -
+            moneyOut
+        ),
+      };
+    }
+  );
 }, [
   commissionAdjustedCentralFundAccounts,
   monthlyExpenseRows,
+  data?.centralFundTransactions,
 ]);
-
 const consolidatedExpenseFundOptions = useMemo(() => {
   const categoryMap = new Map();
 
@@ -7414,6 +8744,682 @@ useEffect(() => {
   resolvedShopId,
   saveData,
 ]);
+
+/*
+ * PERMANENT CENTRAL FUNDS
+ *
+ * Effective 1 September 2026.
+ *
+ * The existing live remittance calculation remains the authority.
+ * This block does not calculate new figures.
+ *
+ * It only preserves amounts already funded by the live calculation.
+ * Once an amount has entered a permanent fund, it can increase but
+ * cannot be reduced by a later recalculation.
+ */
+useEffect(() => {
+  const now = new Date();
+
+  const todayKey = `${now.getFullYear()}-${String(
+    now.getMonth() + 1
+  ).padStart(2, '0')}-${String(
+    now.getDate()
+  ).padStart(2, '0')}`;
+
+  /*
+   * Do not bring August balances into the new permanent arrangement.
+   */
+  if (todayKey < '2026-09-01') {
+    return;
+  }
+
+  const eligibleShops =
+    resolvedRole === 'owner'
+      ? Array.isArray(data?.shops)
+        ? data.shops
+        : []
+      : (Array.isArray(data?.shops) ? data.shops : []).filter(
+          (shop) =>
+            String(shop?.id || '').trim() ===
+            String(resolvedShopId || '').trim()
+        );
+
+  if (eligibleShops.length === 0) {
+    return;
+  }
+
+  let cancelled = false;
+
+  const savePermanentFundAccruals = async () => {
+    /*
+     * Build the proposed permanent balances directly from the
+     * existing live remittance calculation.
+     */
+    const proposedRows = eligibleShops.flatMap((shop) => {
+      const shopId = String(shop?.id || '').trim();
+
+      if (!shopId) {
+        return [];
+      }
+
+      const shopName = String(shop?.name || shopId);
+
+      const position = getLiveRemittanceShopPosition({
+        data,
+        shopId,
+        calculationDateKey: todayKey,
+      });
+
+      /*
+       * Normal central expenses:
+       * Salary, Rent, Medical, TRA, Data Bundle and any other
+       * owner-held expense already produced by calculateShop().
+       */
+      const centralFundingBreakdown = Array.isArray(
+        position?.centralExpenseFundingBreakdown
+      )
+        ? position.centralExpenseFundingBreakdown
+        : [];
+
+const previousCentralPaidByExpense =
+  new Map(
+    (
+      Array.isArray(
+        position?.previousCentralExpensesPaidBreakdown
+      )
+        ? position.previousCentralExpensesPaidBreakdown
+        : []
+    ).map((expense) => [
+      String(expense?.key || '').trim(),
+      Math.max(
+        0,
+        Number(expense?.amountFunded || 0)
+      ),
+    ])
+  );
+
+const normalExpenseRows = centralFundingBreakdown
+  .map((expense) => {
+    const expenseKey = String(
+      expense?.key || ''
+    ).trim();
+
+    if (!expenseKey) {
+      return null;
+    }
+
+    /*
+     * Permanent money going into this fund today consists of:
+     *
+     * 1. today's normal funding; plus
+     * 2. any old central arrears recovered today for this
+     *    same expense.
+     */
+    const todayFunding = Math.max(
+      0,
+      Number(expense?.amountFunded || 0)
+    );
+
+    const arrearsCatchUpFunding = Math.max(
+      0,
+      Number(
+        previousCentralPaidByExpense.get(
+          expenseKey
+        ) || 0
+      )
+    );
+
+    const amount =
+      todayFunding +
+      arrearsCatchUpFunding;
+
+    /*
+     * Manual expense funds already have their own permanent
+     * fund id. Normal configured expenses use shop-expense.
+     */
+    const destinationFundKey =
+      expense?.isManual && expense?.fundId
+        ? String(expense.fundId)
+        : `${shopId}-${expenseKey}`;
+
+    return {
+      id: `fund-accrual-${todayKey}-${shopId}-${expenseKey}`,
+      transaction_type: 'fund_accrual',
+      transaction_date: todayKey,
+
+      source_fund_type: 'shop_profit',
+      source_fund_key: `shop-profit-${shopId}`,
+      source_fund_name: `${shopName} Profit`,
+      source_shop_id: shopId,
+      source_shop_name: shopName,
+
+      destination_fund_type: 'expense_fund',
+      destination_fund_key: destinationFundKey,
+      destination_fund_name:
+        expense?.name || expenseKey,
+      destination_shop_id: shopId,
+      destination_shop_name: shopName,
+
+      expense_key: expenseKey,
+      expense_name:
+        expense?.name || expenseKey,
+
+      amount,
+
+      purpose:
+        arrearsCatchUpFunding > 0
+          ? 'Permanent live expense funding including arrears catch-up'
+          : 'Permanent live expense fund accrual',
+
+      notes:
+        'Automatic permanent accrual effective from 2026-09-01',
+
+      status: 'confirmed',
+
+      updated_at: new Date().toISOString(),
+    };
+  })
+  .filter(
+    (row) =>
+      row &&
+      Number(row.amount || 0) > 0
+  );
+
+      /*
+       * Home Expenses is performance-based from the existing
+       * pooled calculation, so preserve it separately.
+       */
+      const shopHomeAmount = Math.max(
+        0,
+        Number(
+          position?.shopHomeExpensesContribution || 0
+        )
+      );
+
+      const gasHomeAmount = Math.max(
+        0,
+        Number(
+          position?.pooledGasHomeExpensesContribution || 0
+        )
+      );
+
+      const homeExpenseRows = [];
+
+      if (shopHomeAmount > 0) {
+        homeExpenseRows.push({
+          id: `fund-accrual-${todayKey}-${shopId}-home-shop`,
+          transaction_type: 'fund_accrual',
+          transaction_date: todayKey,
+
+          source_fund_type: 'shop_profit',
+          source_fund_key: `shop-profit-${shopId}`,
+          source_fund_name: `${shopName} Profit`,
+          source_shop_id: shopId,
+          source_shop_name: shopName,
+
+          destination_fund_type: 'home_expenses_fund',
+          destination_fund_key: 'homeExpenses',
+          destination_fund_name: 'Home Expenses Fund',
+
+          expense_key: 'homeExpenses',
+          expense_name: 'Home Expenses',
+
+          amount: shopHomeAmount,
+
+          purpose:
+            'Permanent live Home Expenses accrual from shop profit',
+
+          notes:
+            'Automatic permanent accrual effective from 2026-09-01',
+
+          status: 'confirmed',
+
+          updated_at: new Date().toISOString(),
+        });
+      }
+
+      if (gasHomeAmount > 0) {
+        homeExpenseRows.push({
+          id: `fund-accrual-${todayKey}-${shopId}-home-gas`,
+          transaction_type: 'fund_accrual',
+          transaction_date: todayKey,
+
+          source_fund_type: 'gas_profit',
+          source_fund_key: `gas-profit-${shopId}`,
+          source_fund_name: `${shopName} Gas Profit`,
+          source_shop_id: shopId,
+          source_shop_name: shopName,
+
+          destination_fund_type: 'home_expenses_fund',
+          destination_fund_key: 'homeExpenses',
+          destination_fund_name: 'Home Expenses Fund',
+
+          expense_key: 'homeExpenses',
+          expense_name: 'Home Expenses',
+
+          amount: gasHomeAmount,
+
+          purpose:
+            'Permanent live Home Expenses accrual from gas profit',
+
+          notes:
+            'Automatic permanent accrual effective from 2026-09-01',
+
+          status: 'confirmed',
+
+          updated_at: new Date().toISOString(),
+        });
+      }
+
+      /*
+ * OWNER PROFIT
+ *
+ * Kiasi cha Kutoa is the controlling cash amount.
+ *
+ * Whatever remains after actual central expenses and the
+ * Home Expenses contribution belongs to Owner Profit.
+ *
+ * Using the final cashAmountRequiredToSubmit also absorbs
+ * the small cash-rounding difference, so the permanent
+ * breakdown reconciles to the actual Kiasi cha Kutoa.
+ */
+const permanentOwnerProfitAmount = Math.max(
+  0,
+  Number(
+    position?.cashAmountRequiredToSubmit || 0
+  ) -
+    Math.max(
+      0,
+      Number(position?.centralExpense || 0)
+    ) -
+    shopHomeAmount -
+    gasHomeAmount
+);
+
+const ownerProfitRows =
+  permanentOwnerProfitAmount > 0
+    ? [
+        {
+          id: `fund-accrual-${todayKey}-${shopId}-owner-profit`,
+          transaction_type: 'fund_accrual',
+          transaction_date: todayKey,
+
+          source_fund_type: 'shop_profit',
+          source_fund_key: `shop-remittance-${shopId}`,
+          source_fund_name: `${shopName} Remittance`,
+          source_shop_id: shopId,
+          source_shop_name: shopName,
+
+          destination_fund_type: 'owner_profit',
+          destination_fund_key: 'owner-profit',
+          destination_fund_name: 'Owner Profit',
+
+          expense_key: '',
+          expense_name: '',
+
+          amount: permanentOwnerProfitAmount,
+
+          purpose:
+            'Permanent live Owner Profit accrual',
+
+          notes:
+            'Automatic permanent accrual effective from 2026-09-01',
+
+          status: 'confirmed',
+
+          updated_at: new Date().toISOString(),
+        },
+      ]
+    : [];
+
+/*
+ * Home Expenses is now stored separately as ONE pooled
+ * permanent central fund.
+ *
+ * Do not save the old per-shop Home accrual rows here,
+ * otherwise the same Home money would be counted twice.
+ */
+return [
+  ...normalExpenseRows,
+  ...ownerProfitRows,
+];
+    });
+
+    if (proposedRows.length === 0) {
+      return;
+    }
+
+    /*
+     * Read the permanent amount already stored in Supabase first.
+     * We only ever move the permanent amount UP.
+     */
+    const proposedIds = proposedRows.map(
+      (row) => row.id
+    );
+
+    const {
+      data: existingRows,
+      error: existingRowsError,
+    } = await supabase
+      .from('centralFundTransactions')
+      .select('id, amount')
+      .in('id', proposedIds);
+
+    if (cancelled) {
+      return;
+    }
+
+    if (existingRowsError) {
+      console.error(
+        'Permanent fund accrual load failed:',
+        existingRowsError
+      );
+      return;
+    }
+
+    const existingAmountById = new Map(
+      (Array.isArray(existingRows)
+        ? existingRows
+        : []
+      ).map((row) => [
+        String(row?.id || ''),
+        Math.max(
+          0,
+          Number(row?.amount || 0)
+        ),
+      ])
+    );
+
+    /*
+     * Never replace a permanent amount with a lower live amount.
+     */
+    const rowsToSave = proposedRows
+      .map((row) => {
+        const existingAmount = Math.max(
+          0,
+          Number(
+            existingAmountById.get(row.id) || 0
+          )
+        );
+
+        const liveAmount = Math.max(
+          0,
+          Number(row.amount || 0)
+        );
+
+        return {
+          ...row,
+          amount: Math.max(
+            existingAmount,
+            liveAmount
+          ),
+        };
+      })
+      .filter((row) => {
+        const existingAmount = Math.max(
+          0,
+          Number(
+            existingAmountById.get(row.id) || 0
+          )
+        );
+
+        return (
+          Number(row.amount || 0) >
+          existingAmount
+        );
+      });
+
+    /*
+     * Nothing has increased since the last save.
+     */
+    if (rowsToSave.length === 0) {
+      return;
+    }
+
+    const {
+      data: savedRows,
+      error: saveError,
+    } = await supabase
+      .from('centralFundTransactions')
+      .upsert(rowsToSave, {
+        onConflict: 'id',
+      })
+      .select();
+
+    if (cancelled) {
+      return;
+    }
+
+    if (saveError) {
+      console.error(
+        'Permanent fund accrual save failed:',
+        saveError
+      );
+      return;
+    }
+
+    const savedIds = new Set(
+      rowsToSave.map((row) =>
+        String(row.id)
+      )
+    );
+
+    const existingTransactions =
+      Array.isArray(
+        data?.centralFundTransactions
+      )
+        ? data.centralFundTransactions
+        : [];
+
+    const nextTransactions = [
+      ...(Array.isArray(savedRows)
+        ? savedRows
+        : rowsToSave),
+      ...existingTransactions.filter(
+        (transaction) =>
+          !savedIds.has(
+            String(transaction?.id || '')
+          )
+      ),
+    ];
+
+    await saveData({
+      ...data,
+      centralFundTransactions:
+        nextTransactions,
+    });
+  };
+
+  savePermanentFundAccruals();
+
+  return () => {
+    cancelled = true;
+  };
+}, [
+  data,
+  data?.shops,
+  data?.sales,
+  data?.products,
+  data?.gasEntries,
+  data?.dailyRemittances,
+  data?.remittanceExpenseFunds,
+  data?.centralFundTransactions,
+  resolvedRole,
+  resolvedShopId,
+  saveData,
+]);
+
+/*
+ * PERMANENT POOLED HOME EXPENSES
+ *
+ * Home Expenses is one central fund, not five separate
+ * permanent shop balances.
+ *
+ * From 1 September 2026 we therefore preserve only the
+ * current TOTAL pooled Home Expenses amount across all shops.
+ * Supabase keeps this amount monotonic with GREATEST(), so
+ * a stale browser can never reduce money already preserved.
+ */
+useEffect(() => {
+  let cancelled = false;
+
+  const syncPermanentPooledHomeExpenses = async () => {
+    const now = new Date();
+
+    const todayKey = `${now.getFullYear()}-${String(
+      now.getMonth() + 1
+    ).padStart(2, '0')}-${String(
+      now.getDate()
+    ).padStart(2, '0')}`;
+
+    if (todayKey < '2026-09-01') {
+      return;
+    }
+
+    if (
+      !['owner', 'shop'].includes(
+        String(resolvedRole || '').toLowerCase()
+      )
+    ) {
+      return;
+    }
+
+    const shops = Array.isArray(data?.shops)
+      ? data.shops
+      : [];
+
+    const pooledHomeExpensesAmount = shops.reduce(
+      (total, shop) => {
+        const shopId = String(
+          shop?.id || ''
+        ).trim();
+
+        if (!shopId) {
+          return total;
+        }
+
+        const position =
+          getLiveRemittanceShopPosition({
+            data,
+            shopId,
+            calculationDateKey: todayKey,
+          });
+
+        return (
+          total +
+          Math.max(
+            0,
+            Number(
+              position?.shopHomeExpensesContribution ||
+                0
+            )
+          ) +
+          Math.max(
+            0,
+            Number(
+              position
+                ?.pooledGasHomeExpensesContribution ||
+                0
+            )
+          )
+        );
+      },
+      0
+    );
+
+    const pooledTransactionId =
+      `fund-accrual-${todayKey}-home-pooled`;
+
+    const existingTransactions = Array.isArray(
+      data?.centralFundTransactions
+    )
+      ? data.centralFundTransactions
+      : [];
+
+    const existingPooledTransaction =
+      existingTransactions.find(
+        (transaction) =>
+          String(transaction?.id || '') ===
+          pooledTransactionId
+      );
+
+    const existingAmount = Math.max(
+      0,
+      Number(
+        existingPooledTransaction?.amount || 0
+      )
+    );
+
+    if (
+      pooledHomeExpensesAmount <=
+      existingAmount
+    ) {
+      return;
+    }
+
+    const { data: savedRows, error } =
+      await supabase.rpc(
+        'upsert_permanent_home_expenses_accrual',
+        {
+          p_transaction_date: todayKey,
+          p_amount: pooledHomeExpensesAmount,
+        }
+      );
+
+    if (cancelled) {
+      return;
+    }
+
+    if (error) {
+      console.error(
+        'Permanent pooled Home Expenses accrual failed:',
+        error
+      );
+      return;
+    }
+
+    const savedTransaction =
+      Array.isArray(savedRows) && savedRows.length > 0
+        ? savedRows[0]
+        : null;
+
+    if (!savedTransaction) {
+      return;
+    }
+
+    const nextTransactions = [
+      savedTransaction,
+      ...existingTransactions.filter(
+        (transaction) =>
+          String(transaction?.id || '') !==
+          pooledTransactionId
+      ),
+    ];
+
+    await saveData({
+      ...data,
+      centralFundTransactions:
+        nextTransactions,
+    });
+  };
+
+  syncPermanentPooledHomeExpenses();
+
+  return () => {
+    cancelled = true;
+  };
+}, [
+  data,
+  data?.shops,
+  data?.sales,
+  data?.products,
+  data?.gasEntries,
+  data?.dailyRemittances,
+  data?.centralFundTransactions,
+  resolvedRole,
+  saveData,
+]);
+
 const automaticShopHomeExpensesContribution =
   automaticPooledHomeExpensesFunding.shopContribution;
 

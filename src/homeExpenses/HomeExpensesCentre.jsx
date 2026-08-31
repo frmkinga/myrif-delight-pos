@@ -941,8 +941,22 @@ const previousMonthKey = useMemo(
     const confirmedHomeFundingTransactions =
       confirmedFundingBreakdown.otherConfirmedFunding;
 
-    const fundedSoFar =
-      shopContributions +
+    /*
+ * From 1 September 2026, the permanent Supabase ledger
+ * is the single source of truth for money that has entered
+ * the Home Expenses fund.
+ *
+ * Live shop/gas calculations still determine how much should
+ * enter the fund, but they must not be counted again after
+ * fund_accrual has stored that money permanently.
+ */
+const permanentFundingStartDate = '2026-09-01';
+
+const fundedSoFar =
+  currentMonthRange.startKey >= permanentFundingStartDate
+    ? commissionContributions +
+      confirmedHomeFundingTransactions
+    : shopContributions +
       gasContributions +
       commissionContributions +
       confirmedHomeFundingTransactions;
@@ -958,9 +972,131 @@ const previousMonthKey = useMemo(
     );
 
     const totalSpent = itemsTaken + cashTaken;
-    const balanceRemaining = fundedSoFar - totalSpent;
-    const amountOwed =
-      balanceRemaining < 0 ? Math.abs(balanceRemaining) : 0;
+
+/*
+ * PERMANENT HOME EXPENSES FUND
+ *
+ * From 1 September 2026 the balance no longer comes from
+ * rebuilding historical shop/gas calculations.
+ *
+ * Money enters the fund only through permanent fund_accrual
+ * records already saved in centralFundTransactions.
+ *
+ * Once entered, it remains there permanently until Home
+ * Expenses are actually used.
+ */
+const PERMANENT_HOME_FUNDS_START_DATE =
+  '2026-09-01';
+
+const permanentHomeFundTodayKey = todayISO();
+
+const permanentHomeExpensesAccrued = (
+  Array.isArray(data?.centralFundTransactions)
+    ? data.centralFundTransactions
+    : []
+).reduce((sum, transaction) => {
+  const transactionDateKey = String(
+    transaction?.transactionDate ||
+      transaction?.transaction_date ||
+      transaction?.created_at ||
+      ''
+  ).slice(0, 10);
+
+  const transactionType = String(
+    transaction?.transactionType ||
+      transaction?.transaction_type ||
+      ''
+  ).toLowerCase();
+
+  const transactionStatus = String(
+    transaction?.status || ''
+  ).toLowerCase();
+
+  const destinationFundKey = String(
+    transaction?.destinationFundKey ||
+      transaction?.destination_fund_key ||
+      ''
+  ).trim();
+
+  if (
+    transactionStatus !== 'confirmed' ||
+    transactionType !== 'fund_accrual' ||
+    destinationFundKey !== 'homeExpenses' ||
+    transactionDateKey <
+      PERMANENT_HOME_FUNDS_START_DATE ||
+    transactionDateKey >
+      permanentHomeFundTodayKey
+  ) {
+    return sum;
+  }
+
+  return (
+    sum +
+    Math.max(
+      0,
+      Number(transaction?.amount || 0)
+    )
+  );
+}, 0);
+
+/*
+ * Products physically taken for Home Expenses are genuine
+ * expenditure and therefore reduce the permanent fund.
+ */
+const permanentHomeExpenseItemsTaken =
+  getHomeExpenseItemRows(data?.sales || [])
+    .filter(
+      (row) =>
+        String(row?.date || '') >=
+          PERMANENT_HOME_FUNDS_START_DATE &&
+        String(row?.date || '') <=
+          permanentHomeFundTodayKey
+    )
+    .reduce(
+      (sum, row) =>
+        sum + Math.max(0, Number(row?.total || 0)),
+      0
+    );
+
+/*
+ * Cash deliberately taken from Home Expenses is also genuine
+ * expenditure and therefore reduces the permanent fund.
+ */
+const permanentHomeExpenseCashTaken =
+  cashTransactions
+    .filter(
+      (row) =>
+        String(row?.date || '') >=
+          PERMANENT_HOME_FUNDS_START_DATE &&
+        String(row?.date || '') <=
+          permanentHomeFundTodayKey
+    )
+    .reduce(
+      (sum, row) =>
+        sum + Math.max(0, Number(row?.amount || 0)),
+      0
+    );
+
+const permanentHomeExpensesBalance =
+  permanentHomeExpensesAccrued -
+  permanentHomeExpenseItemsTaken -
+  permanentHomeExpenseCashTaken;
+
+/*
+ * August keeps the existing historical calculation.
+ * From September the permanent Supabase ledger controls
+ * the actual fund balance.
+ */
+const balanceRemaining =
+  permanentHomeFundTodayKey >=
+  PERMANENT_HOME_FUNDS_START_DATE
+    ? permanentHomeExpensesBalance
+    : fundedSoFar - totalSpent;
+
+const amountOwed =
+  balanceRemaining < 0
+    ? Math.abs(balanceRemaining)
+    : 0;
     const unfundedBudgetBalance = Math.max(
       0,
       Number(HOME_EXPENSES_MONTHLY_BUDGET.target || 0) -
@@ -1064,10 +1200,77 @@ const previousMonthKey = useMemo(
       return sum + Math.max(0, Number(transaction.amount || 0));
     }, 0);
 
-    const collectedToday =
-  shopContributionsToday +
-  gasContributionsToday +
-  confirmedFundingToday;
+    /*
+ * From 1 September 2026, today's Home Expenses collection
+ * comes directly from the permanent Supabase fund ledger.
+ *
+ * This prevents the same money being counted once from the
+ * live remittance calculation and again from fund_accrual.
+ */
+
+
+const permanentHomeExpensesCollectedToday = (
+  Array.isArray(data?.centralFundTransactions)
+    ? data.centralFundTransactions
+    : []
+).reduce((sum, transaction) => {
+  const transactionDateKey = String(
+    transaction?.transactionDate ||
+      transaction?.transaction_date ||
+      transaction?.created_at ||
+      ''
+  ).slice(0, 10);
+
+  const transactionType = String(
+    transaction?.transactionType ||
+      transaction?.transaction_type ||
+      ''
+  ).toLowerCase();
+
+  const transactionStatus = String(
+    transaction?.status || ''
+  ).toLowerCase();
+
+  const destinationFundKey = String(
+    transaction?.destinationFundKey ||
+      transaction?.destination_fund_key ||
+      ''
+  ).trim();
+
+  if (
+    transactionDateKey !== todayKey ||
+    transactionStatus !== 'confirmed' ||
+    transactionType !== 'fund_accrual' ||
+    destinationFundKey !== 'homeExpenses'
+  ) {
+    return sum;
+  }
+
+  return (
+    sum +
+    Math.max(
+      0,
+      Number(transaction?.amount || 0)
+    )
+  );
+}, 0);
+
+/*
+ * From 1 September 2026, today's Home Expenses collection
+ * comes from the permanent Supabase fund entries only.
+ *
+ * The live shop/gas calculation still determines the amount
+ * continuously, but once that amount has been written into
+ * the permanent fund it must not be counted a second time.
+ */
+const permanentFundingStartDate = '2026-09-01';
+
+const collectedToday =
+  todayKey >= permanentFundingStartDate
+    ? confirmedFundingToday
+    : shopContributionsToday +
+      gasContributionsToday +
+      confirmedFundingToday;
 
     const productsUsedToday = currentMonthHomeExpenseItems
       .filter((row) => String(row.date || '').slice(0, 10) === todayKey)
@@ -2102,10 +2305,22 @@ return {
           );
         }, 0);
 
-      const moneyReceived =
-        shopContribution +
-        gasContribution +
-        confirmedAdditionalFunding;
+      /*
+ * From 1 September 2026 the daily fund report reads
+ * permanent Home Expenses inflows from Supabase.
+ *
+ * Historical August reporting keeps the existing live
+ * reconstruction exactly as it was.
+ */
+const PERMANENT_HOME_FUNDS_START_DATE =
+  '2026-09-01';
+
+const moneyReceived =
+  dateKey >= PERMANENT_HOME_FUNDS_START_DATE
+    ? confirmedAdditionalFunding
+    : shopContribution +
+      gasContribution +
+      confirmedAdditionalFunding;
 
       const productsUsed = allHomeExpenseItems
         .filter(
