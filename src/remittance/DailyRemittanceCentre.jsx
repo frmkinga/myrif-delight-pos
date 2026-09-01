@@ -9350,12 +9350,6 @@ useEffect(() => {
       )
     );
 
-    if (
-      pooledHomeExpensesAmount <=
-      existingAmount
-    ) {
-      return;
-    }
 
     const { data: savedRows, error } =
       await supabase.rpc(

@@ -2207,7 +2207,7 @@ function TabsContent({
   const isActive = value === activeValue;
 
   const [hasBeenOpened, setHasBeenOpened] = useState(
-    isActive
+    isActive || keepAlive
   );
 
   useEffect(() => {

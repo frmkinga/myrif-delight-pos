@@ -1795,44 +1795,6 @@ return {
       return;
     }
 
-    const isRiceExpense =
-      String(purpose || '')
-        .trim()
-        .toLowerCase() === 'mchele';
-
-    const availableForThisExpense =
-      isRiceExpense
-        ? Number(
-            riceReserveCashSummary.protectedRiceCash || 0
-          )
-        : Number(
-            riceReserveCashSummary.normalHomeExpensesAvailable || 0
-          );
-
-    if (Number(cartTotal || 0) > availableForThisExpense) {
-      setSaleError(
-        isRiceExpense
-          ? t(
-              language,
-              `Rice reserve is not enough. Available rice money is TZS ${money(
-                availableForThisExpense
-              )}.`,
-              `Fedha ya Mchele haitoshi. Fedha ya Mchele iliyopo ni TZS ${money(
-                availableForThisExpense
-              )}.`
-            )
-          : t(
-              language,
-              `This expense exceeds the Home Expenses money available after protecting the rice reserve. Available amount is TZS ${money(
-                availableForThisExpense
-              )}.`,
-              `Matumizi haya yanazidi fedha zinazopatikana baada ya kulinda fedha ya Mchele. Kiasi kinachopatikana ni TZS ${money(
-                availableForThisExpense
-              )}.`
-            )
-      );
-      return;
-    }
 
     if (saleLock.current) return;
 
@@ -2070,45 +2032,6 @@ return {
       return;
     }
 
-    const isRiceCashExpense =
-      String(cashPurpose || '')
-        .trim()
-        .toLowerCase()
-        .includes('mchele');
-
-    const availableCashForThisExpense =
-      isRiceCashExpense
-        ? Number(
-            riceReserveCashSummary.protectedRiceCash || 0
-          )
-        : Number(
-            riceReserveCashSummary.normalHomeExpensesAvailable || 0
-          );
-
-    if (amount > availableCashForThisExpense) {
-      alert(
-        isRiceCashExpense
-          ? t(
-              language,
-              `Rice reserve is not enough. Available rice money is TZS ${money(
-                availableCashForThisExpense
-              )}.`,
-              `Fedha ya Mchele haitoshi. Fedha ya Mchele iliyopo ni TZS ${money(
-                availableCashForThisExpense
-              )}.`
-            )
-          : t(
-              language,
-              `This cash exceeds the Home Expenses money available after protecting the rice reserve. Available amount is TZS ${money(
-                availableCashForThisExpense
-              )}.`,
-              `Cash hii inazidi fedha zinazopatikana baada ya kulinda fedha ya Mchele. Kiasi kinachopatikana ni TZS ${money(
-                availableCashForThisExpense
-              )}.`
-            )
-      );
-      return;
-    }
 
     if (cashLock.current) return;
 
@@ -3404,8 +3327,8 @@ const moneyReceived =
                 </p>
               </div>
 
-              <div className="w-full max-w-5xl rounded-[28px] border border-emerald-200 bg-emerald-50 p-5 text-sm shadow-sm lg:min-w-[760px] xl:min-w-[900px]">
-                <div className="grid gap-6 xl:grid-cols-3">
+              <div className="w-full max-w-none rounded-[28px] border border-emerald-200 bg-emerald-50 p-5 text-sm shadow-sm lg:min-w-[1000px] xl:min-w-[1280px] 2xl:min-w-[1450px]">
+                <div className="grid gap-6 xl:grid-cols-4">
                   <div className="rounded-3xl border-2 border-blue-300 bg-white p-4 shadow-sm">
                     <div className="text-xs font-black uppercase tracking-wide text-blue-700">
                       {t(
@@ -3493,38 +3416,6 @@ const moneyReceived =
                         </strong>
                       </div>
 
-                      <div className="flex items-center justify-between gap-4">
-                        <span className="font-bold text-slate-500">
-                          {t(
-                            language,
-                            'Rice fund remaining',
-                            'Mchele — Bado Kukusanya'
-                          )}
-                        </span>
-                        <strong
-                          className={
-                            riceReserveSummary.remainingToCollect > 0
-                              ? 'text-amber-700'
-                              : 'text-emerald-700'
-                          }
-                        >
-                          TZS {money(riceReserveSummary.remainingToCollect)}
-                        </strong>
-                      </div>
-
-                      <div className="flex items-center justify-between gap-4">
-                        <span className="font-bold text-slate-500">
-                          {t(
-                            language,
-                            'Set aside for rice today',
-                            'Tenga kwa Mchele Leo'
-                          )}
-                        </span>
-                        <strong className="text-amber-700">
-                          TZS {money(riceReserveSummary.reservedToday)}
-                        </strong>
-                      </div>
-
                       <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3">
                         <div className="text-xs font-black uppercase tracking-wide text-blue-700">
                           {t(
@@ -3584,6 +3475,63 @@ const moneyReceived =
                           TZS {money(
                             riceReserveCashSummary.normalHomeExpensesAvailable
                           )}
+                        </strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-3xl border-2 border-amber-300 bg-white p-4 shadow-sm">
+                    <div className="text-xs font-black uppercase tracking-wide text-amber-700">
+                      {t(
+                        language,
+                        'Rice',
+                        'Mchele'
+                      )}
+                    </div>
+
+                    <div className="mt-3 space-y-3">
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="font-bold text-slate-500">
+                          {t(
+                            language,
+                            'Amount required',
+                            'Kiasi kinachohitajika'
+                          )}
+                        </span>
+                        <strong className="text-slate-950">
+                          TZS {money(riceReserveSummary.monthlyTarget)}
+                        </strong>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="font-bold text-slate-500">
+                          {t(
+                            language,
+                            'Amount collected',
+                            'Kiasi kilichokusanywa'
+                          )}
+                        </span>
+                        <strong className="text-emerald-700">
+                          TZS {money(riceReserveSummary.reservedSoFar)}
+                        </strong>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-4 border-t border-amber-200 pt-3">
+                        <span className="font-black text-slate-800">
+                          {t(
+                            language,
+                            'Remaining to collect',
+                            'Bado kukusanywa'
+                          )}
+                        </span>
+                        <strong
+                          className={
+                            riceReserveSummary.remainingToCollect > 0
+                              ? 'text-amber-700'
+                              : 'text-emerald-700'
+                          }
+                        >
+                          TZS {money(riceReserveSummary.remainingToCollect)}
                         </strong>
                       </div>
                     </div>
