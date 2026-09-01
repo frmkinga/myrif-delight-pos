@@ -2224,7 +2224,9 @@ const confirmedHomeExpensesBeforeToday =
    */
   const dailyHomeExpensesTarget =
     todayKey >= HOME_EXPENSES_DAILY_CAP_START_DATE
-      ? HOME_EXPENSES_DAILY_CAP
+      ? Math.round(
+          getDailyEssentialHomeExpensesTarget(todayKey) / 50
+        ) * 50
       : Math.max(
           0,
           cumulativeHomeExpensesTarget -
