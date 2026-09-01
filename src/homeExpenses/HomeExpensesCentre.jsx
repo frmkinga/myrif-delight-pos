@@ -3379,30 +3379,11 @@ const moneyReceived =
                       </div>
 
                       <div className="flex items-center justify-between gap-4">
-  <span className="font-bold text-slate-500">
-    {t(
-      language,
-      "Today's expense shortfall",
-      'Pungufu ya Matumizi Leo'
-    )}
-  </span>
-  <strong
-    className={
-      homeExpensesDailyClosingSummary.expenseShortfallToday > 0
-        ? 'text-red-700'
-        : 'text-emerald-700'
-    }
-  >
-    TZS {money(homeExpensesDailyClosingSummary.expenseShortfallToday)}
-  </strong>
-</div>
-
-                      <div className="flex items-center justify-between gap-4">
                         <span className="font-bold text-slate-500">
                           {t(
                             language,
-                            'Remaining old debt',
-                            'Salio la Deni la Nyuma'
+                            'Debt',
+                            'Deni'
                           )}
                         </span>
                         <strong
