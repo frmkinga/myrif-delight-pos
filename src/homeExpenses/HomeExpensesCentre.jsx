@@ -86,6 +86,18 @@ const HOME_EXPENSES_MONTHLY_BUDGET = {
     { name: 'Mchele', amount: 270000 },
   ],
 };
+
+const HOME_EXPENSES_RICE_MONTHLY_TARGET =
+  Number(
+    HOME_EXPENSES_MONTHLY_BUDGET.items.find(
+      (item) =>
+        String(item?.name || '').trim() === 'Mchele'
+    )?.amount || 0
+  );
+
+const HOME_EXPENSES_RICE_RESERVE_START_DATE =
+  '2026-09-01';
+
 const normalizeHomeExpenseText = (value) =>
   String(value || '')
     .toLowerCase()
@@ -1125,6 +1137,255 @@ const amountOwed =
     currentMonthCashTransactions,
   ]);
 
+  const riceReserveSummary = useMemo(() => {
+    const todayKey = todayISO();
+
+    if (
+      todayKey < HOME_EXPENSES_RICE_RESERVE_START_DATE ||
+      currentMonthRange.endKey <
+        HOME_EXPENSES_RICE_RESERVE_START_DATE
+    ) {
+      return {
+        monthlyTarget: HOME_EXPENSES_RICE_MONTHLY_TARGET,
+        dailyTarget: 0,
+        reservedSoFar: 0,
+        reservedToday: 0,
+        remainingToCollect:
+          HOME_EXPENSES_RICE_MONTHLY_TARGET,
+        targetThroughToday: 0,
+        shortageToDate: 0,
+      };
+    }
+
+    const [year, month] = String(
+      currentMonthRange.monthKey || ''
+    )
+      .split('-')
+      .map(Number);
+
+    const daysInMonth =
+      year && month
+        ? new Date(year, month, 0).getDate()
+        : 30;
+
+    const dailyTarget =
+      daysInMonth > 0
+        ? HOME_EXPENSES_RICE_MONTHLY_TARGET /
+          daysInMonth
+        : 0;
+
+    const reserveStartKey =
+      currentMonthRange.startKey <
+      HOME_EXPENSES_RICE_RESERVE_START_DATE
+        ? HOME_EXPENSES_RICE_RESERVE_START_DATE
+        : currentMonthRange.startKey;
+
+    const fundingByDate = new Map();
+
+    (data?.centralFundTransactions || []).forEach(
+      (transaction) => {
+        const transactionDateKey = String(
+          transaction?.transactionDate ||
+            transaction?.transaction_date ||
+            transaction?.date ||
+            transaction?.created_at ||
+            ''
+        ).slice(0, 10);
+
+        const transactionStatus = String(
+          transaction?.status || ''
+        ).toLowerCase();
+
+        const transactionType = String(
+          transaction?.transactionType ||
+            transaction?.transaction_type ||
+            ''
+        ).toLowerCase();
+
+        const destinationFundKey = String(
+          transaction?.destinationFundKey ||
+            transaction?.destination_fund_key ||
+            transaction?.expenseKey ||
+            transaction?.expense_key ||
+            ''
+        ).trim();
+
+        if (
+          transactionDateKey < reserveStartKey ||
+          transactionDateKey >
+            currentMonthRange.endKey ||
+          transactionStatus !== 'confirmed' ||
+          transactionType ===
+            'home_expense_cash_taken' ||
+          !destinationFundKey.includes(
+            'homeExpenses'
+          )
+        ) {
+          return;
+        }
+
+        fundingByDate.set(
+          transactionDateKey,
+          Number(
+            fundingByDate.get(
+              transactionDateKey
+            ) || 0
+          ) +
+            Math.max(
+              0,
+              Number(transaction?.amount || 0)
+            )
+        );
+      }
+    );
+
+    const reserveDateKeys = getDateKeys(
+      reserveStartKey,
+      currentMonthRange.endKey
+    );
+
+    let reservedSoFar = 0;
+    let reservedToday = 0;
+    let targetThroughToday = 0;
+
+    reserveDateKeys.forEach((dateKey) => {
+      const dayOfMonth = Number(
+        String(dateKey).slice(8, 10)
+      );
+
+      const targetThroughDay = Math.min(
+        HOME_EXPENSES_RICE_MONTHLY_TARGET,
+        dailyTarget * dayOfMonth
+      );
+
+      const amountStillNeededThroughDay =
+        Math.max(
+          0,
+          targetThroughDay - reservedSoFar
+        );
+
+      const fundingReceivedThatDay =
+        Math.max(
+          0,
+          Number(
+            fundingByDate.get(dateKey) || 0
+          )
+        );
+
+      const amountReservedThatDay =
+        Math.min(
+          fundingReceivedThatDay,
+          amountStillNeededThroughDay
+        );
+
+      reservedSoFar += amountReservedThatDay;
+
+      if (dateKey === todayKey) {
+        reservedToday = amountReservedThatDay;
+      }
+
+      targetThroughToday = targetThroughDay;
+    });
+
+    return {
+      monthlyTarget:
+        HOME_EXPENSES_RICE_MONTHLY_TARGET,
+
+      dailyTarget,
+
+      reservedSoFar,
+
+      reservedToday,
+
+      remainingToCollect: Math.max(
+        0,
+        HOME_EXPENSES_RICE_MONTHLY_TARGET -
+          reservedSoFar
+      ),
+
+      targetThroughToday,
+
+      shortageToDate: Math.max(
+        0,
+        targetThroughToday - reservedSoFar
+      ),
+    };
+  }, [
+    data?.centralFundTransactions,
+    currentMonthRange,
+  ]);
+
+  const riceReserveCashSummary = useMemo(() => {
+    const riceProductSpending =
+      currentMonthHomeExpenseItems
+        .filter(
+          (row) =>
+            String(row?.purpose || '')
+              .trim()
+              .toLowerCase() === 'mchele' ||
+            getHomeExpenseBudgetCategoryFromProduct(
+              row?.productName || ''
+            ) === 'Mchele'
+        )
+        .reduce(
+          (sum, row) =>
+            sum +
+            Math.max(
+              0,
+              Number(row?.total || 0)
+            ),
+          0
+        );
+
+    const riceCashSpending =
+      currentMonthCashTransactions
+        .filter((row) =>
+          String(row?.purpose || '')
+            .trim()
+            .toLowerCase()
+            .includes('mchele')
+        )
+        .reduce(
+          (sum, row) =>
+            sum +
+            Math.max(
+              0,
+              Number(row?.amount || 0)
+            ),
+          0
+        );
+
+    const riceSpentSoFar =
+      riceProductSpending +
+      riceCashSpending;
+
+    const protectedRiceCash = Math.max(
+      0,
+      Number(
+        riceReserveSummary.reservedSoFar || 0
+      ) - riceSpentSoFar
+    );
+
+    const normalHomeExpensesAvailable =
+      Math.max(
+        0,
+        Number(
+          fundingSummary.balanceRemaining || 0
+        ) - protectedRiceCash
+      );
+
+    return {
+      riceSpentSoFar,
+      protectedRiceCash,
+      normalHomeExpensesAvailable,
+    };
+  }, [
+    currentMonthHomeExpenseItems,
+    currentMonthCashTransactions,
+    riceReserveSummary,
+    fundingSummary.balanceRemaining,
+  ]);
+
   const homeExpensesDailyClosingSummary = useMemo(() => {
     const todayKey = todayISO();
 
@@ -1534,6 +1795,45 @@ return {
       return;
     }
 
+    const isRiceExpense =
+      String(purpose || '')
+        .trim()
+        .toLowerCase() === 'mchele';
+
+    const availableForThisExpense =
+      isRiceExpense
+        ? Number(
+            riceReserveCashSummary.protectedRiceCash || 0
+          )
+        : Number(
+            riceReserveCashSummary.normalHomeExpensesAvailable || 0
+          );
+
+    if (Number(cartTotal || 0) > availableForThisExpense) {
+      setSaleError(
+        isRiceExpense
+          ? t(
+              language,
+              `Rice reserve is not enough. Available rice money is TZS ${money(
+                availableForThisExpense
+              )}.`,
+              `Fedha ya Mchele haitoshi. Fedha ya Mchele iliyopo ni TZS ${money(
+                availableForThisExpense
+              )}.`
+            )
+          : t(
+              language,
+              `This expense exceeds the Home Expenses money available after protecting the rice reserve. Available amount is TZS ${money(
+                availableForThisExpense
+              )}.`,
+              `Matumizi haya yanazidi fedha zinazopatikana baada ya kulinda fedha ya Mchele. Kiasi kinachopatikana ni TZS ${money(
+                availableForThisExpense
+              )}.`
+            )
+      );
+      return;
+    }
+
     if (saleLock.current) return;
 
     saleLock.current = true;
@@ -1766,6 +2066,46 @@ return {
           'Please fill the purpose.',
           'Tafadhali jaza matumizi/purpose.'
         )
+      );
+      return;
+    }
+
+    const isRiceCashExpense =
+      String(cashPurpose || '')
+        .trim()
+        .toLowerCase()
+        .includes('mchele');
+
+    const availableCashForThisExpense =
+      isRiceCashExpense
+        ? Number(
+            riceReserveCashSummary.protectedRiceCash || 0
+          )
+        : Number(
+            riceReserveCashSummary.normalHomeExpensesAvailable || 0
+          );
+
+    if (amount > availableCashForThisExpense) {
+      alert(
+        isRiceCashExpense
+          ? t(
+              language,
+              `Rice reserve is not enough. Available rice money is TZS ${money(
+                availableCashForThisExpense
+              )}.`,
+              `Fedha ya Mchele haitoshi. Fedha ya Mchele iliyopo ni TZS ${money(
+                availableCashForThisExpense
+              )}.`
+            )
+          : t(
+              language,
+              `This cash exceeds the Home Expenses money available after protecting the rice reserve. Available amount is TZS ${money(
+                availableCashForThisExpense
+              )}.`,
+              `Cash hii inazidi fedha zinazopatikana baada ya kulinda fedha ya Mchele. Kiasi kinachopatikana ni TZS ${money(
+                availableCashForThisExpense
+              )}.`
+            )
       );
       return;
     }
@@ -2211,6 +2551,8 @@ return {
 
   let runningOldDebt = 0;
   let runningSavings = 0;
+  let runningRiceReserved = 0;
+  let runningRiceMonthKey = '';
 
   return calculationDateKeys
     .map((dateKey) => {
@@ -2322,6 +2664,64 @@ const moneyReceived =
       gasContribution +
       confirmedAdditionalFunding;
 
+      const riceMonthKey = String(dateKey).slice(0, 7);
+
+      if (riceMonthKey !== runningRiceMonthKey) {
+        runningRiceMonthKey = riceMonthKey;
+        runningRiceReserved = 0;
+      }
+
+      let riceReservedToday = 0;
+
+      if (
+        dateKey >= HOME_EXPENSES_RICE_RESERVE_START_DATE
+      ) {
+        const [riceYear, riceMonth] =
+          riceMonthKey.split('-').map(Number);
+
+        const riceDaysInMonth =
+          riceYear && riceMonth
+            ? new Date(
+                riceYear,
+                riceMonth,
+                0
+              ).getDate()
+            : 30;
+
+        const riceDailyTarget =
+          riceDaysInMonth > 0
+            ? HOME_EXPENSES_RICE_MONTHLY_TARGET /
+              riceDaysInMonth
+            : 0;
+
+        const riceDayOfMonth = Number(
+          String(dateKey).slice(8, 10)
+        );
+
+        const riceTargetThroughDay = Math.min(
+          HOME_EXPENSES_RICE_MONTHLY_TARGET,
+          riceDailyTarget * riceDayOfMonth
+        );
+
+        const riceCatchUpNeeded = Math.max(
+          0,
+          riceTargetThroughDay -
+            runningRiceReserved
+        );
+
+        riceReservedToday = Math.min(
+          Math.max(0, Number(moneyReceived || 0)),
+          riceCatchUpNeeded,
+          Math.max(
+            0,
+            HOME_EXPENSES_RICE_MONTHLY_TARGET -
+              runningRiceReserved
+          )
+        );
+
+        runningRiceReserved += riceReservedToday;
+      }
+
       const productsUsed = allHomeExpenseItems
         .filter(
           (row) =>
@@ -2399,6 +2799,8 @@ const moneyReceived =
           ),
         moneyReceived,
         moneyUsed,
+        riceReservedToday,
+        riceReservedCumulative: runningRiceReserved,
         dailyShortfall,
         remainingOldDebt: runningOldDebt,
         debtReduced,
@@ -3091,6 +3493,38 @@ const moneyReceived =
                         </strong>
                       </div>
 
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="font-bold text-slate-500">
+                          {t(
+                            language,
+                            'Rice fund remaining',
+                            'Mchele — Bado Kukusanya'
+                          )}
+                        </span>
+                        <strong
+                          className={
+                            riceReserveSummary.remainingToCollect > 0
+                              ? 'text-amber-700'
+                              : 'text-emerald-700'
+                          }
+                        >
+                          TZS {money(riceReserveSummary.remainingToCollect)}
+                        </strong>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="font-bold text-slate-500">
+                          {t(
+                            language,
+                            'Set aside for rice today',
+                            'Tenga kwa Mchele Leo'
+                          )}
+                        </span>
+                        <strong className="text-amber-700">
+                          TZS {money(riceReserveSummary.reservedToday)}
+                        </strong>
+                      </div>
+
                       <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3">
                         <div className="text-xs font-black uppercase tracking-wide text-blue-700">
                           {t(
@@ -3108,18 +3542,48 @@ const moneyReceived =
                       <div className="flex items-center justify-between gap-4">
                         <span className="font-bold text-slate-500">
                           {t(
-  language,
-  'Money available in the fund',
-  'Fedha iliyopo kwenye Mfuko'
-)}
+                            language,
+                            'Money available in the fund',
+                            'Fedha iliyopo kwenye Mfuko'
+                          )}
                         </span>
                         <strong className="text-emerald-800">
                           TZS {money(
-  Math.max(
-    0,
-    Number(fundingSummary.balanceRemaining || 0)
-  )
-)}
+                            Math.max(
+                              0,
+                              Number(fundingSummary.balanceRemaining || 0)
+                            )
+                          )}
+                        </strong>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="font-bold text-slate-500">
+                          {t(
+                            language,
+                            'Rice money protected',
+                            'Fedha ya Mchele iliyohifadhiwa'
+                          )}
+                        </span>
+                        <strong className="text-amber-700">
+                          TZS {money(
+                            riceReserveCashSummary.protectedRiceCash
+                          )}
+                        </strong>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="font-bold text-slate-500">
+                          {t(
+                            language,
+                            'Money available for other Home Expenses',
+                            'Fedha inayopatikana kwa matumizi mengine'
+                          )}
+                        </span>
+                        <strong className="text-emerald-800">
+                          TZS {money(
+                            riceReserveCashSummary.normalHomeExpensesAvailable
+                          )}
                         </strong>
                       </div>
                     </div>
@@ -4044,6 +4508,18 @@ na fedha zitakazoingia siku inayofuata.
       </th>
 
       <th className="px-4 py-3 text-right">
+        {t(language, 'Rice today', 'Mchele Leo')}
+      </th>
+
+      <th className="px-4 py-3 text-right">
+        {t(
+          language,
+          'Rice accumulated',
+          'Mchele Imekusanywa'
+        )}
+      </th>
+
+      <th className="px-4 py-3 text-right">
         {t(language, 'Money used', 'Iliyotumika')}
       </th>
 
@@ -4077,6 +4553,14 @@ na fedha zitakazoingia siku inayofuata.
 
 <td className="px-4 py-3 text-right font-bold text-emerald-700">
   TZS {money(row.moneyReceived)}
+</td>
+
+<td className="px-4 py-3 text-right font-black text-amber-700">
+  TZS {money(row.riceReservedToday)}
+</td>
+
+<td className="px-4 py-3 text-right font-black text-amber-800">
+  TZS {money(row.riceReservedCumulative)}
 </td>
 
 <td className="px-4 py-3 text-right font-bold text-orange-700">
@@ -4142,7 +4626,7 @@ na fedha zitakazoingia siku inayofuata.
           {!dailyFundReportRows.length ? (
             <tr>
               <td
-                colSpan="7"
+                colSpan="9"
                 className="px-4 py-8 text-center text-slate-500"
               >
                 {t(

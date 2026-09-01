@@ -274,10 +274,15 @@ async function runSyncQueue() {
   const updatedQueue = [
   ...queue.filter(
     (item) =>
+      item?.actionType === 'purchase_created'
+  ),
+  ...queue.filter(
+    (item) =>
       item?.actionType === 'sale_created'
   ),
   ...queue.filter(
     (item) =>
+      item?.actionType !== 'purchase_created' &&
       item?.actionType !== 'sale_created'
   ),
 ];
@@ -4220,6 +4225,8 @@ const [stockSearch, setStockSearch] = useState('');
 
   const [newProductRows, setNewProductRows] = useState([{ ...emptyProductRow }]);
   const [purchaseRows, setPurchaseRows] = useState([{ ...emptyPurchaseRow }]);
+  const [purchaseSaving, setPurchaseSaving] = useState(false);
+  const purchaseLock = useRef(false);
   const recurringExpenseDefaults = RECURRING_EXPENSES_BY_SHOP[shop.id] || [];
   const recurringAutoSaveRef = useRef('');
   const [expenseRows, setExpenseRows] = useState([{ ...emptyExpenseRow }]);
@@ -6750,17 +6757,6 @@ const prepared = normalizeProduct({
   const removePurchaseRow = (index) => setPurchaseRows((prev) => (prev.length === 1 ? prev : prev.filter((_, i) => i !== index)));
 
 const savePurchaseRows = async () => {
-  if (!navigator.onLine) {
-    alert(
-      t(
-        language,
-        'An internet connection is required to record purchases safely. Nothing has been saved.',
-        'Muunganisho wa intaneti unahitajika ili kuhifadhi manunuzi kwa usalama. Hakuna kilichohifadhiwa.'
-      )
-    );
-    return;
-  }
-
   const roundUpToNearest50 = (value) =>
     Math.ceil(Number(value || 0) / 50) * 50;
 
@@ -6924,6 +6920,161 @@ Thibitisha au weka bei nyingine ya kuuza.`
     );
     return;
   }
+
+  if (purchaseLock.current) return;
+
+  purchaseLock.current = true;
+  setPurchaseSaving(true);
+
+  const purchaseByProductId = new Map(
+    preparedRows.map((row) => [
+      String(row.productId),
+      row,
+    ])
+  );
+
+  const localProductsAfterPurchase = (
+    data.products || []
+  ).map((product) => {
+    const purchaseRow = purchaseByProductId.get(
+      String(product.id)
+    );
+
+    if (!purchaseRow) {
+      return product;
+    }
+
+    const currentStock = Number(
+      product.stockBaseQty ??
+        product.stockQty ??
+        product.stock ??
+        0
+    );
+
+    const newStock =
+      currentStock +
+      Number(purchaseRow.quantity || 0);
+
+    return normalizeProduct({
+      ...product,
+      buyPrice: Number(purchaseRow.unitCost || 0),
+      sellPrice: Number(
+        purchaseRow.sellingPrice ||
+          product.sellPrice ||
+          0
+      ),
+      stockBaseQty: newStock,
+      stockQty: newStock,
+      expiryDate:
+        purchaseRow.expiryDate ||
+        product.expiryDate ||
+        '',
+    });
+  });
+
+  const localPurchaseIds = new Set(
+    preparedRows.map((row) =>
+      String(row.purchaseId)
+    )
+  );
+
+  const localPurchaseRows = preparedRows.map(
+    (row) => ({
+      id: row.purchaseId,
+      shop_id: String(shop.id),
+      productId: row.productId,
+      quantity: Number(row.quantity || 0),
+      price:
+        Number(row.quantity || 0) *
+        Number(row.unitCost || 0),
+      unitCost: Number(row.unitCost || 0),
+      date: row.date || todayISO(),
+      expiryDate: row.expiryDate || '',
+      expirydate: row.expiryDate || '',
+      notes: row.notes || '',
+      confirmed: false,
+      syncStatus: 'pending',
+      created_at: new Date().toISOString(),
+    })
+  );
+
+  preparedRows.forEach((row) => {
+    addToSyncQueue('purchase_created', {
+      id: row.purchaseId,
+      shop_id: String(shop.id),
+      productId: row.productId,
+      quantity: Number(row.quantity || 0),
+      unitCost: Number(row.unitCost || 0),
+      sellingPrice: Number(
+        row.sellingPrice || 0
+      ),
+      date: row.date || todayISO(),
+      expiryDate: row.expiryDate || '',
+      notes: row.notes || '',
+      products: [
+        {
+          id: row.productId,
+          sellingprice: Number(
+            row.sellingPrice || 0
+          ),
+          sellPrice: Number(
+            row.sellingPrice || 0
+          ),
+        },
+      ],
+    });
+  });
+
+  await saveData({
+    ...data,
+    products: localProductsAfterPurchase,
+    purchases: [
+      ...(data.purchases || []).filter(
+        (purchase) =>
+          !localPurchaseIds.has(
+            String(purchase.id)
+          )
+      ),
+      ...localPurchaseRows,
+    ],
+  });
+
+  setPurchaseRows([
+    {
+      ...emptyPurchaseRow,
+      productSearch: '',
+    },
+  ]);
+
+  const purchasePendingMessage = t(
+    language,
+    'Purchases saved locally. Supabase sync is pending. You can continue selling.',
+    'Manunuzi yamehifadhiwa. Yanasubiri kuingia Supabase. Unaweza kuendelea na mauzo.'
+  );
+
+  setSyncMessage(purchasePendingMessage);
+
+  window.setTimeout(() => {
+    setSyncMessage((currentMessage) =>
+      currentMessage === purchasePendingMessage
+        ? ''
+        : currentMessage
+    );
+  }, 10000);
+
+  purchaseLock.current = false;
+  setPurchaseSaving(false);
+
+  if (navigator.onLine) {
+    processSyncQueue().catch((syncError) => {
+      console.error(
+        'Queued purchase sync error:',
+        syncError
+      );
+    });
+  }
+
+  return;
 
   try {
     setSyncMessage(
@@ -7111,6 +7262,9 @@ Thibitisha au weka bei nyingine ya kuuza.`
         }. Fomu haijafutwa.`
       )
     );
+  } finally {
+    purchaseLock.current = false;
+    setPurchaseSaving(false);
   }
 };
 
@@ -9047,8 +9201,14 @@ sendingSupabaseSalesCount > 0 ? (
                   <PlusCircle className="mr-2 h-4 w-4" />
                   {t(language, 'Add Another Purchase', 'Ongeza Manunuzi')}
                 </Button>
-                <Button type="button" onClick={savePurchaseRows}>
-                  {t(language, 'Save Purchases', 'Hifadhi Manunuzi')}
+                <Button
+                  type="button"
+                  onClick={savePurchaseRows}
+                  disabled={purchaseSaving}
+                >
+                  {purchaseSaving
+                    ? t(language, 'Saving...', 'Inahifadhi...')
+                    : t(language, 'Save Purchases', 'Hifadhi Manunuzi')}
                 </Button>
               </div>
             </CardContent>
@@ -9068,6 +9228,14 @@ sendingSupabaseSalesCount > 0 ? (
                   .reverse()
                   .map((p) => {
                     const product = data.products.find((x) => x.id === p.productId);
+
+                    const purchaseSyncItem = (readSyncQueue() || []).find(
+                      (item) =>
+                        item?.actionType === 'purchase_created' &&
+                        item?.synced === false &&
+                        String(item?.payload?.id || '') === String(p.id)
+                    );
+
                     return (
 
 <div key={p.id} className="rounded-2xl bg-slate-50 p-3">
@@ -9083,13 +9251,41 @@ sendingSupabaseSalesCount > 0 ? (
       </div>
     </div>
 
-    <div className="shrink-0 rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">
-      {t(
-        language,
-        'Saved in Supabase',
-        'Imehifadhiwa Supabase'
-      )}
-    </div>
+    {purchaseSyncItem ? (
+      purchaseSyncItem?.status === 'failed' ? (
+        <div className="max-w-sm rounded-xl bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+          {String(purchaseSyncItem?.lastError || '')
+            .toLowerCase()
+            .includes('archived')
+            ? t(
+                language,
+                `${product?.name || 'This product'} - ${formatQty(p.quantity)}: not yet saved in Supabase. Ask the supervisor to make this product Active in this shop. Do not record the purchase again; the system will retry automatically.`,
+                `${product?.name || 'Bidhaa hii'} - ${formatQty(p.quantity)}: bado haijaingia Supabase. Mwambie msimamizi ahakikishe bidhaa hii iko Active kwenye duka hili. Usisajili manunuzi tena; mfumo utajaribu kuituma wenyewe.`
+              )
+            : t(
+                language,
+                `${product?.name || 'This product'} - ${formatQty(p.quantity)}: still waiting for Supabase. Check the internet connection. Do not record the purchase again; the system will retry automatically.`,
+                `${product?.name || 'Bidhaa hii'} - ${formatQty(p.quantity)}: bado inasubiri kuingia Supabase. Hakikisha intaneti ipo. Usisajili manunuzi tena; mfumo utaendelea kujaribu wenyewe.`
+              )}
+        </div>
+      ) : (
+        <div className="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-700">
+          {t(
+            language,
+            'Waiting for Supabase - sales can continue',
+            'Inasubiri Supabase - mauzo yanaweza kuendelea'
+          )}
+        </div>
+      )
+    ) : (
+      <div className="shrink-0 rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">
+        {t(
+          language,
+          'Saved in Supabase',
+          'Imehifadhiwa Supabase'
+        )}
+      </div>
+    )}
   </div>
 </div>
                     );
@@ -12442,9 +12638,29 @@ useEffect(() => {
                 String(item?.payload?.shop_id || '') === String(activeShopId)
             )
             .flatMap((item) =>
-              Array.isArray(item?.payload?.products) ? item.payload.products : []
+              Array.isArray(item?.payload?.items)
+                ? item.payload.items
+                : Array.isArray(item?.payload?.products)
+                  ? item.payload.products
+                  : []
             )
-            .map((p) => String(p?.id || ''))
+            .map((p) =>
+              String(p?.productId || p?.id || '')
+            )
+            .filter(Boolean)
+        );
+
+        const pendingPurchaseProductIds = new Set(
+          (readSyncQueue() || [])
+            .filter(
+              (item) =>
+                item?.actionType === 'purchase_created' &&
+                item?.synced === false &&
+                String(item?.payload?.shop_id || '') === String(activeShopId)
+            )
+            .map((item) =>
+              String(item?.payload?.productId || '')
+            )
             .filter(Boolean)
         );
 
@@ -12472,6 +12688,16 @@ useEffect(() => {
           });
 
           const localProduct = existingProductById.get(String(cloudProduct.id));
+
+          if (
+            pendingPurchaseProductIds.has(String(cloudProduct.id)) &&
+            localProduct
+          ) {
+            return normalizeProduct({
+              ...localProduct,
+              confirmed: false,
+            });
+          }
 
           if (pendingSaleProductIds.has(String(cloudProduct.id)) && localProduct) {
             return normalizeProduct({
@@ -13388,7 +13614,18 @@ const mergedRentSmsAttempts = mergeRowsById(
           ...loadedData,
           currentUser: sessionUser,
           users: loadedData.users?.length ? loadedData.users : prev.users,
-          products: (loadedData.products?.length ? loadedData.products : prev.products || []).map((p) => {
+          products: (
+            (readSyncQueue() || []).some(
+              (item) =>
+                item?.synced === false &&
+                (item?.actionType === 'purchase_created' ||
+                  item?.actionType === 'sale_created')
+            )
+              ? prev.products || []
+              : loadedData.products?.length
+                ? loadedData.products
+                : prev.products || []
+          ).map((p) => {
             const existing = (prev.products || []).find((x) => String(x.id) === String(p.id));
 
             return existing?.archived
