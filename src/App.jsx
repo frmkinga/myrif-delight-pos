@@ -6190,7 +6190,7 @@ console.log('SALE DATE TEST', {
   localDateFromCreatedAt: todayISO(new Date(saleRecord.created_at)),
 });
 
-  saveData({
+  await saveData({
     ...data,
     products: nextProducts,
     sales: [...data.sales, saleRecord],
@@ -11850,10 +11850,24 @@ if (salesMode === 'year') {
     const productRefreshIntervalMs =
       20 * 60 * 1000;
 
+    const hasPendingStockMovement = readSyncQueue().some(
+      (item) =>
+        item?.synced === false &&
+        ['sale_created', 'purchase_created'].includes(
+          item?.actionType
+        ) &&
+        (
+          isOwnerUser ||
+          String(item?.payload?.shop_id || '').trim() ===
+            String(shopId || '').trim()
+        )
+    );
+
     const shouldRefreshProducts =
+      !hasPendingStockMovement &&
       Date.now() -
         lastAutomaticProductRefreshRef.current >=
-      productRefreshIntervalMs;
+        productRefreshIntervalMs;
 
     let cloudProducts = [];
 
