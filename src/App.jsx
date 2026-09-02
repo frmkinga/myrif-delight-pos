@@ -12064,7 +12064,12 @@ if (salesMode === 'year') {
     try {
       setIsOnline(true);
       setSyncMessage(message);
-const currentShopId = String(activeShopId || '').trim();
+const currentShopId = String(
+  activeShopId ||
+    data.currentUser?.shop_id ||
+    data.currentUser?.shopId ||
+    ''
+).trim();
 
 if (
   currentShopId &&
