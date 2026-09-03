@@ -12914,6 +12914,12 @@ useEffect(() => {
 
           return nextData;
         });
+
+        if (eventType !== 'DELETE') {
+          setSyncMessage(
+            'Mauzo yamethibitishwa Supabase.'
+          );
+        }
       }
     )
     .subscribe();
