@@ -5363,8 +5363,12 @@ const [stockSearch, setStockSearch] = useState('');
 
           if (
             confirmed &&
-            existingJournalRecord.status !==
-              'confirmed'
+            (
+              existingJournalRecord.status !==
+                'confirmed' ||
+              existingJournalRecord.integrityStatus !==
+                'ok'
+            )
           ) {
             await writeSalesJournalRecord({
               ...existingJournalRecord,
@@ -6080,13 +6084,25 @@ const pendingQueueBySaleId = new Map(
   ])
 );
 
-const failedSupabaseSales = pendingSupabaseSales.filter((sale) => {
-  const queueItem = pendingQueueBySaleId.get(
-    String(sale?.id || '').trim()
-  );
+const failedSupabaseSales =
+  salesJournalRecords.filter((sale) => {
+    const saleId = String(
+      sale?.id || ''
+    ).trim();
 
-  return !queueItem || queueItem?.status === 'failed';
-});
+    const queueItem =
+      pendingQueueBySaleId.get(saleId);
+
+    return (
+      queueItem?.status === 'failed' &&
+      String(
+        sale?.shop_id || ''
+      ) === String(shop.id) &&
+      String(
+        sale?.date || ''
+      ).slice(0, 10) === todayIso
+    );
+  });
 
 const sendingSupabaseSales = pendingSupabaseSales.filter((sale) => {
   const queueItem = pendingQueueBySaleId.get(
@@ -6111,6 +6127,34 @@ const failedSupabaseSalesAmount = failedSupabaseSales.reduce(
     total + Math.max(0, Number(sale?.total || 0)),
   0
 );
+
+const firstFailedSale =
+  failedSupabaseSales[0] || null;
+
+const firstFailedQueueItem =
+  firstFailedSale
+    ? pendingQueueBySaleId.get(
+        String(
+          firstFailedSale?.id || ''
+        ).trim()
+      )
+    : null;
+
+const firstFailedSaleError = String(
+  firstFailedQueueItem?.lastError || ''
+).trim();
+
+const insufficientStockMatch =
+  firstFailedSaleError.match(
+    /Insufficient stock for (.+?)\. Available ([\d.]+), requested ([\d.]+)\./i
+  );
+
+const failedSaleInstruction =
+  insufficientStockMatch
+    ? `Tatizo: stock ya ${insufficientStockMatch[1]} kwenye Supabase ni ${insufficientStockMatch[2]}, lakini mauzo yanahitaji ${insufficientStockMatch[3]}. Rekebisha stock kwa kuingiza manunuzi/stoki sahihi, kisha mfumo utajaribu tena. Usirudie mauzo haya.`
+    : firstFailedSaleError
+      ? `Sababu ya Supabase: ${firstFailedSaleError} Fungua Hali ya Mauzo → Ukaguzi wa Uadilifu kwa maelezo na Jaribu Tena baada ya kurekebisha tatizo. Usirudie mauzo haya.`
+      : 'Fungua Hali ya Mauzo → Ukaguzi wa Uadilifu kuona tatizo la muamala huu. Usirudie mauzo haya.';
 
 const sendingSupabaseSalesCount = sendingSupabaseSales.length;
 
@@ -10143,10 +10187,18 @@ failedSupabaseSalesCount > 0 ? (
       ya TZS {currency(failedSupabaseSalesAmount)} kwenye Supabase.
     </div>
 
-    <div className="mt-1 text-sm font-semibold">
-      Mauzo haya yamehifadhiwa kwenye duka hili na hayajapotea. Mfumo
-      utaendelea kujaribu kuyathibitisha. Yanaweza bado yasionekane kwenye
-      Dashibodi ya Mmiliki. Usiyarudie mauzo haya.
+    <div className="mt-1 text-sm font-bold">
+      Sale ID:{' '}
+      {failedSupabaseSales
+        .map((sale) =>
+          String(sale?.id || '').trim()
+        )
+        .filter(Boolean)
+        .join(', ')}
+    </div>
+
+    <div className="mt-2 rounded-xl bg-white/70 px-3 py-2 text-sm font-semibold">
+      {failedSaleInstruction}
     </div>
   </div>
 ) : null}
@@ -11547,7 +11599,42 @@ sendingSupabaseSalesCount > 0 ? (
                                             'Missing',
                                             'Haipo'
                                           );
+                                  const stockProblemMatch =
+                                    String(
+                                      row?.lastSyncError ||
+                                        ''
+                                    ).match(
+                                      /Insufficient stock for (.+?)\. Available ([\d.]+), requested ([\d.]+)\./i
+                                    );
 
+                                  const problemInstruction =
+                                    isFailed &&
+                                    stockProblemMatch
+                                      ? t(
+                                          language,
+                                          `Cause: insufficient stock for ${stockProblemMatch[1]}. Supabase has ${stockProblemMatch[2]}, but this sale requires ${stockProblemMatch[3]}. Correct or add stock for this product, then press Retry. Do not sell this transaction again.`,
+                                          `Sababu: stock ya ${stockProblemMatch[1]} haitoshi. Supabase ina ${stockProblemMatch[2]}, lakini muamala huu unahitaji ${stockProblemMatch[3]}. Ingiza au rekebisha stock ya bidhaa hii, kisha bonyeza Jaribu Tena. Usirudie kuuza muamala huu.`
+                                        )
+                                      : isFailed &&
+                                          row?.lastSyncError
+                                        ? t(
+                                            language,
+                                            `Cause: ${row.lastSyncError} Correct the stated problem, then press Retry. Do not sell this transaction again.`,
+                                            `Sababu: ${row.lastSyncError} Rekebisha tatizo lililoelezwa, kisha bonyeza Jaribu Tena. Usirudie kuuza muamala huu.`
+                                          )
+                                        : isMismatch
+                                          ? t(
+                                              language,
+                                              'The Journal copy does not exactly match another copy of this Sale ID. Do not resell it. Review this transaction before taking further action.',
+                                              'Muamala huu kwenye Journal haulingani kikamilifu na nakala nyingine yenye Sale ID hii. Usirudie kuuza. Kagua muamala huu kabla ya kuchukua hatua nyingine.'
+                                            )
+                                          : needsRecovery
+                                            ? t(
+                                                language,
+                                                'This sale is safe in the Journal but is missing from the synchronization path. Do not resell it. Use Retry to recover the original transaction.',
+                                                'Mauzo haya yako salama kwenye Journal lakini hayapo kwenye njia ya kusawazisha. Usirudie kuuza. Tumia Jaribu Tena kurejesha muamala huu wa asili.'
+                                              )
+                                            : '';
                                   const resultText =
                                     isConfirmed
                                       ? t(
@@ -11673,8 +11760,13 @@ sendingSupabaseSalesCount > 0 ? (
                                           {resultText}
                                         </span>
 
-                                        {isFailed &&
-                                        isFirstRowForSale ? (
+                                        {problemInstruction ? (
+                                          <div className="mt-2 max-w-md rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold leading-relaxed text-red-800">
+                                            {problemInstruction}
+                                          </div>
+                                        ) : null}
+
+                                        {isFailed ? (
                                           <div className="mt-2 max-w-sm text-xs text-red-700">
                                             <div>
                                               {t(
