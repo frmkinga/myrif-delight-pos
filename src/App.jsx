@@ -249,6 +249,82 @@ function clearSyncedQueueItems() {
   writeSyncQueue(remaining);
 }
 
+function wakeFailedSaleRetriesForProducts(
+  productIds = [],
+  shopId = ''
+) {
+  const cleanShopId = String(
+    shopId || ''
+  ).trim();
+
+  const targetProductIds = new Set(
+    (Array.isArray(productIds)
+      ? productIds
+      : []
+    )
+      .map((productId) =>
+        String(productId || '').trim()
+      )
+      .filter(Boolean)
+  );
+
+  if (
+    !cleanShopId ||
+    targetProductIds.size === 0
+  ) {
+    return false;
+  }
+
+  const queue = readSyncQueue();
+
+  let changed = false;
+
+  const nextQueue = queue.map((item) => {
+    if (
+      item?.actionType !== 'sale_created' ||
+      item?.synced !== false ||
+      item?.status !== 'failed' ||
+      String(
+        item?.payload?.shop_id || ''
+      ).trim() !== cleanShopId
+    ) {
+      return item;
+    }
+
+    const saleItems = Array.isArray(
+      item?.payload?.items
+    )
+      ? item.payload.items
+      : [];
+
+    const containsCorrectedProduct =
+      saleItems.some((saleItem) =>
+        targetProductIds.has(
+          String(
+            saleItem?.productId || ''
+          ).trim()
+        )
+      );
+
+    if (!containsCorrectedProduct) {
+      return item;
+    }
+
+    changed = true;
+
+    return {
+      ...item,
+      lastAttemptAt: 0,
+    };
+  });
+
+  if (changed) {
+    writeSyncQueue(nextQueue);
+  }
+
+  return changed;
+}
+
 let activeSyncQueuePromise = null;
 
 async function processSyncQueue() {
@@ -368,6 +444,47 @@ try {
         ) {
           throw new Error(
             'Supabase did not confirm the correct sale ID.'
+          );
+        }
+
+        try {
+          const journalRecord =
+            await readSalesJournalRecord(
+              salePayload.id
+            );
+
+          if (journalRecord) {
+            const confirmedAt =
+              new Date().toISOString();
+
+            await writeSalesJournalRecord({
+              ...journalRecord,
+              status: 'confirmed',
+              integrityStatus: 'ok',
+              confirmedAt,
+              updatedAt: confirmedAt,
+            });
+
+            window.dispatchEvent(
+              new CustomEvent(
+                'sales-journal-updated',
+                {
+                  detail: {
+                    saleId: String(
+                      salePayload.id || ''
+                    ),
+                    shopId: String(
+                      salePayload.shop_id || ''
+                    ),
+                  },
+                }
+              )
+            );
+          }
+        } catch (journalUpdateError) {
+          console.error(
+            'Supabase confirmed sale but Journal status update failed:',
+            journalUpdateError
           );
         }
 
@@ -843,6 +960,187 @@ async function readFromDB(key) {
   });
 }
 const cn = (...classes) => classes.filter(Boolean).join(' ');
+const SALES_JOURNAL_DB_NAME =
+  'rafikiai_sales_journal_db';
+const SALES_JOURNAL_DB_VERSION = 1;
+const SALES_JOURNAL_STORE = 'sales_journal';
+
+function openSalesJournalDatabase() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(
+      SALES_JOURNAL_DB_NAME,
+      SALES_JOURNAL_DB_VERSION
+    );
+
+    request.onupgradeneeded = (event) => {
+      const db = event.target.result;
+
+      if (
+        !db.objectStoreNames.contains(
+          SALES_JOURNAL_STORE
+        )
+      ) {
+        db.createObjectStore(
+          SALES_JOURNAL_STORE,
+          {
+            keyPath: 'id',
+          }
+        );
+      }
+    };
+
+    request.onsuccess = () =>
+      resolve(request.result);
+
+    request.onerror = () =>
+      reject(request.error);
+  });
+}
+
+async function writeSalesJournalRecord(record) {
+  const saleId = String(
+    record?.id || ''
+  ).trim();
+
+  if (!saleId) {
+    throw new Error(
+      'Sales journal record requires a sale ID.'
+    );
+  }
+
+  const db =
+    await openSalesJournalDatabase();
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(
+      SALES_JOURNAL_STORE,
+      'readwrite'
+    );
+
+    const store = transaction.objectStore(
+      SALES_JOURNAL_STORE
+    );
+
+    store.put({
+      ...record,
+      id: saleId,
+    });
+
+    transaction.oncomplete = () => {
+      db.close();
+      resolve(true);
+    };
+
+    transaction.onerror = () => {
+      const error =
+        transaction.error ||
+        new Error(
+          'Sales journal write failed.'
+        );
+
+      db.close();
+      reject(error);
+    };
+
+    transaction.onabort = () => {
+      const error =
+        transaction.error ||
+        new Error(
+          'Sales journal write was aborted.'
+        );
+
+      db.close();
+      reject(error);
+    };
+  });
+}
+
+async function readSalesJournalRecords() {
+  const db =
+    await openSalesJournalDatabase();
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(
+      SALES_JOURNAL_STORE,
+      'readonly'
+    );
+
+    const store = transaction.objectStore(
+      SALES_JOURNAL_STORE
+    );
+
+    const request = store.getAll();
+
+    request.onsuccess = () => {
+      const records = Array.isArray(
+        request.result
+      )
+        ? request.result
+        : [];
+
+      db.close();
+      resolve(records);
+    };
+
+    request.onerror = () => {
+      const error =
+        request.error ||
+        new Error(
+          'Sales journal read failed.'
+        );
+
+      db.close();
+      reject(error);
+    };
+  });
+}
+
+async function readSalesJournalRecord(
+  saleId
+) {
+  const cleanSaleId = String(
+    saleId || ''
+  ).trim();
+
+  if (!cleanSaleId) {
+    return null;
+  }
+
+  const db =
+    await openSalesJournalDatabase();
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(
+      SALES_JOURNAL_STORE,
+      'readonly'
+    );
+
+    const store = transaction.objectStore(
+      SALES_JOURNAL_STORE
+    );
+
+    const request = store.get(cleanSaleId);
+
+    request.onsuccess = () => {
+      const record =
+        request.result || null;
+
+      db.close();
+      resolve(record);
+    };
+
+    request.onerror = () => {
+      const error =
+        request.error ||
+        new Error(
+          'Sales journal record read failed.'
+        );
+
+      db.close();
+      reject(error);
+    };
+  });
+}
 
 const parseMoneyInput = (value) => {
   if (value === null || value === undefined || value === '') return 0;
@@ -4173,6 +4471,967 @@ const [stockSearch, setStockSearch] = useState('');
   const [confirmDeleteCartDraft, setConfirmDeleteCartDraft] = useState(false);
   const [cartDraftChecked, setCartDraftChecked] = useState(false);
 
+  const [salesJournalRecords, setSalesJournalRecords] = useState([]);
+  const [salesJournalLoading, setSalesJournalLoading] = useState(true);
+  const [salesJournalError, setSalesJournalError] = useState('');
+  const [salesJournalOpen, setSalesJournalOpen] = useState(false);
+  const [salesJournalSection, setSalesJournalSection] = useState('summary');
+
+  const [salesIntegrityRows, setSalesIntegrityRows] = useState([]);
+  const [salesIntegrityLoading, setSalesIntegrityLoading] = useState(false);
+  const [salesIntegrityError, setSalesIntegrityError] = useState('');
+  const [salesRetryingSaleId, setSalesRetryingSaleId] = useState('');
+
+  useEffect(() => {
+    const handleSalesJournalUpdated =
+      async (event) => {
+        const saleId = String(
+          event?.detail?.saleId || ''
+        ).trim();
+
+        const eventShopId = String(
+          event?.detail?.shopId || ''
+        ).trim();
+
+        if (
+          !saleId ||
+          eventShopId !==
+            String(shop.id || '').trim()
+        ) {
+          return;
+        }
+
+        try {
+          const updatedRecord =
+            await readSalesJournalRecord(
+              saleId
+            );
+
+          if (!updatedRecord) {
+            return;
+          }
+
+          setSalesJournalRecords((prev) => {
+            const existingIndex =
+              prev.findIndex(
+                (record) =>
+                  String(
+                    record?.id || ''
+                  ) === saleId
+              );
+
+            if (existingIndex < 0) {
+              return [
+                ...prev,
+                updatedRecord,
+              ].sort(
+                (a, b) =>
+                  new Date(
+                    a?.created_at || 0
+                  ) -
+                  new Date(
+                    b?.created_at || 0
+                  )
+              );
+            }
+
+            return prev.map((record) =>
+              String(record?.id || '') ===
+              saleId
+                ? updatedRecord
+                : record
+            );
+          });
+        } catch (error) {
+          console.error(
+            'Failed to refresh Sales Journal after confirmation:',
+            error
+          );
+        }
+      };
+
+    window.addEventListener(
+      'sales-journal-updated',
+      handleSalesJournalUpdated
+    );
+
+    return () => {
+      window.removeEventListener(
+        'sales-journal-updated',
+        handleSalesJournalUpdated
+      );
+    };
+  }, [shop.id]);
+
+  useEffect(() => {
+    if (!salesJournalOpen) return;
+
+    let cancelled = false;
+
+    const runSalesIntegrityCheck = async () => {
+      setSalesIntegrityLoading(true);
+      setSalesIntegrityError('');
+
+      try {
+        const currentShopId = String(
+          shop.id || ''
+        ).trim();
+
+        const currentDate = todayIso;
+
+        const currentQueue = readSyncQueue();
+
+        const pendingSaleQueueById = new Map(
+          currentQueue
+            .filter(
+              (item) =>
+                item?.actionType ===
+                  'sale_created' &&
+                item?.synced === false &&
+                String(
+                  item?.payload?.shop_id ||
+                    ''
+                ).trim() ===
+                  currentShopId
+            )
+            .map((item) => [
+              String(
+                item?.payload?.id || ''
+              ).trim(),
+              item,
+            ])
+        );
+
+        const {
+          data: confirmedSales,
+          error: confirmedSalesError,
+        } = await supabase
+          .from('sales')
+          .select('*')
+          .eq(
+            'shop_id',
+            currentShopId
+          )
+          .eq(
+            'date',
+            currentDate
+          );
+
+        if (confirmedSalesError) {
+          throw confirmedSalesError;
+        }
+
+        const confirmedSalesById = new Map(
+          (
+            Array.isArray(confirmedSales)
+              ? confirmedSales
+              : []
+          ).map((sale) => [
+            String(
+              sale?.id || ''
+            ).trim(),
+            sale,
+          ])
+        );
+
+        const normalizeIntegrityItems = (
+          items = []
+        ) =>
+          (Array.isArray(items)
+            ? items
+            : []
+          )
+            .map((item) => ({
+              productId: String(
+                item?.productId || ''
+              ),
+              name: String(
+                item?.name || ''
+              ),
+              unit: String(
+                item?.unit || ''
+              ),
+              quantity: Number(
+                item?.quantity || 0
+              ),
+              price: Number(
+                item?.price ??
+                  item?.sellPrice ??
+                  0
+              ),
+              buyPrice: Number(
+                item?.buyPrice || 0
+              ),
+              sellPrice: Number(
+                item?.sellPrice ??
+                  item?.price ??
+                  0
+              ),
+              total: Number(
+                item?.total || 0
+              ),
+            }))
+            .sort((a, b) =>
+              `${a.productId}-${a.name}`.localeCompare(
+                `${b.productId}-${b.name}`
+              )
+            );
+
+        const normalizeIntegritySale = (
+          sale
+        ) => ({
+          id: String(
+            sale?.id || ''
+          ).trim(),
+          shop_id: String(
+            sale?.shop_id ||
+              sale?.shopId ||
+              ''
+          ).trim(),
+          date: String(
+            sale?.date || ''
+          ),
+          type:
+            sale?.type || 'cash',
+          total: Number(
+            sale?.total || 0
+          ),
+          items:
+            normalizeIntegrityItems(
+              sale?.items
+            ),
+        });
+
+        const integrityRows = [];
+
+        for (const journalRecord of salesJournalRecords) {
+          const saleId = String(
+            journalRecord?.id || ''
+          ).trim();
+
+          if (!saleId) continue;
+
+          const queueItem =
+            pendingSaleQueueById.get(
+              saleId
+            );
+
+          const supabaseSale =
+            confirmedSalesById.get(
+              saleId
+            );
+
+          const journalComparable =
+            normalizeIntegritySale(
+              journalRecord
+            );
+
+          const queueComparable =
+            queueItem
+              ? normalizeIntegritySale(
+                  queueItem?.payload ||
+                    {}
+                )
+              : null;
+
+          const supabaseComparable =
+            supabaseSale
+              ? normalizeIntegritySale(
+                  supabaseSale
+                )
+              : null;
+
+          const queueMatchesJournal =
+            queueComparable
+              ? JSON.stringify(
+                  queueComparable
+                ) ===
+                JSON.stringify(
+                  journalComparable
+                )
+              : false;
+
+          const supabaseMatchesJournal =
+            supabaseComparable
+              ? JSON.stringify(
+                  supabaseComparable
+                ) ===
+                JSON.stringify(
+                  journalComparable
+                )
+              : false;
+
+          let integrityResult =
+            'needs_recovery';
+
+          if (
+            journalRecord?.integrityStatus ===
+              'mismatch' ||
+            (
+              queueItem &&
+              !queueMatchesJournal
+            ) ||
+            (
+              supabaseSale &&
+              !supabaseMatchesJournal
+            )
+          ) {
+            integrityResult =
+              'mismatch';
+          } else if (
+            supabaseSale &&
+            supabaseMatchesJournal
+          ) {
+            integrityResult =
+              'confirmed';
+          } else if (
+            queueItem &&
+            queueMatchesJournal &&
+            queueItem?.status === 'failed'
+          ) {
+            integrityResult =
+              'failed';
+          } else if (
+            queueItem &&
+            queueMatchesJournal
+          ) {
+            integrityResult =
+              'waiting';
+          }
+
+          const journalItems =
+            Array.isArray(
+              journalRecord?.items
+            )
+              ? journalRecord.items
+              : [];
+
+          if (
+            journalItems.length === 0
+          ) {
+            integrityRows.push({
+              saleId,
+              productId: '',
+              productName:
+                'Unknown product',
+              journalStatus:
+                'present',
+              queueStatus:
+                queueItem
+                  ? queueMatchesJournal
+                    ? 'present'
+                    : 'mismatch'
+                  : 'missing',
+              supabaseStatus:
+                supabaseSale
+                  ? supabaseMatchesJournal
+                    ? 'present'
+                    : 'mismatch'
+                  : 'missing',
+              result:
+                integrityResult,
+              retryAttempts: Number(
+                queueItem?.attempts || 0
+              ),
+              lastSyncError:
+                queueItem?.lastError || '',
+            });
+
+            continue;
+          }
+
+          const lastSyncError = String(
+            queueItem?.lastError || ''
+          ).trim();
+
+          const normalizedSyncError =
+            lastSyncError.toLowerCase();
+
+          const failedProductIndex =
+            integrityResult === 'failed'
+              ? journalItems.findIndex(
+                  (item) => {
+                    const productName =
+                      String(
+                        item?.name || ''
+                      )
+                        .trim()
+                        .toLowerCase();
+
+                    return (
+                      productName &&
+                      normalizedSyncError.includes(
+                        productName
+                      )
+                    );
+                  }
+                )
+              : -1;
+
+          const blockingProductName =
+            failedProductIndex >= 0
+              ? String(
+                  journalItems[
+                    failedProductIndex
+                  ]?.name || ''
+                ).trim()
+              : '';
+
+          journalItems.forEach(
+            (item, itemIndex) => {
+              let rowResult =
+                integrityResult;
+
+              if (
+                integrityResult ===
+                  'failed' &&
+                failedProductIndex >= 0
+              ) {
+                rowResult =
+                  itemIndex ===
+                  failedProductIndex
+                    ? 'failed'
+                    : 'blocked_by_other_product';
+              }
+
+              integrityRows.push({
+                saleId,
+                productId: String(
+                  item?.productId ||
+                    ''
+                ),
+                productName:
+                  item?.name ||
+                  item?.productId ||
+                  `Product ${
+                    itemIndex + 1
+                  }`,
+                quantity: Number(
+                  item?.quantity || 0
+                ),
+                unit:
+                  item?.unit || '',
+                total: Number(
+                  item?.total || 0
+                ),
+                journalStatus:
+                  'present',
+                queueStatus:
+                  queueItem
+                    ? queueMatchesJournal
+                      ? 'present'
+                      : 'mismatch'
+                    : 'missing',
+                supabaseStatus:
+                  supabaseSale
+                    ? supabaseMatchesJournal
+                      ? 'present'
+                      : 'mismatch'
+                    : 'missing',
+                result:
+                  rowResult,
+                transactionResult:
+                  integrityResult,
+                blockingProductName,
+                retryAttempts: Number(
+                  queueItem?.attempts || 0
+                ),
+                lastSyncError,
+              });
+            }
+          );
+        }
+
+        if (cancelled) return;
+
+        setSalesIntegrityRows(
+          integrityRows
+        );
+      } catch (error) {
+        console.error(
+          'Sales integrity check failed:',
+          error
+        );
+
+        if (!cancelled) {
+          setSalesIntegrityError(
+            error?.message ||
+              'Sales integrity check failed.'
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setSalesIntegrityLoading(
+            false
+          );
+        }
+      }
+    };
+
+    runSalesIntegrityCheck();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    salesJournalOpen,
+    shop.id,
+    todayIso,
+    salesJournalRecords,
+  ]);
+
+  const retryJournalSale = async (saleId) => {
+    const cleanSaleId = String(
+      saleId || ''
+    ).trim();
+
+    if (
+      !cleanSaleId ||
+      salesRetryingSaleId
+    ) {
+      return;
+    }
+
+    if (!navigator.onLine) {
+      setSyncMessage(
+        'Hakuna internet. Mauzo bado yako salama kwenye Journal.'
+      );
+      return;
+    }
+
+    setSalesRetryingSaleId(cleanSaleId);
+
+    try {
+      const journalRecord =
+        await readSalesJournalRecord(
+          cleanSaleId
+        );
+
+      if (!journalRecord) {
+        throw new Error(
+          'Sales Journal record was not found.'
+        );
+      }
+
+      if (
+        String(
+          journalRecord?.shop_id || ''
+        ).trim() !==
+        String(shop.id || '').trim()
+      ) {
+        throw new Error(
+          'Sales Journal record belongs to a different shop.'
+        );
+      }
+
+      const {
+        data: retryResult,
+        error: retryError,
+      } = await supabase.rpc(
+        'record_pos_sale',
+        {
+          p_sale_id: cleanSaleId,
+          p_shop_id: String(
+            journalRecord.shop_id || ''
+          ),
+          p_items: Array.isArray(
+            journalRecord.items
+          )
+            ? journalRecord.items
+            : [],
+          p_total: Number(
+            journalRecord.total || 0
+          ),
+          p_type:
+            journalRecord.type || 'cash',
+          p_sale_date:
+            journalRecord.date ||
+            todayISO(),
+          p_created_at:
+            journalRecord.created_at ||
+            new Date().toISOString(),
+        }
+      );
+
+      if (retryError) {
+        throw retryError;
+      }
+
+      if (
+        !retryResult ||
+        String(
+          retryResult.saleId || ''
+        ) !== cleanSaleId
+      ) {
+        throw new Error(
+          'Supabase did not confirm the correct sale ID.'
+        );
+      }
+
+      const confirmedAt =
+        new Date().toISOString();
+
+      const confirmedJournalRecord = {
+        ...journalRecord,
+        status: 'confirmed',
+        integrityStatus: 'ok',
+        confirmedAt,
+        updatedAt: confirmedAt,
+      };
+
+      await writeSalesJournalRecord(
+        confirmedJournalRecord
+      );
+
+      setSalesJournalRecords((prev) =>
+        prev.map((record) =>
+          String(record?.id || '') ===
+          cleanSaleId
+            ? confirmedJournalRecord
+            : record
+        )
+      );
+
+      setSyncMessage(
+        'Mauzo yamethibitishwa Supabase.'
+      );
+    } catch (error) {
+      console.error(
+        'Manual Journal sale retry failed:',
+        error
+      );
+
+      setSyncMessage(
+        `Jaribio la kuthibitisha mauzo limeshindikana: ${
+          error?.message ||
+          'Sababu haijajulikana.'
+        }`
+      );
+    } finally {
+      setSalesRetryingSaleId('');
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const bootstrapTodaySalesJournal = async () => {
+      setSalesJournalLoading(true);
+      setSalesJournalError('');
+
+      try {
+        const currentShopId = String(shop.id || '').trim();
+        const currentDate = todayIso;
+
+        const existingJournalRecords =
+          await readSalesJournalRecords();
+
+        const existingJournalById = new Map(
+          existingJournalRecords.map((record) => [
+            String(record?.id || '').trim(),
+            record,
+          ])
+        );
+
+        const candidateSalesById = new Map();
+
+        const addCandidateSale = (sale) => {
+          const saleId = String(
+            sale?.id || ''
+          ).trim();
+
+          if (!saleId) return;
+
+          const saleShopId = String(
+            sale?.shop_id ||
+              sale?.shopId ||
+              ''
+          ).trim();
+
+          const saleDate = String(
+            sale?.date ||
+              (sale?.created_at
+                ? String(
+                    sale.created_at
+                  ).slice(0, 10)
+                : '')
+          ).trim();
+
+          if (
+            saleShopId !== currentShopId ||
+            saleDate !== currentDate
+          ) {
+            return;
+          }
+
+          candidateSalesById.set(
+            saleId,
+            {
+              ...(candidateSalesById.get(
+                saleId
+              ) || {}),
+              ...sale,
+              id: saleId,
+              shop_id: currentShopId,
+            }
+          );
+        };
+
+        (Array.isArray(data.sales)
+          ? data.sales
+          : []
+        ).forEach(addCandidateSale);
+
+        readSyncQueue()
+          .filter(
+            (item) =>
+              item?.actionType ===
+                'sale_created' &&
+              item?.synced === false
+          )
+          .forEach((item) => {
+            addCandidateSale(
+              item?.payload || {}
+            );
+          });
+
+        const {
+          data: confirmedTodaySales,
+          error: confirmedTodaySalesError,
+        } = await supabase
+          .from('sales')
+          .select('*')
+          .eq('shop_id', currentShopId)
+          .eq('date', currentDate)
+          .order('created_at', {
+            ascending: true,
+          });
+
+        if (confirmedTodaySalesError) {
+          throw confirmedTodaySalesError;
+        }
+
+        const confirmedSaleIds = new Set();
+
+        (
+          Array.isArray(confirmedTodaySales)
+            ? confirmedTodaySales
+            : []
+        ).forEach((sale) => {
+          const saleId = String(
+            sale?.id || ''
+          ).trim();
+
+          if (saleId) {
+            confirmedSaleIds.add(saleId);
+          }
+
+          addCandidateSale({
+            ...sale,
+            confirmed: true,
+          });
+        });
+
+        const normalizeJournalItems = (
+          items = []
+        ) =>
+          (Array.isArray(items)
+            ? items
+            : []
+          ).map((item) => ({
+            productId: String(
+              item?.productId || ''
+            ),
+            name: String(
+              item?.name || ''
+            ),
+            unit: String(
+              item?.unit || ''
+            ),
+            quantity: Number(
+              item?.quantity || 0
+            ),
+            price: Number(
+              item?.price ??
+                item?.sellPrice ??
+                0
+            ),
+            buyPrice: Number(
+              item?.buyPrice || 0
+            ),
+            sellPrice: Number(
+              item?.sellPrice ??
+                item?.price ??
+                0
+            ),
+            total: Number(
+              item?.total || 0
+            ),
+          }));
+
+        const immutableSaleCopy = (
+          sale
+        ) => ({
+          id: String(
+            sale?.id || ''
+          ).trim(),
+          shop_id: String(
+            sale?.shop_id ||
+              sale?.shopId ||
+              ''
+          ).trim(),
+          items: normalizeJournalItems(
+            sale?.items
+          ),
+          total: Number(
+            sale?.total || 0
+          ),
+          type:
+            sale?.type || 'cash',
+          date: String(
+            sale?.date || ''
+          ),
+          created_at:
+            sale?.created_at || '',
+        });
+
+        for (const sale of candidateSalesById.values()) {
+          const saleId = String(
+            sale?.id || ''
+          ).trim();
+
+          if (!saleId) continue;
+
+          const confirmed =
+            confirmedSaleIds.has(
+              saleId
+            ) ||
+            sale?.confirmed === true;
+
+          const existingJournalRecord =
+            existingJournalById.get(
+              saleId
+            );
+
+          if (!existingJournalRecord) {
+            await writeSalesJournalRecord({
+              ...immutableSaleCopy(sale),
+              status: confirmed
+                ? 'confirmed'
+                : 'pending',
+              integrityStatus: 'ok',
+              source: 'today_bootstrap',
+              journalCreatedAt:
+                new Date().toISOString(),
+              supabaseConfirmedAt:
+                confirmed
+                  ? new Date().toISOString()
+                  : null,
+              lastSyncAttempt: null,
+              lastSyncError: '',
+            });
+
+            continue;
+          }
+
+          const existingImmutable =
+            immutableSaleCopy(
+              existingJournalRecord
+            );
+
+          const incomingImmutable =
+            immutableSaleCopy(sale);
+
+          if (
+            JSON.stringify(
+              existingImmutable
+            ) !==
+            JSON.stringify(
+              incomingImmutable
+            )
+          ) {
+            await writeSalesJournalRecord({
+              ...existingJournalRecord,
+              integrityStatus:
+                'mismatch',
+              lastIntegrityError:
+                'Journal sale does not exactly match another copy with the same Sale ID.',
+            });
+
+            continue;
+          }
+
+          if (
+            confirmed &&
+            existingJournalRecord.status !==
+              'confirmed'
+          ) {
+            await writeSalesJournalRecord({
+              ...existingJournalRecord,
+              status: 'confirmed',
+              integrityStatus: 'ok',
+              supabaseConfirmedAt:
+                existingJournalRecord
+                  .supabaseConfirmedAt ||
+                new Date().toISOString(),
+            });
+          }
+        }
+
+        const refreshedJournalRecords =
+          await readSalesJournalRecords();
+
+        if (cancelled) return;
+
+        setSalesJournalRecords(
+          refreshedJournalRecords
+            .filter(
+              (record) =>
+                String(
+                  record?.shop_id ||
+                    ''
+                ).trim() ===
+                  currentShopId &&
+                String(
+                  record?.date || ''
+                ) === currentDate
+            )
+            .sort(
+              (a, b) =>
+                new Date(
+                  a?.created_at || 0
+                ).getTime() -
+                new Date(
+                  b?.created_at || 0
+                ).getTime()
+            )
+        );
+      } catch (error) {
+        console.error(
+          'Today sales journal bootstrap failed:',
+          error
+        );
+
+        if (!cancelled) {
+          setSalesJournalError(
+            error?.message ||
+              'Sales journal could not be prepared.'
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setSalesJournalLoading(false);
+        }
+      }
+    };
+
+    bootstrapTodaySalesJournal();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [shop.id, todayIso]);
+
   useEffect(() => {
     setCartDraftChecked(false);
 
@@ -4714,18 +5973,90 @@ const confirmedSales = useMemo(
   [sales]
 );
 
-const shopCalculationData = useMemo(
-  () =>
-    String(data.currentUser?.role || '') === 'owner'
-      ? {
-          ...data,
-          sales: (data.sales || []).filter(
-            (sale) => sale?.confirmed !== false
-          ),
-        }
-      : data,
-  [data, data.currentUser?.role]
-);
+const shopCalculationData = useMemo(() => {
+  const currentShopId = String(
+    shop.id || ''
+  ).trim();
+
+  const baseSales =
+    String(
+      data.currentUser?.role || ''
+    ) === 'owner'
+      ? (data.sales || []).filter(
+          (sale) =>
+            sale?.confirmed !== false
+        )
+      : Array.isArray(data.sales)
+        ? data.sales
+        : [];
+
+  if (
+    salesJournalLoading ||
+    salesJournalError
+  ) {
+    return {
+      ...data,
+      sales: baseSales,
+    };
+  }
+
+  const salesOutsideTodayForThisShop =
+    baseSales.filter((sale) => {
+      const saleShopId = String(
+        sale?.shop_id ||
+          sale?.shopId ||
+          ''
+      ).trim();
+
+      const saleDate = String(
+        sale?.date ||
+          sale?.created_at ||
+          ''
+      ).slice(0, 10);
+
+      return (
+        saleShopId !== currentShopId ||
+        saleDate !== todayIso
+      );
+    });
+
+  const journalTodaySales =
+    salesJournalRecords
+      .filter(
+        (record) =>
+          String(
+            record?.shop_id || ''
+          ).trim() === currentShopId &&
+          String(
+            record?.date || ''
+          ).slice(0, 10) === todayIso
+      )
+      .map((record) => ({
+        ...record,
+        shop_id: currentShopId,
+        date: todayIso,
+
+        // Journal is authoritative for
+        // today's shop calculation.
+        confirmed: true,
+        journalBacked: true,
+      }));
+
+  return {
+    ...data,
+    sales: [
+      ...salesOutsideTodayForThisShop,
+      ...journalTodaySales,
+    ],
+  };
+}, [
+  data,
+  shop.id,
+  todayIso,
+  salesJournalRecords,
+  salesJournalLoading,
+  salesJournalError,
+]);
 
 const pendingSupabaseSales = useMemo(
   () =>
@@ -5394,19 +6725,37 @@ const dashboardDateValue =
 
 const dashboardSales = useMemo(
   () =>
-    confirmedSales.map((sale) => {
-      const computedDate =
-        String(sale.date || '').slice(0, 10) ||
-        (sale.created_at
-          ? todayISO(new Date(sale.created_at))
-          : '');
+    (shopCalculationData.sales || [])
+      .filter(
+        (sale) =>
+          String(
+            sale?.shop_id ||
+              sale?.shopId ||
+              ''
+          ) === String(shop.id)
+      )
+      .map((sale) => {
+        const computedDate =
+          String(
+            sale.date || ''
+          ).slice(0, 10) ||
+          (sale.created_at
+            ? todayISO(
+                new Date(
+                  sale.created_at
+                )
+              )
+            : '');
 
-      return {
-        ...sale,
-        date: computedDate,
-      };
-    }),
-  [confirmedSales]
+        return {
+          ...sale,
+          date: computedDate,
+        };
+      }),
+  [
+    shopCalculationData.sales,
+    shop.id,
+  ]
 );
 
 const dashboardFilteredSales = useMemo(
@@ -6140,6 +7489,8 @@ saleLock.current = false;
       }
     }
 
+    let saleProtectedLocally = false;
+
     try {
   cart.forEach((item) => {
     const idx = nextProducts.findIndex((p) => p.id === item.productId);
@@ -6182,6 +7533,64 @@ saleLock.current = false;
     confirmed: false,
   };
 
+  const journalCreatedAt =
+    new Date().toISOString();
+
+  const liveJournalRecord = {
+    id: saleRecord.id,
+    shop_id: saleRecord.shop_id,
+    items: (Array.isArray(
+      saleRecord.items
+    )
+      ? saleRecord.items
+      : []
+    ).map((item) => ({
+      ...item,
+    })),
+    total: Number(
+      saleRecord.total || 0
+    ),
+    type:
+      saleRecord.type || 'cash',
+    date: saleRecord.date,
+    created_at:
+      saleRecord.created_at,
+    status: 'pending',
+    integrityStatus: 'ok',
+    source: 'live_sale',
+    createdAt: journalCreatedAt,
+    updatedAt: journalCreatedAt,
+  };
+
+  await writeSalesJournalRecord(
+    liveJournalRecord
+  );
+
+  setSalesJournalRecords((prev) =>
+    [
+      ...prev.filter(
+        (record) =>
+          String(record?.id || '') !==
+          String(
+            liveJournalRecord.id
+          )
+      ),
+      liveJournalRecord,
+    ].sort(
+      (a, b) =>
+        new Date(
+          a?.created_at || 0
+        ) -
+        new Date(
+          b?.created_at || 0
+        )
+    )
+  );
+
+  clearCartDraft(shop.id);
+  setCart([]);
+  setSaleError('');
+
 console.log('SALE DATE TEST', {
   date: saleRecord.date,
   created_at: saleRecord.created_at,
@@ -6189,13 +7598,6 @@ console.log('SALE DATE TEST', {
   localReadable: new Date(saleRecord.created_at).toLocaleString(),
   localDateFromCreatedAt: todayISO(new Date(saleRecord.created_at)),
 });
-
-  await saveData({
-    ...data,
-    products: nextProducts,
-    sales: [...data.sales, saleRecord],
-  });
-
 
   const salePayload = {
     id: saleRecord.id,
@@ -6206,7 +7608,19 @@ console.log('SALE DATE TEST', {
     date: saleRecord.date,
     created_at: saleRecord.created_at,
   };
-  addToSyncQueue('sale_created', salePayload);
+
+  addToSyncQueue(
+    'sale_created',
+    salePayload
+  );
+
+  saleProtectedLocally = true;
+
+  await saveData({
+    ...data,
+    products: nextProducts,
+    sales: [...data.sales, saleRecord],
+  });
 
 
 if (navigator.onLine) {
@@ -6316,20 +7730,38 @@ if (navigator.onLine) {
         syncError
       );
 
+      const saleStillPending = readSyncQueue().some(
+        (item) =>
+          item?.actionType === 'sale_created' &&
+          item?.synced === false &&
+          String(item?.payload?.id || '') ===
+            String(saleRecord.id)
+      );
+
       setSyncMessage(
-        'Mauzo yamehifadhiwa kwenye kompyuta na yanasubiri kuthibitishwa Supabase.'
+        saleStillPending
+          ? 'Mauzo yamehifadhiwa kwenye kompyuta na yanasubiri kuthibitishwa Supabase.'
+          : 'Mauzo yamethibitishwa Supabase.'
       );
     });
 }
 
   console.log('Sending sale to Supabase:', saleRecord);
 
-  clearCartDraft(shop.id);
-  setCart([]);
-  setSaleError('');
 } catch (err) {
   console.error('Unexpected commitSale error:', err);
-  alert(`Unexpected sale error: ${err.message || err}`);
+
+  if (saleProtectedLocally) {
+    setSyncMessage(
+      'Mauzo yamehifadhiwa salama kwenye Journal na yanasubiri kukamilisha sync.'
+    );
+  } else {
+    alert(
+      `Unexpected sale error: ${
+        err?.message || err
+      }`
+    );
+  }
 } finally {
   setSaleSaving(false);
   saleLock.current = false;
@@ -6733,6 +8165,26 @@ const prepared = normalizeProduct({
       });
 
       setSyncMessage('Product saved and confirmed in Supabase');
+
+      const awakenedFailedSales =
+        wakeFailedSaleRetriesForProducts(
+          rowsToQueue.map(
+            (productRow) =>
+              productRow.id
+          ),
+          shop.id
+        );
+
+      if (awakenedFailedSales) {
+        processSyncQueue().catch(
+          (syncError) => {
+            console.error(
+              'Automatic failed-sale retry after product correction failed:',
+              syncError
+            );
+          }
+        );
+      }
     } catch (directSaveError) {
       console.error('Direct product save failed. Product will remain queued:', directSaveError);
 
@@ -7066,6 +8518,13 @@ Thibitisha au weka bei nyingine ya kuuza.`
   setPurchaseSaving(false);
 
   if (navigator.onLine) {
+    wakeFailedSaleRetriesForProducts(
+      preparedRows.map(
+        (row) => row.productId
+      ),
+      shop.id
+    );
+
     processSyncQueue().catch((syncError) => {
       console.error(
         'Queued purchase sync error:',
@@ -9296,8 +10755,1011 @@ sendingSupabaseSalesCount > 0 ? (
         </div>
       </TabsContent>
 
-      <TabsContent value="pos" activeValue={activeTab}>
-  <div className="flex gap-4 items-start">
+           <TabsContent value="pos" activeValue={activeTab}>
+        <div className="mb-2 flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2">
+          <div className="flex items-center gap-2 text-sm font-medium">
+            <span
+              className={`h-2.5 w-2.5 rounded-full ${
+                salesJournalError
+                  ? 'bg-red-500'
+                  : salesJournalLoading
+                    ? 'bg-amber-400'
+                    : salesJournalRecords.some(
+                          (record) =>
+                            record?.status !== 'confirmed' ||
+                            record?.integrityStatus === 'mismatch'
+                        )
+                      ? 'bg-amber-500'
+                      : 'bg-green-500'
+              }`}
+            />
+            <span>
+              {t(
+                language,
+                'Sales Status',
+                'Hali ya Mauzo'
+              )}
+            </span>
+          </div>
+
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              setSalesJournalOpen(true)
+            }
+          >
+            {t(language, 'Open', 'Fungua')}
+          </Button>
+        </div>
+
+        {salesJournalOpen ? (
+          <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/40 p-4">
+            <div className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
+              <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+                <div>
+                  <div className="text-lg font-semibold text-slate-900">
+                    {t(
+                      language,
+                      'Sales Status',
+                      'Hali ya Mauzo'
+                    )}
+                  </div>
+                  <div className="text-sm text-slate-500">
+                    {shop.name}
+                  </div>
+                </div>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() =>
+                    setSalesJournalOpen(false)
+                  }
+                >
+                  {t(
+                    language,
+                    'Close',
+                    'Funga'
+                  )}
+                </Button>
+              </div>
+
+              <div className="overflow-y-auto p-5">
+                <div className="mb-5 flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-2">
+                  <Button
+                    type="button"
+                    variant={
+                      salesJournalSection === 'summary'
+                        ? 'default'
+                        : 'outline'
+                    }
+                    onClick={() =>
+                      setSalesJournalSection('summary')
+                    }
+                  >
+                    {t(
+                      language,
+                      'Summary',
+                      'Muhtasari'
+                    )}
+                  </Button>
+
+                  <Button
+                    type="button"
+                    variant={
+                      salesJournalSection === 'records'
+                        ? 'default'
+                        : 'outline'
+                    }
+                    onClick={() =>
+                      setSalesJournalSection('records')
+                    }
+                  >
+                    {t(
+                      language,
+                      'Sales Records',
+                      'Rekodi za Mauzo'
+                    )}
+                  </Button>
+
+                  <Button
+                    type="button"
+                    variant={
+                      salesJournalSection === 'integrity'
+                        ? 'default'
+                        : 'outline'
+                    }
+                    onClick={() =>
+                      setSalesJournalSection('integrity')
+                    }
+                  >
+                    {t(
+                      language,
+                      'Integrity Check',
+                      'Ukaguzi wa Uadilifu'
+                    )}
+                  </Button>
+                </div>
+
+                <div className="space-y-6">
+                  <section
+                    className={
+                      salesJournalSection === 'summary'
+                        ? ''
+                        : 'hidden'
+                    }
+                  >
+                    <h3 className="mb-3 font-semibold text-slate-900">
+                      {t(
+                        language,
+                        'Sales Summary',
+                        'Muhtasari wa Mauzo'
+                      )}
+                    </h3>
+
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <div className="rounded-2xl border border-slate-200 p-4">
+                        <div className="text-xs text-slate-500">
+                          {t(
+                            language,
+                            'Today Sales',
+                            'Mauzo ya Leo'
+                          )}
+                        </div>
+
+                        <div className="mt-1 text-lg font-semibold text-slate-900">
+                          TZS{' '}
+                          {currency(
+                            salesJournalRecords.reduce(
+                              (sum, record) =>
+                                sum +
+                                Number(
+                                  record?.total || 0
+                                ),
+                              0
+                            )
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200 p-4">
+                        <div className="text-xs text-slate-500">
+                          {t(
+                            language,
+                            'Confirmed by Supabase',
+                            'Yamethibitishwa Supabase'
+                          )}
+                        </div>
+
+                        <div className="mt-1 text-lg font-semibold text-green-700">
+                          TZS{' '}
+                          {currency(
+                            salesJournalRecords
+                              .filter(
+                                (record) =>
+                                  record?.status ===
+                                  'confirmed'
+                              )
+                              .reduce(
+                                (sum, record) =>
+                                  sum +
+                                  Number(
+                                    record?.total || 0
+                                  ),
+                                0
+                              )
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200 p-4">
+                        <div className="text-xs text-slate-500">
+                          {t(
+                            language,
+                            'Waiting for Supabase',
+                            'Yanasubiri Supabase'
+                          )}
+                        </div>
+
+                        <div className="mt-1 text-lg font-semibold text-amber-700">
+                          TZS{' '}
+                          {currency(
+                            salesJournalRecords
+                              .filter(
+                                (record) =>
+                                  record?.status !==
+                                  'confirmed'
+                              )
+                              .reduce(
+                                (sum, record) =>
+                                  sum +
+                                  Number(
+                                    record?.total || 0
+                                  ),
+                                0
+                              )
+                          )}
+                        </div>
+
+                        <div className="mt-1 text-xs text-slate-500">
+                          {salesJournalRecords.filter(
+                            (record) =>
+                              record?.status !==
+                              'confirmed'
+                          ).length}{' '}
+                          {t(
+                            language,
+                            'sale(s)',
+                            'mauzo'
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div
+                      className={`mt-3 rounded-2xl px-4 py-3 text-sm font-medium ${
+                        salesJournalError ||
+                        salesJournalRecords.some(
+                          (record) =>
+                            record?.integrityStatus ===
+                            'mismatch'
+                        )
+                          ? 'bg-red-50 text-red-700'
+                          : salesJournalLoading
+                            ? 'bg-amber-50 text-amber-700'
+                            : 'bg-green-50 text-green-700'
+                      }`}
+                    >
+                      {salesJournalError
+                        ? salesJournalError
+                        : salesJournalLoading
+                          ? t(
+                              language,
+                              'Checking sales journal...',
+                              'Inakagua kumbukumbu za mauzo...'
+                            )
+                          : salesJournalRecords.some(
+                                (record) =>
+                                  record?.integrityStatus ===
+                                  'mismatch'
+                              )
+                            ? t(
+                                language,
+                                'A sales record needs integrity review.',
+                                'Kuna rekodi ya mauzo inayohitaji ukaguzi wa uadilifu.'
+                              )
+                            : t(
+                                language,
+                                'Sales journal records are intact.',
+                                'Kumbukumbu za Journal ya mauzo ziko salama.'
+                              )}
+                    </div>
+                  </section>
+
+                  <section
+                    className={
+                      salesJournalSection === 'records'
+                        ? ''
+                        : 'hidden'
+                    }
+                  >
+                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                      <h3 className="font-semibold text-slate-900">
+                        {t(
+                          language,
+                          'Complete Sales Record',
+                          'Rekodi Kamili ya Mauzo'
+                        )}
+                      </h3>
+
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-right">
+                        <div className="text-xs text-slate-500">
+                          {t(
+                            language,
+                            'Grand Total',
+                            'Jumla Kuu ya Mauzo'
+                          )}
+                        </div>
+
+                        <div className="text-lg font-bold text-slate-900">
+                          TZS{' '}
+                          {currency(
+                            salesJournalRecords.reduce(
+                              (sum, record) =>
+                                sum +
+                                Number(
+                                  record?.total || 0
+                                ),
+                              0
+                            )
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {salesJournalLoading ? (
+                      <div className="rounded-2xl border border-slate-200 p-4 text-sm text-slate-500">
+                        {t(
+                          language,
+                          'Loading sales records...',
+                          'Inapakia rekodi za mauzo...'
+                        )}
+                      </div>
+                    ) : salesJournalRecords.length === 0 ? (
+                      <div className="rounded-2xl border border-slate-200 p-4 text-sm text-slate-500">
+                        {t(
+                          language,
+                          'No sales recorded today.',
+                          'Hakuna mauzo yaliyorekodiwa leo.'
+                        )}
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {[...salesJournalRecords]
+                          .sort(
+                            (a, b) =>
+                              new Date(
+                                b?.created_at || 0
+                              ).getTime() -
+                              new Date(
+                                a?.created_at || 0
+                              ).getTime()
+                          )
+                          .map((record, transactionIndex) => {
+                            const isConfirmed =
+                              record?.status ===
+                              'confirmed';
+
+                            const hasIntegrityProblem =
+                              record?.integrityStatus ===
+                              'mismatch';
+
+                            const statusText =
+                              hasIntegrityProblem
+                                ? t(
+                                    language,
+                                    'Needs Attention',
+                                    'Inahitaji Ukaguzi'
+                                  )
+                                : isConfirmed
+                                  ? t(
+                                      language,
+                                      'Confirmed Supabase',
+                                      'Imethibitishwa Supabase'
+                                    )
+                                  : t(
+                                      language,
+                                      'Waiting for Supabase',
+                                      'Inasubiri Supabase'
+                                    );
+
+                            const statusClass =
+                              hasIntegrityProblem
+                                ? 'bg-red-50 text-red-700'
+                                : isConfirmed
+                                  ? 'bg-green-50 text-green-700'
+                                  : 'bg-amber-50 text-amber-700';
+
+                            return (
+                              <div
+                                key={record.id}
+                                className="overflow-hidden rounded-2xl border border-slate-200"
+                              >
+                                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
+                                  <div>
+                                    <div className="font-semibold text-slate-900">
+                                      {t(
+                                        language,
+                                        'Transaction',
+                                        'Muamala'
+                                      )}{' '}
+                                      {salesJournalRecords.length -
+                                        transactionIndex}
+                                    </div>
+
+                                    <div className="mt-1 text-xs text-slate-500">
+                                      {record?.created_at
+                                        ? new Date(
+                                            record.created_at
+                                          ).toLocaleTimeString(
+                                            'en-US',
+                                            {
+                                              timeZone:
+                                                'Africa/Dar_es_Salaam',
+                                              hour:
+                                                'numeric',
+                                              minute:
+                                                '2-digit',
+                                              second:
+                                                '2-digit',
+                                              hour12: true,
+                                            }
+                                          )
+                                        : record?.date ||
+                                          ''}
+                                      {' • '}
+                                      {Array.isArray(
+                                        record?.items
+                                      )
+                                        ? record.items.length
+                                        : 0}{' '}
+                                      {t(
+                                        language,
+                                        'product(s)',
+                                        'bidhaa'
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  <div
+                                    className={`rounded-full px-3 py-1 text-xs font-medium ${statusClass}`}
+                                  >
+                                    {statusText}
+                                  </div>
+                                </div>
+
+                                <div className="overflow-x-auto">
+                                  <table className="w-full min-w-[720px] text-sm">
+                                    <thead>
+                                      <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
+                                        <th className="px-4 py-3">
+                                          {t(
+                                            language,
+                                            'Product',
+                                            'Bidhaa'
+                                          )}
+                                        </th>
+
+                                        <th className="px-4 py-3">
+                                          {t(
+                                            language,
+                                            'Quantity',
+                                            'Kiasi'
+                                          )}
+                                        </th>
+
+                                        <th className="px-4 py-3">
+                                          {t(
+                                            language,
+                                            'Unit',
+                                            'Kipimo'
+                                          )}
+                                        </th>
+
+                                        <th className="px-4 py-3">
+                                          {t(
+                                            language,
+                                            'Unit Price',
+                                            'Bei'
+                                          )}
+                                        </th>
+
+                                        <th className="px-4 py-3">
+                                          {t(
+                                            language,
+                                            'Total',
+                                            'Jumla'
+                                          )}
+                                        </th>
+                                      </tr>
+                                    </thead>
+
+                                    <tbody>
+                                      {(Array.isArray(
+                                        record?.items
+                                      )
+                                        ? record.items
+                                        : []
+                                      ).map(
+                                        (
+                                          item,
+                                          itemIndex
+                                        ) => (
+                                          <tr
+                                            key={`${record.id}-${item?.productId || itemIndex}-${itemIndex}`}
+                                            className="border-b border-slate-100 last:border-0"
+                                          >
+                                            <td className="px-4 py-3 font-medium text-slate-900">
+                                              {item?.name ||
+                                                item
+                                                  ?.productId ||
+                                                '-'}
+                                            </td>
+
+                                            <td className="px-4 py-3">
+                                              {formatQty(
+                                                item?.quantity ||
+                                                  0
+                                              )}
+                                            </td>
+
+                                            <td className="px-4 py-3">
+                                              {item?.unit ||
+                                                '-'}
+                                            </td>
+
+                                            <td className="px-4 py-3">
+                                              TZS{' '}
+                                              {currency(
+                                                item?.price ??
+                                                  item?.sellPrice ??
+                                                  0
+                                              )}
+                                            </td>
+
+                                            <td className="px-4 py-3 font-medium">
+                                              TZS{' '}
+                                              {currency(
+                                                item?.total ||
+                                                  0
+                                              )}
+                                            </td>
+                                          </tr>
+                                        )
+                                      )}
+                                    </tbody>
+                                  </table>
+                                </div>
+
+                                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 text-xs text-slate-500">
+                                  <div>
+                                    Sale ID:{' '}
+                                    <span className="font-mono">
+                                      {record.id}
+                                    </span>
+                                  </div>
+
+                                  <div className="font-semibold text-slate-900">
+                                    {t(
+                                      language,
+                                      'Sale Total',
+                                      'Jumla ya Mauzo'
+                                    )}:{' '}
+                                    TZS{' '}
+                                    {currency(
+                                      record?.total || 0
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    )}
+                  </section>
+
+                  <section
+                    className={
+                      salesJournalSection === 'integrity'
+                        ? ''
+                        : 'hidden'
+                    }
+                  >
+                    <h3 className="mb-3 font-semibold text-slate-900">
+                      {t(
+                        language,
+                        'Sales Integrity Check',
+                        'Ukaguzi wa Uadilifu wa Mauzo'
+                      )}
+                    </h3>
+
+                    {salesIntegrityLoading ? (
+                      <div className="rounded-2xl border border-slate-200 p-4 text-sm text-slate-500">
+                        {t(
+                          language,
+                          'Checking Journal, queue and Supabase...',
+                          'Inakagua Journal, foleni na Supabase...'
+                        )}
+                      </div>
+                    ) : salesIntegrityError ? (
+                      <div className="rounded-2xl bg-red-50 p-4 text-sm font-medium text-red-700">
+                        {salesIntegrityError}
+                      </div>
+                    ) : salesIntegrityRows.length === 0 ? (
+                      <div className="rounded-2xl border border-slate-200 p-4 text-sm text-slate-500">
+                        {t(
+                          language,
+                          'No sales available for integrity checking today.',
+                          'Hakuna mauzo ya kukaguliwa leo.'
+                        )}
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <div
+                          className={`rounded-2xl px-4 py-3 text-sm font-medium ${
+                            salesIntegrityRows.some(
+                              (row) =>
+                                row?.result ===
+                                  'mismatch' ||
+                                row?.result ===
+                                  'needs_recovery'
+                            )
+                              ? 'bg-red-50 text-red-700'
+                              : salesIntegrityRows.some(
+                                    (row) =>
+                                      row?.result ===
+                                      'waiting'
+                                  )
+                                ? 'bg-amber-50 text-amber-700'
+                                : 'bg-green-50 text-green-700'
+                          }`}
+                        >
+                          {salesIntegrityRows.some(
+                            (row) =>
+                              row?.result ===
+                                'mismatch' ||
+                              row?.result ===
+                                'needs_recovery'
+                          )
+                            ? t(
+                                language,
+                                'Some sales require attention. The original Journal records remain preserved.',
+                                'Baadhi ya mauzo yanahitaji hatua. Rekodi zake za asili kwenye Journal bado zimehifadhiwa salama.'
+                              )
+                            : salesIntegrityRows.some(
+                                  (row) =>
+                                    row?.result ===
+                                    'waiting'
+                                )
+                              ? t(
+                                  language,
+                                  'Some sales are safely stored and still waiting for Supabase.',
+                                  'Baadhi ya mauzo yamehifadhiwa salama na bado yanasubiri Supabase.'
+                                )
+                              : t(
+                                  language,
+                                  'Integrity check passed. Today sales are confirmed in Supabase.',
+                                  'Ukaguzi umepita vizuri. Mauzo ya leo yamethibitishwa Supabase.'
+                                )}
+                        </div>
+
+                        <div className="overflow-x-auto rounded-2xl border border-slate-200">
+                          <table className="w-full min-w-[900px] text-sm">
+                            <thead>
+                              <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs text-slate-500">
+                                <th className="px-4 py-3">
+                                  {t(
+                                    language,
+                                    'Product',
+                                    'Bidhaa'
+                                  )}
+                                </th>
+
+                                <th className="px-4 py-3">
+                                  {t(
+                                    language,
+                                    'Quantity',
+                                    'Kiasi'
+                                  )}
+                                </th>
+
+                                <th className="px-4 py-3">
+                                  Journal
+                                </th>
+
+                                <th className="px-4 py-3">
+                                  {t(
+                                    language,
+                                    'Queue',
+                                    'Foleni'
+                                  )}
+                                </th>
+
+                                <th className="px-4 py-3">
+                                  Supabase
+                                </th>
+
+                                <th className="px-4 py-3">
+                                  {t(
+                                    language,
+                                    'Result',
+                                    'Matokeo'
+                                  )}
+                                </th>
+                              </tr>
+                            </thead>
+
+                            <tbody>
+                              {salesIntegrityRows.map(
+                                (row, index) => {
+                                  const isConfirmed =
+                                    row?.result ===
+                                    'confirmed';
+
+                                  const isWaiting =
+                                    row?.result ===
+                                    'waiting';
+
+                                  const isFailed =
+                                    row?.result ===
+                                    'failed';
+
+                                  const isBlockedByOtherProduct =
+                                    row?.result ===
+                                    'blocked_by_other_product';
+
+                                  const needsRecovery =
+                                    row?.result ===
+                                    'needs_recovery';
+
+                                  const isMismatch =
+                                    row?.result ===
+                                    'mismatch';
+
+                                  const isFirstRowForSale =
+                                    salesIntegrityRows.findIndex(
+                                      (candidate) =>
+                                        String(
+                                          candidate?.saleId ||
+                                            ''
+                                        ) ===
+                                        String(
+                                          row?.saleId || ''
+                                        )
+                                    ) === index;
+
+                                  const queueText =
+                                    row?.queueStatus ===
+                                    'present'
+                                      ? t(
+                                          language,
+                                          'Present',
+                                          'Ipo'
+                                        )
+                                      : row?.queueStatus ===
+                                          'mismatch'
+                                        ? t(
+                                            language,
+                                            'Mismatch',
+                                            'Hailingani'
+                                          )
+                                        : isConfirmed
+                                          ? t(
+                                              language,
+                                              'Cleared',
+                                              'Imeondolewa'
+                                            )
+                                          : t(
+                                              language,
+                                              'Missing',
+                                              'Haipo'
+                                            );
+
+                                  const supabaseText =
+                                    row?.supabaseStatus ===
+                                    'present'
+                                      ? t(
+                                          language,
+                                          'Present',
+                                          'Ipo'
+                                        )
+                                      : row?.supabaseStatus ===
+                                          'mismatch'
+                                        ? t(
+                                            language,
+                                            'Mismatch',
+                                            'Hailingani'
+                                          )
+                                        : t(
+                                            language,
+                                            'Missing',
+                                            'Haipo'
+                                          );
+
+                                  const resultText =
+                                    isConfirmed
+                                      ? t(
+                                          language,
+                                          'Confirmed',
+                                          'Imethibitishwa'
+                                        )
+                                      : isFailed
+                                        ? t(
+                                            language,
+                                            'Failed',
+                                            'Imeshindikana'
+                                          )
+                                        : isBlockedByOtherProduct
+                                          ? t(
+                                              language,
+                                              'Waiting for another product issue to be fixed',
+                                              'Inasubiri tatizo la bidhaa nyingine lirekebishwe'
+                                            )
+                                          : isWaiting
+                                            ? t(
+                                                language,
+                                                'Waiting',
+                                                'Inasubiri'
+                                              )
+                                            : needsRecovery
+                                              ? t(
+                                                  language,
+                                                  'Needs Recovery',
+                                                  'Inahitaji Kurejeshwa'
+                                                )
+                                              : isMismatch
+                                                ? t(
+                                                    language,
+                                                    'Mismatch',
+                                                    'Hailingani'
+                                                  )
+                                                : t(
+                                                    language,
+                                                    'Needs Attention',
+                                                    'Inahitaji Hatua'
+                                                  );
+
+                                  const resultClass =
+                                    isConfirmed
+                                      ? 'bg-green-50 text-green-700'
+                                      : isWaiting ||
+                                          isBlockedByOtherProduct
+                                        ? 'bg-amber-50 text-amber-700'
+                                        : 'bg-red-50 text-red-700';
+
+                                  return (
+                                    <tr
+                                      key={`${row?.saleId}-${row?.productId}-${index}`}
+                                      className="border-b border-slate-100 last:border-0"
+                                    >
+                                      <td className="px-4 py-3">
+                                        <div className="font-medium text-slate-900">
+                                          {row?.productName ||
+                                            '-'}
+                                        </div>
+
+                                        <div className="mt-1 text-[11px] text-slate-400">
+                                          {row?.saleId}
+                                        </div>
+                                      </td>
+
+                                      <td className="px-4 py-3">
+                                        {formatQty(
+                                          row?.quantity || 0
+                                        )}{' '}
+                                        {row?.unit || ''}
+                                      </td>
+
+                                      <td className="px-4 py-3">
+                                        <span className="font-medium text-green-700">
+                                          {t(
+                                            language,
+                                            'Present',
+                                            'Ipo'
+                                          )}
+                                        </span>
+                                      </td>
+
+                                      <td className="px-4 py-3">
+                                        <span
+                                          className={
+                                            row?.queueStatus ===
+                                              'mismatch' ||
+                                            (
+                                              row?.queueStatus ===
+                                                'missing' &&
+                                              !isConfirmed
+                                            )
+                                              ? 'font-medium text-red-700'
+                                              : row?.queueStatus ===
+                                                  'present'
+                                                ? 'font-medium text-amber-700'
+                                                : 'font-medium text-slate-500'
+                                          }
+                                        >
+                                          {queueText}
+                                        </span>
+                                      </td>
+
+                                      <td className="px-4 py-3">
+                                        <span
+                                          className={
+                                            row?.supabaseStatus ===
+                                            'present'
+                                              ? 'font-medium text-green-700'
+                                              : 'font-medium text-red-700'
+                                          }
+                                        >
+                                          {supabaseText}
+                                        </span>
+                                      </td>
+
+                                      <td className="px-4 py-3">
+                                        <span
+                                          className={`rounded-full px-3 py-1 text-xs font-medium ${resultClass}`}
+                                        >
+                                          {resultText}
+                                        </span>
+
+                                        {isFailed &&
+                                        isFirstRowForSale ? (
+                                          <div className="mt-2 max-w-sm text-xs text-red-700">
+                                            <div>
+                                              {t(
+                                                language,
+                                                'Attempts',
+                                                'Majaribio'
+                                              )}
+                                              :{' '}
+                                              {Number(
+                                                row?.retryAttempts ||
+                                                  0
+                                              )}
+                                            </div>
+
+                                            {row?.lastSyncError ? (
+                                              <div className="mt-1 break-words text-red-600">
+                                                {
+                                                  row.lastSyncError
+                                                }
+                                              </div>
+                                            ) : null}
+                                          </div>
+                                        ) : null}
+
+                                        {(
+                                          row?.transactionResult ===
+                                            'failed' ||
+                                          row?.transactionResult ===
+                                            'needs_recovery' ||
+                                          isFailed ||
+                                          needsRecovery
+                                        ) &&
+                                        isFirstRowForSale ? (
+                                          <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            className="mt-3"
+                                            disabled={
+                                              salesRetryingSaleId ===
+                                              String(
+                                                row?.saleId ||
+                                                  ''
+                                              )
+                                            }
+                                            onClick={() =>
+                                              retryJournalSale(
+                                                row?.saleId
+                                              )
+                                            }
+                                          >
+                                            {salesRetryingSaleId ===
+                                            String(
+                                              row?.saleId || ''
+                                            )
+                                              ? t(
+                                                  language,
+                                                  'Retrying...',
+                                                  'Inajaribu tena...'
+                                                )
+                                              : t(
+                                                  language,
+                                                  'Retry',
+                                                  'Jaribu Tena'
+                                                )}
+                                          </Button>
+                                        ) : null}
+                                      </td>
+                                    </tr>
+                                  );
+                                }
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </section>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+   <div className="flex gap-4 items-start">
           <Card className="w-1/2">
             <CardHeader>
               <CardTitle>{t(language, 'Search Product', 'Tafuta Bidhaa')}</CardTitle>
