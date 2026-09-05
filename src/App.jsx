@@ -40,7 +40,38 @@ const STORAGE_SESSION_KEY = 'rafikiai_current_user';
 const STORAGE_CART_DRAFTS_KEY = 'rafikiai_cart_drafts_v1';
 const STORAGE_LAST_ACTIVITY_KEY = 'rafikiai_last_activity_v1';
 const STORAGE_LOCK_ON_RETURN_KEY = 'rafikiai_lock_on_return_v1';
+const POS_DATA_CHANNEL_NAME =
+  'rafikiai_pos_data_changes_v1';
+
+const POS_TAB_INSTANCE_ID =
+  `pos-tab-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 10)}`;
+
 const POS_AUTO_LOCK_MINUTES = 15;
+
+function notifyOtherPosTabs() {
+  if (
+    typeof BroadcastChannel ===
+    'undefined'
+  ) {
+    return;
+  }
+
+  const channel =
+    new BroadcastChannel(
+      POS_DATA_CHANNEL_NAME
+    );
+
+  channel.postMessage({
+    type: 'app_data_updated',
+    sourceTabId:
+      POS_TAB_INSTANCE_ID,
+    at: Date.now(),
+  });
+
+  channel.close();
+}
 const DB_NAME = 'rafikiai_pos_db';
 const DB_VERSION = 1;
 const DB_STORE = 'pos_data';
@@ -249,6 +280,139 @@ function clearSyncedQueueItems() {
   writeSyncQueue(remaining);
 }
 
+function mergeProcessedSyncQueueResults(
+  originalQueue,
+  processedQueue
+) {
+  const safeOriginalQueue =
+    Array.isArray(originalQueue)
+      ? originalQueue
+      : [];
+
+  const safeProcessedQueue =
+    Array.isArray(processedQueue)
+      ? processedQueue
+      : [];
+
+  const latestQueue = readSyncQueue();
+
+  const originalById = new Map(
+    safeOriginalQueue
+      .filter((item) =>
+        String(item?.id || '').trim()
+      )
+      .map((item) => [
+        String(item.id).trim(),
+        item,
+      ])
+  );
+
+  const processedById = new Map(
+    safeProcessedQueue
+      .filter((item) =>
+        String(item?.id || '').trim()
+      )
+      .map((item) => [
+        String(item.id).trim(),
+        item,
+      ])
+  );
+
+  const changedFieldsById = new Map();
+
+  processedById.forEach(
+    (processedItem, queueId) => {
+      const originalItem =
+        originalById.get(queueId);
+
+      if (!originalItem) {
+        return;
+      }
+
+      const changedFields = {};
+
+      const allKeys = new Set([
+        ...Object.keys(originalItem),
+        ...Object.keys(processedItem),
+      ]);
+
+      allKeys.forEach((key) => {
+        if (
+          JSON.stringify(
+            originalItem?.[key]
+          ) !==
+          JSON.stringify(
+            processedItem?.[key]
+          )
+        ) {
+          changedFields[key] =
+            processedItem?.[key];
+        }
+      });
+
+      if (
+        Object.keys(changedFields)
+          .length > 0
+      ) {
+        changedFieldsById.set(
+          queueId,
+          changedFields
+        );
+      }
+    }
+  );
+
+  const latestQueueIds = new Set(
+    latestQueue
+      .map((item) =>
+        String(item?.id || '').trim()
+      )
+      .filter(Boolean)
+  );
+
+  const mergedQueue = latestQueue.map(
+    (latestItem) => {
+      const queueId = String(
+        latestItem?.id || ''
+      ).trim();
+
+      const changedFields =
+        changedFieldsById.get(queueId);
+
+      if (!changedFields) {
+        return latestItem;
+      }
+
+      return {
+        ...latestItem,
+        ...changedFields,
+      };
+    }
+  );
+
+  changedFieldsById.forEach(
+    (_changedFields, queueId) => {
+      if (latestQueueIds.has(queueId)) {
+        return;
+      }
+
+      const processedItem =
+        processedById.get(queueId);
+
+      if (
+        processedItem &&
+        processedItem.synced === false
+      ) {
+        mergedQueue.push(processedItem);
+      }
+    }
+  );
+
+  writeSyncQueue(mergedQueue);
+
+  return mergedQueue;
+}
+
 function wakeFailedSaleRetriesForProducts(
   productIds = [],
   shopId = ''
@@ -323,6 +487,107 @@ function wakeFailedSaleRetriesForProducts(
   }
 
   return changed;
+}
+
+async function repairSaleQueueFromJournal(
+  journalRecord
+) {
+  const saleId = String(
+    journalRecord?.id || ''
+  ).trim();
+
+  const shopId = String(
+    journalRecord?.shop_id || ''
+  ).trim();
+
+  if (!saleId || !shopId) {
+    return false;
+  }
+
+  if (activeSyncQueuePromise) {
+    try {
+      await activeSyncQueuePromise;
+    } catch {
+      // Continue with repair after the
+      // previous sync attempt has finished.
+    }
+  }
+
+  const exactJournalPayload = {
+    id: saleId,
+    shop_id: shopId,
+    items: Array.isArray(
+      journalRecord?.items
+    )
+      ? journalRecord.items
+      : [],
+    total: Number(
+      journalRecord?.total || 0
+    ),
+    type:
+      journalRecord?.type || 'cash',
+    date:
+      journalRecord?.date ||
+      todayISO(),
+    created_at:
+      journalRecord?.created_at ||
+      new Date().toISOString(),
+  };
+
+  const currentQueue = readSyncQueue();
+
+  let foundSaleQueueItem = false;
+
+  const repairedQueue =
+    currentQueue.map((item) => {
+      const isTargetSale =
+        item?.actionType ===
+          'sale_created' &&
+        item?.synced === false &&
+        String(
+          item?.payload?.id || ''
+        ).trim() === saleId;
+
+      if (!isTargetSale) {
+        return item;
+      }
+
+      foundSaleQueueItem = true;
+
+      return {
+        ...item,
+        payload: exactJournalPayload,
+        synced: false,
+        status: 'pending',
+        attempts: 0,
+        lastAttemptAt: 0,
+        lastError: '',
+        repairedFromJournalAt:
+          Date.now(),
+      };
+    });
+
+  if (!foundSaleQueueItem) {
+    repairedQueue.push({
+      id: `sync-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2, 8)}`,
+      actionType: 'sale_created',
+      payload: exactJournalPayload,
+      createdAt: Date.now(),
+      synced: false,
+      status: 'pending',
+      attempts: 0,
+      lastAttemptAt: 0,
+      lastError: '',
+      repairedFromJournalAt:
+        Date.now(),
+    });
+  }
+
+  writeSyncQueue(repairedQueue);
+
+  return true;
 }
 
 let activeSyncQueuePromise = null;
@@ -703,7 +968,6 @@ try {
       }
     }
 
-    writeSyncQueue(updatedQueue);
     continue;
   }
 
@@ -907,7 +1171,11 @@ try {
       };
     }
   }
-  writeSyncQueue(updatedQueue);
+  mergeProcessedSyncQueueResults(
+    queue,
+    updatedQueue
+  );
+
   clearSyncedQueueItems();
   return syncedSomething;
 }
@@ -934,17 +1202,102 @@ function openDatabase() {
     request.onerror = () => reject(request.error);
   });
 }
-async function writeToDB(key, value) {
+async function writeToDBUnlocked(
+  key,
+  value
+) {
   const db = await openDatabase();
 
   return new Promise((resolve, reject) => {
-    const transaction = db.transaction(DB_STORE, 'readwrite');
-    const store = transaction.objectStore(DB_STORE);
-    const request = store.put(value, key);
+    const transaction = db.transaction(
+      DB_STORE,
+      'readwrite'
+    );
 
-    request.onsuccess = () => resolve(true);
-    request.onerror = () => reject(request.error);
+    const store =
+      transaction.objectStore(DB_STORE);
+
+    const request = store.put(
+      value,
+      key
+    );
+
+    request.onsuccess = () =>
+      resolve(true);
+
+    request.onerror = () =>
+      reject(request.error);
   });
+}
+
+async function writeToDB(key, value) {
+  if (key !== DB_DATA_KEY) {
+    return writeToDBUnlocked(
+      key,
+      value
+    );
+  }
+
+  const writeProtectedAppData =
+    async () => {
+      let protectedValue = value;
+
+      try {
+        const latestStoredData =
+          await readFromDB(
+            DB_DATA_KEY
+          );
+
+        const storedPendingSales =
+          Array.isArray(
+            latestStoredData?.sales
+          )
+            ? latestStoredData.sales.filter(
+                (sale) =>
+                  sale?.confirmed === false
+              )
+            : [];
+
+        const incomingSales =
+          Array.isArray(value?.sales)
+            ? value.sales
+            : [];
+
+        protectedValue = {
+          ...value,
+          sales: mergeRowsById(
+            storedPendingSales,
+            incomingSales
+          ),
+        };
+      } catch (mergeError) {
+        console.error(
+          'Cross-tab sales protection read failed:',
+          mergeError
+        );
+      }
+
+      const writeResult =
+        await writeToDBUnlocked(
+          key,
+          protectedValue
+        );
+
+      notifyOtherPosTabs();
+
+      return writeResult;
+    };
+
+  if (
+    navigator?.locks?.request
+  ) {
+    return navigator.locks.request(
+      'rafikiai-pos-app-data-write',
+      writeProtectedAppData
+    );
+  }
+
+  return writeProtectedAppData();
 }
 
 async function readFromDB(key) {
@@ -4765,25 +5118,23 @@ const [stockSearch, setStockSearch] = useState('');
             'needs_recovery';
 
           if (
-            journalRecord?.integrityStatus ===
-              'mismatch' ||
-            (
-              queueItem &&
-              !queueMatchesJournal
-            ) ||
-            (
-              supabaseSale &&
-              !supabaseMatchesJournal
-            )
-          ) {
-            integrityResult =
-              'mismatch';
-          } else if (
             supabaseSale &&
             supabaseMatchesJournal
           ) {
             integrityResult =
               'confirmed';
+          } else if (
+            supabaseSale &&
+            !supabaseMatchesJournal
+          ) {
+            integrityResult =
+              'supabase_mismatch';
+          } else if (
+            queueItem &&
+            !queueMatchesJournal
+          ) {
+            integrityResult =
+              'queue_mismatch';
           } else if (
             queueItem &&
             queueMatchesJournal &&
@@ -4798,7 +5149,45 @@ const [stockSearch, setStockSearch] = useState('');
             integrityResult =
               'waiting';
           }
+          if (
+            !supabaseSale &&
+            (
+              integrityResult ===
+                'queue_mismatch' ||
+              integrityResult ===
+                'needs_recovery'
+            )
+          ) {
+            try {
+              const repaired =
+                await repairSaleQueueFromJournal(
+                  journalRecord
+                );
 
+              if (repaired) {
+                if (navigator.onLine) {
+                  await processSyncQueue();
+                }
+
+                if (!cancelled) {
+                  setSalesJournalRecords(
+                    (currentRecords) => [
+                      ...currentRecords,
+                    ]
+                  );
+                }
+
+                continue;
+              }
+            } catch (repairError) {
+              console.error(
+                'Automatic Journal queue repair failed:',
+                repairError
+              );
+            }
+          }
+
+          
           const journalItems =
             Array.isArray(
               journalRecord?.items
@@ -5103,6 +5492,206 @@ const [stockSearch, setStockSearch] = useState('');
 
       setSyncMessage(
         `Jaribio la kuthibitisha mauzo limeshindikana: ${
+          error?.message ||
+          'Sababu haijajulikana.'
+        }`
+      );
+    } finally {
+      setSalesRetryingSaleId('');
+    }
+  };
+
+  const repairJournalSaleMismatch = async (
+    saleId
+  ) => {
+    const cleanSaleId = String(
+      saleId || ''
+    ).trim();
+
+    if (
+      !cleanSaleId ||
+      salesRetryingSaleId
+    ) {
+      return;
+    }
+
+    if (!navigator.onLine) {
+      setSyncMessage(
+        'Hakuna internet. Mauzo bado yako salama kwenye Journal.'
+      );
+      return;
+    }
+
+    setSalesRetryingSaleId(cleanSaleId);
+
+    try {
+      if (activeSyncQueuePromise) {
+        try {
+          await activeSyncQueuePromise;
+        } catch {
+          // Continue after the previous
+          // synchronization attempt finishes.
+        }
+      }
+
+      const journalRecord =
+        await readSalesJournalRecord(
+          cleanSaleId
+        );
+
+      if (!journalRecord) {
+        throw new Error(
+          'Muamala haujapatikana kwenye Journal.'
+        );
+      }
+
+      if (
+        String(
+          journalRecord.shop_id || ''
+        ) !== String(shop.id || '')
+      ) {
+        throw new Error(
+          'Muamala huu ni wa duka tofauti.'
+        );
+      }
+
+      if (
+        journalRecord.source !== 'live_sale'
+      ) {
+        throw new Error(
+          'Muamala huu haukuanzishwa kama mauzo mapya ndani ya Journal. Mfumo hautabadilisha stock yake kiotomatiki.'
+        );
+      }
+
+      const {
+        data: currentSupabaseSale,
+        error: currentSaleError,
+      } = await supabase
+        .from('sales')
+        .select(
+          'id, shop_id, items, total, type, date'
+        )
+        .eq('id', cleanSaleId)
+        .maybeSingle();
+
+      if (currentSaleError) {
+        throw currentSaleError;
+      }
+
+      if (!currentSupabaseSale) {
+        throw new Error(
+          'Muamala haupo tena Supabase. Mfumo utatumia njia ya kawaida ya kurejesha mauzo.'
+        );
+      }
+
+      const {
+        data: repairResult,
+        error: repairError,
+      } = await supabase.rpc(
+        'repair_pos_sale_from_journal',
+        {
+          p_sale_id: cleanSaleId,
+          p_shop_id: String(
+            journalRecord.shop_id || ''
+          ),
+          p_expected_items:
+            Array.isArray(
+              currentSupabaseSale.items
+            )
+              ? currentSupabaseSale.items
+              : [],
+          p_expected_total: Number(
+            currentSupabaseSale.total || 0
+          ),
+          p_expected_type:
+            currentSupabaseSale.type ||
+            'cash',
+          p_expected_sale_date:
+            currentSupabaseSale.date || '',
+          p_journal_items:
+            Array.isArray(
+              journalRecord.items
+            )
+              ? journalRecord.items
+              : [],
+          p_journal_total: Number(
+            journalRecord.total || 0
+          ),
+          p_journal_type:
+            journalRecord.type || 'cash',
+          p_journal_sale_date:
+            journalRecord.date ||
+            todayISO(),
+        }
+      );
+
+      if (repairError) {
+        throw repairError;
+      }
+
+      if (
+        !repairResult ||
+        String(
+          repairResult.saleId || ''
+        ) !== cleanSaleId
+      ) {
+        throw new Error(
+          'Supabase haijathibitisha muamala uliorekebishwa.'
+        );
+      }
+
+      const repairedAt =
+        new Date().toISOString();
+
+      const repairedJournalRecord = {
+        ...journalRecord,
+        status: 'confirmed',
+        integrityStatus: 'ok',
+        confirmedAt: repairedAt,
+        updatedAt: repairedAt,
+        repairedAt,
+      };
+
+      await writeSalesJournalRecord(
+        repairedJournalRecord
+      );
+
+      const currentQueue =
+        readSyncQueue();
+
+      writeSyncQueue(
+        currentQueue.filter(
+          (item) =>
+            !(
+              item?.actionType ===
+                'sale_created' &&
+              String(
+                item?.payload?.id || ''
+              ).trim() === cleanSaleId
+            )
+        )
+      );
+
+      setSalesJournalRecords((prev) =>
+        prev.map((record) =>
+          String(record?.id || '') ===
+          cleanSaleId
+            ? repairedJournalRecord
+            : record
+        )
+      );
+
+      setSyncMessage(
+        'Muamala umesawazishwa salama na Supabase.'
+      );
+    } catch (error) {
+      console.error(
+        'Journal/Supabase sale repair failed:',
+        error
+      );
+
+      setSyncMessage(
+        `Muamala haujaweza kusawazishwa: ${
           error?.message ||
           'Sababu haijajulikana.'
         }`
@@ -5662,6 +6251,8 @@ const reportSalesCacheRef = useRef(new Map());
   const [saleError, setSaleError] = useState('');
 const [saleSaving, setSaleSaving] = useState(false);
 const saleLock = useRef(false);
+const saleCrossTabWaitLock =
+  useRef(false);
   const [creditReduceMap, setCreditReduceMap] = useState({});
   const [changeReduceMap, setChangeReduceMap] = useState({});
 const [gasForm, setGasForm] = useState({
@@ -7505,7 +8096,9 @@ return [
     setSaleError('');
   };
 
-  const commitSale = async () => {
+  const commitSale = async (
+    saleBaseData = data
+  ) => {
     if (!cart.length) return;
 
 if (saleLock.current) return;
@@ -7513,7 +8106,14 @@ saleLock.current = true;
 
 setSaleSaving(true);
 
-    const nextProducts = [...data.products];
+    const safeSaleBaseData =
+      normalizeData(
+        saleBaseData || data
+      );
+
+    const nextProducts = [
+      ...safeSaleBaseData.products,
+    ];
     for (const item of cart) {
       const idx = nextProducts.findIndex((p) => p.id === item.productId);
       if (idx >= 0) {
@@ -7661,9 +8261,12 @@ console.log('SALE DATE TEST', {
   saleProtectedLocally = true;
 
   await saveData({
-    ...data,
+    ...safeSaleBaseData,
     products: nextProducts,
-    sales: [...data.sales, saleRecord],
+    sales: [
+      ...safeSaleBaseData.sales,
+      saleRecord,
+    ],
   });
 
 
@@ -7811,6 +8414,70 @@ if (navigator.onLine) {
   saleLock.current = false;
 }
 };
+
+const commitSaleWithCrossTabProtection =
+  async () => {
+    if (!cart.length) return;
+
+    if (
+      saleCrossTabWaitLock.current ||
+      saleLock.current
+    ) {
+      return;
+    }
+
+    saleCrossTabWaitLock.current = true;
+
+    try {
+      const runProtectedSale =
+        async () => {
+          let latestStoredData = null;
+
+          try {
+            latestStoredData =
+              await readFromDB(
+                DB_DATA_KEY
+              );
+          } catch (latestReadError) {
+            console.error(
+              'Could not read latest POS data before sale:',
+              latestReadError
+            );
+          }
+
+          const saleBaseData =
+            normalizeData({
+              ...(
+                latestStoredData ||
+                data
+              ),
+              currentUser:
+                data.currentUser,
+            });
+
+          await commitSale(
+            saleBaseData
+          );
+        };
+
+      if (
+        typeof navigator !==
+          'undefined' &&
+        navigator.locks?.request
+      ) {
+        await navigator.locks.request(
+          `rafikiai-pos-sale-commit-${shop.id}`,
+          runProtectedSale
+        );
+      } else {
+        await runProtectedSale();
+      }
+    } finally {
+      saleCrossTabWaitLock.current =
+        false;
+    }
+  };
+
 const removeCartItem = (productId) => {
   setCart((prev) => prev.filter((item) => item.productId !== productId));
 };
@@ -11536,9 +12203,15 @@ sendingSupabaseSalesCount > 0 ? (
                                     row?.result ===
                                     'needs_recovery';
 
+                                  const isSupabaseMismatch =
+                                    row?.result ===
+                                      'supabase_mismatch' ||
+                                    row?.transactionResult ===
+                                      'supabase_mismatch';
+
                                   const isMismatch =
                                     row?.result ===
-                                    'mismatch';
+                                      'mismatch';
 
                                   const isFirstRowForSale =
                                     salesIntegrityRows.findIndex(
@@ -11622,13 +12295,19 @@ sendingSupabaseSalesCount > 0 ? (
                                             `Cause: ${row.lastSyncError} Correct the stated problem, then press Retry. Do not sell this transaction again.`,
                                             `Sababu: ${row.lastSyncError} Rekebisha tatizo lililoelezwa, kisha bonyeza Jaribu Tena. Usirudie kuuza muamala huu.`
                                           )
-                                        : isMismatch
+                                        : isSupabaseMismatch
                                           ? t(
                                               language,
-                                              'The Journal copy does not exactly match another copy of this Sale ID. Do not resell it. Review this transaction before taking further action.',
-                                              'Muamala huu kwenye Journal haulingani kikamilifu na nakala nyingine yenye Sale ID hii. Usirudie kuuza. Kagua muamala huu kabla ya kuchukua hatua nyingine.'
+                                              'This transaction needs system correction. Do not sell it again. Press Repair Transaction below and the system will safely reconcile the Journal and Supabase copies.',
+                                              'Muamala huu unahitaji kurekebishwa na mfumo. Usirudie kuuza. Bonyeza Rekebisha Muamala hapa chini na mfumo utasawazisha kwa usalama Journal na Supabase.'
                                             )
-                                          : needsRecovery
+                                          : isMismatch
+                                            ? t(
+                                                language,
+                                                'This transaction has a synchronization inconsistency. Do not sell it again.',
+                                                'Muamala huu una tofauti kwenye usawazishaji. Usirudie kuuza.'
+                                              )
+                                            : needsRecovery
                                             ? t(
                                                 language,
                                                 'This sale is safe in the Journal but is missing from the synchronization path. Do not resell it. Use Retry to recover the original transaction.',
@@ -11666,17 +12345,23 @@ sendingSupabaseSalesCount > 0 ? (
                                                   'Needs Recovery',
                                                   'Inahitaji Kurejeshwa'
                                                 )
-                                              : isMismatch
+                                              : isSupabaseMismatch
                                                 ? t(
                                                     language,
-                                                    'Mismatch',
-                                                    'Hailingani'
+                                                    'Repair Required',
+                                                    'Inahitaji Kurekebishwa'
                                                   )
-                                                : t(
-                                                    language,
-                                                    'Needs Attention',
-                                                    'Inahitaji Hatua'
-                                                  );
+                                                : isMismatch
+                                                  ? t(
+                                                      language,
+                                                      'Synchronization Issue',
+                                                      'Tatizo la Usawazishaji'
+                                                    )
+                                                  : t(
+                                                      language,
+                                                      'Needs Attention',
+                                                      'Inahitaji Hatua'
+                                                    );
 
                                   const resultClass =
                                     isConfirmed
@@ -11789,6 +12474,41 @@ sendingSupabaseSalesCount > 0 ? (
                                               </div>
                                             ) : null}
                                           </div>
+                                        ) : null}
+                                                                                {isSupabaseMismatch &&
+                                        isFirstRowForSale ? (
+                                          <Button
+                                            type="button"
+                                            size="sm"
+                                            className="mt-3"
+                                            disabled={
+                                              salesRetryingSaleId ===
+                                              String(
+                                                row?.saleId ||
+                                                  ''
+                                              )
+                                            }
+                                            onClick={() =>
+                                              repairJournalSaleMismatch(
+                                                row?.saleId
+                                              )
+                                            }
+                                          >
+                                            {salesRetryingSaleId ===
+                                            String(
+                                              row?.saleId || ''
+                                            )
+                                              ? t(
+                                                  language,
+                                                  'Repairing...',
+                                                  'Inarekebisha...'
+                                                )
+                                              : t(
+                                                  language,
+                                                  'Repair Transaction',
+                                                  'Rekebisha Muamala'
+                                                )}
+                                          </Button>
                                         ) : null}
 
                                         {(
@@ -12032,7 +12752,7 @@ sendingSupabaseSalesCount > 0 ? (
               </div>
 
               <div className="flex gap-2">
-                <Button type="button" className="flex-1" onClick={commitSale}>
+                <Button type="button" className="flex-1" onClick={commitSaleWithCrossTabProtection}>
                   {t(language, 'Confirm Cash Sale', 'Kamilisha Mauzo ya Fedha')}
                 </Button>
                 <Button type="button" variant="outline" onClick={() => setCart([])}>
@@ -14152,6 +14872,9 @@ onDeleteGas={deleteGas}
 
 export default function MultiShopPOSFinal() {
   const [data, setData] = useState(seedData);
+  const latestDataRef = useRef(data);
+  latestDataRef.current = data;
+
   const [activeShopId, setActiveShopId] = useState(null);
   const [ownerPeriod, setOwnerPeriod] = useState('today');
 const [ownerCustomStartDate, setOwnerCustomStartDate] = useState(todayISO());
@@ -14166,6 +14889,108 @@ const [hasLoadedInitialData, setHasLoadedInitialData] = useState(false);
 const [dashboardDataReady, setDashboardDataReady] = useState(false);
 const monthlyTargetSyncRef = useRef(new Set());
 const lastAutomaticProductRefreshRef = useRef(0);
+
+useEffect(() => {
+  if (!hasLoadedInitialData) {
+    return;
+  }
+
+  if (
+    typeof BroadcastChannel ===
+    'undefined'
+  ) {
+    return;
+  }
+
+  const channel =
+    new BroadcastChannel(
+      POS_DATA_CHANNEL_NAME
+    );
+
+  let cancelled = false;
+
+  channel.onmessage = async (event) => {
+    const message = event?.data || {};
+
+    if (
+      message?.type !==
+        'app_data_updated' ||
+      message?.sourceTabId ===
+        POS_TAB_INSTANCE_ID
+    ) {
+      return;
+    }
+
+    try {
+      const latestStoredData =
+        await readFromDB(
+          DB_DATA_KEY
+        );
+
+      if (
+        cancelled ||
+        !latestStoredData
+      ) {
+        return;
+      }
+
+      const storedPendingSales =
+        Array.isArray(
+          latestStoredData.sales
+        )
+          ? latestStoredData.sales.filter(
+              (sale) =>
+                sale?.confirmed === false
+            )
+          : [];
+
+      if (!storedPendingSales.length) {
+        return;
+      }
+
+      setData((previousData) => {
+        const previousSales =
+          Array.isArray(
+            previousData.sales
+          )
+            ? previousData.sales
+            : [];
+
+        const mergedSales =
+          mergeRowsById(
+            previousSales,
+            storedPendingSales
+          );
+
+        if (
+          JSON.stringify(
+            previousSales
+          ) ===
+          JSON.stringify(
+            mergedSales
+          )
+        ) {
+          return previousData;
+        }
+
+        return {
+          ...previousData,
+          sales: mergedSales,
+        };
+      });
+    } catch (crossTabReadError) {
+      console.error(
+        'Cross-tab POS data refresh failed:',
+        crossTabReadError
+      );
+    }
+  };
+
+  return () => {
+    cancelled = true;
+    channel.close();
+  };
+}, [hasLoadedInitialData]);
 
 useEffect(() => {
   let cancelled = false;
@@ -14632,16 +15457,21 @@ if (salesMode === 'year') {
     try {
       setIsOnline(true);
       setSyncMessage(message);
+const latestData =
+  latestDataRef.current || data;
+
 const currentShopId = String(
   activeShopId ||
-    data.currentUser?.shop_id ||
-    data.currentUser?.shopId ||
+    latestData.currentUser?.shop_id ||
+    latestData.currentUser?.shopId ||
     ''
 ).trim();
 
 if (
   currentShopId &&
-  String(data.currentUser?.role || '') !== 'owner'
+  String(
+    latestData.currentUser?.role || ''
+  ) !== 'owner'
 ) {
   const currentQueue = readSyncQueue();
 
@@ -14659,7 +15489,9 @@ if (
   );
 
   const orphanedLocalSales = (
-    Array.isArray(data.sales) ? data.sales : []
+    Array.isArray(latestData.sales)
+      ? latestData.sales
+      : []
   ).filter(
     (sale) =>
       String(
@@ -14837,7 +15669,101 @@ const pendingQueueItems = readSyncQueue().filter(
         }
       }
 
-      const confirmedResult = await loadConfirmedDashboardDataFromSupabase();
+      const confirmedResult =
+        await loadConfirmedDashboardDataFromSupabase();
+
+      const journalProtectionDate =
+        todayISO();
+
+      let journalProtectionAvailable =
+        false;
+
+      let protectedJournalSaleIds =
+        new Set();
+
+      try {
+        const journalRecords =
+          await readSalesJournalRecords();
+
+        protectedJournalSaleIds =
+          new Set(
+            (
+              Array.isArray(journalRecords)
+                ? journalRecords
+                : []
+            )
+              .filter((record) => {
+                const journalStatus =
+                  String(
+                    record?.status ||
+                      'pending'
+                  )
+                    .trim()
+                    .toLowerCase();
+
+                if (
+                  journalStatus ===
+                  'confirmed'
+                ) {
+                  return false;
+                }
+
+                const journalDate =
+                  String(
+                    record?.date ||
+                      (
+                        record?.created_at
+                          ? String(
+                              record.created_at
+                            ).slice(0, 10)
+                          : ''
+                      )
+                  ).trim();
+
+                if (
+                  journalDate !==
+                  journalProtectionDate
+                ) {
+                  return false;
+                }
+
+                if (
+                  confirmedResult.isOwnerUser
+                ) {
+                  return true;
+                }
+
+                const journalShopId =
+                  String(
+                    record?.shop_id ||
+                      record?.shopId ||
+                      ''
+                  ).trim();
+
+                return (
+                  journalShopId ===
+                  String(
+                    confirmedResult.shopId ||
+                      ''
+                  ).trim()
+                );
+              })
+              .map((record) =>
+                String(
+                  record?.id || ''
+                ).trim()
+              )
+              .filter(Boolean)
+          );
+
+        journalProtectionAvailable =
+          true;
+      } catch (journalProtectionError) {
+        console.error(
+          'Could not read Sales Journal before confirmed-sales refresh:',
+          journalProtectionError
+        );
+      }
 
       setData((prev) => {
         const previousSales = Array.isArray(prev.sales)
@@ -14904,10 +15830,33 @@ const pendingQueueItems = readSyncQueue().filter(
               sale?.id || ''
             ).trim();
 
-            return (
-              sale?.confirmed === false &&
+            if (
+              sale?.confirmed !== false
+            ) {
+              return false;
+            }
+
+            if (
               pendingSaleIds.has(saleId)
-            );
+            ) {
+              return true;
+            }
+
+            if (
+              protectedJournalSaleIds.has(
+                saleId
+              )
+            ) {
+              return true;
+            }
+
+            if (
+              !journalProtectionAvailable
+            ) {
+              return true;
+            }
+
+            return false;
           });
 
         const nextSales = mergeRowsById(
@@ -15400,9 +16349,21 @@ useEffect(() => {
 
           if (eventType === 'DELETE') {
             nextSales = previousSales.filter(
-              (sale) =>
-                String(sale?.id || '').trim() !==
-                changedSaleId
+              (sale) => {
+                const saleId = String(
+                  sale?.id || ''
+                ).trim();
+
+                if (
+                  saleId !== changedSaleId
+                ) {
+                  return true;
+                }
+
+                return (
+                  sale?.confirmed === false
+                );
+              }
             );
           } else {
             const confirmedSale = {
