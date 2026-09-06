@@ -16879,7 +16879,12 @@ const pendingQueueItems = readSyncQueue().filter(
       window.clearInterval(refreshTimer);
     }
   };
-}, [data?.currentUser?.id]);
+}, [
+  data?.currentUser?.id,
+  data?.currentUser?.role,
+  data?.currentUser?.shop_id,
+  data?.currentUser?.shopId,
+]);
 
 useEffect(() => {
   if (!activeShopId) return;
