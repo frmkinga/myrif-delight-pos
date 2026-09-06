@@ -1807,18 +1807,6 @@ return {
     const homeTakenBy =
       String(takenBy || '').trim() || 'Nyumbani';
 
-    if (!String(purpose || '').trim()) {
-      setSaleError(
-        t(
-          language,
-          'Please fill the purpose.',
-          'Tafadhali jaza matumizi/purpose.'
-        )
-      );
-      return;
-    }
-
-
     if (saleLock.current) return;
 
     saleLock.current = true;
