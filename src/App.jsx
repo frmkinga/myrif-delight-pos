@@ -6115,7 +6115,11 @@ const [stockSearch, setStockSearch] = useState('');
             sale?.date || ''
           ),
           created_at:
-            sale?.created_at || '',
+            sale?.created_at
+              ? new Date(
+                  sale.created_at
+                ).getTime()
+              : 0,
         });
 
         for (const sale of candidateSalesById.values()) {
@@ -18187,20 +18191,6 @@ if (isHydrating) {
   if (!selectedShopId) {
     return (
   <>
-    <div
-  className={`mx-4 mt-4 rounded-2xl px-4 py-2 text-sm font-medium ${
-    !isOnline
-      ? 'bg-amber-50 text-amber-700'
-      : String(syncMessage || '').toLowerCase().includes('failed')
-        ? 'bg-red-50 text-red-700'
-        : String(syncMessage || '').toLowerCase().includes('pending')
-          ? 'bg-amber-50 text-amber-700'
-          : 'bg-green-50 text-green-700'
-  }`}
->
-  {isOnline ? 'Online' : 'Offline'} {syncMessage ? `- ${syncMessage}` : ''}
-</div>
-
 <OwnerDashboard
   data={data}
   setAppData={setData}
@@ -18228,20 +18218,6 @@ if (isHydrating) {
 
 return (
   <>
-    <div
-  className={`mx-4 mt-4 rounded-2xl px-4 py-2 text-sm font-medium ${
-    !isOnline
-      ? 'bg-amber-50 text-amber-700'
-      : String(syncMessage || '').toLowerCase().includes('failed')
-        ? 'bg-red-50 text-red-700'
-        : String(syncMessage || '').toLowerCase().includes('pending')
-          ? 'bg-amber-50 text-amber-700'
-          : 'bg-green-50 text-green-700'
-  }`}
->
-  {isOnline ? 'Online' : 'Offline'} {syncMessage ? `- ${syncMessage}` : ''}
-</div>
-
 <ShopDashboard
   shop={shop}
   data={data}
