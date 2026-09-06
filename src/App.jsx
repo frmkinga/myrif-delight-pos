@@ -7155,26 +7155,6 @@ const shopCalculationData = useMemo(() => {
     };
   }
 
-  const salesOutsideTodayForThisShop =
-    baseSales.filter((sale) => {
-      const saleShopId = String(
-        sale?.shop_id ||
-          sale?.shopId ||
-          ''
-      ).trim();
-
-      const saleDate = String(
-        sale?.date ||
-          sale?.created_at ||
-          ''
-      ).slice(0, 10);
-
-      return (
-        saleShopId !== currentShopId ||
-        saleDate !== todayIso
-      );
-    });
-
   const journalTodaySales =
     salesJournalRecords
       .filter(
@@ -7191,18 +7171,19 @@ const shopCalculationData = useMemo(() => {
         shop_id: currentShopId,
         date: todayIso,
 
-        // Journal is authoritative for
-        // today's shop calculation.
+        // The Journal protects local sales,
+        // while confirmed Supabase sales from
+        // other computers remain included.
         confirmed: true,
         journalBacked: true,
       }));
 
   return {
     ...data,
-    sales: [
-      ...salesOutsideTodayForThisShop,
-      ...journalTodaySales,
-    ],
+    sales: mergeRowsById(
+      baseSales,
+      journalTodaySales
+    ),
   };
 }, [
   data,
