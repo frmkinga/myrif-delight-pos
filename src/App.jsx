@@ -253,12 +253,31 @@ function writeSyncQueue(queue) {
 function addToSyncQueue(actionType, payload) {
   const queue = readSyncQueue();
 
-  const payloadId = payload?.id || '';
+  const payloadId = String(
+    payload?.id || ''
+  ).trim();
+
+  const payloadShopId = String(
+    payload?.shop_id || ''
+  ).trim();
+
   const alreadyExists = queue.some(
-    (item) =>
-      item.actionType === actionType &&
-      (item.payload?.id || '') === payloadId &&
-      item.synced === false
+    (item) => {
+      const itemPayloadId = String(
+        item?.payload?.id || ''
+      ).trim();
+
+      const itemShopId = String(
+        item?.payload?.shop_id || ''
+      ).trim();
+
+      return (
+        item?.actionType === actionType &&
+        itemPayloadId === payloadId &&
+        itemShopId === payloadShopId &&
+        item?.synced === false
+      );
+    }
   );
 
   if (alreadyExists) return;
@@ -546,7 +565,10 @@ async function repairSaleQueueFromJournal(
         item?.synced === false &&
         String(
           item?.payload?.id || ''
-        ).trim() === saleId;
+        ).trim() === saleId &&
+        String(
+          item?.payload?.shop_id || ''
+        ).trim() === shopId;
 
       if (!isTargetSale) {
         return item;
@@ -712,6 +734,118 @@ try {
           );
         }
 
+        const expectedSaleId = String(
+          salePayload.id || ''
+        ).trim();
+
+        const expectedShopId = String(
+          salePayload.shop_id || ''
+        ).trim();
+
+        const {
+          data: savedSupabaseSale,
+          error: savedSaleVerificationError,
+        } = await supabase
+          .from('sales')
+          .select(
+            'id, shop_id, items, total, type, date, created_at, status, stock_status, stock_issues, confirmed_at'
+          )
+          .eq('id', expectedSaleId)
+          .eq('shop_id', expectedShopId)
+          .maybeSingle();
+
+        if (savedSaleVerificationError) {
+          throw savedSaleVerificationError;
+        }
+
+        if (!savedSupabaseSale) {
+          throw new Error(
+            'Supabase responded, but the exact sale was not found inside the correct shop.'
+          );
+        }
+
+        const canonicalizeSaleValue = (value) => {
+          if (Array.isArray(value)) {
+            return value.map(
+              canonicalizeSaleValue
+            );
+          }
+
+          if (
+            value &&
+            typeof value === 'object'
+          ) {
+            return Object.keys(value)
+              .sort()
+              .reduce((result, key) => {
+                result[key] =
+                  canonicalizeSaleValue(
+                    value[key]
+                  );
+
+                return result;
+              }, {});
+          }
+
+          return value;
+        };
+
+        const expectedSaleCopy = {
+          id: expectedSaleId,
+          shop_id: expectedShopId,
+          items: canonicalizeSaleValue(
+            Array.isArray(salePayload.items)
+              ? salePayload.items
+              : []
+          ),
+          total: Number(
+            salePayload.total || 0
+          ),
+          type:
+            salePayload.type || 'cash',
+          date:
+            salePayload.date || todayISO(),
+          created_at: new Date(
+            salePayload.created_at
+          ).getTime(),
+        };
+
+        const savedSaleCopy = {
+          id: String(
+            savedSupabaseSale.id || ''
+          ).trim(),
+          shop_id: String(
+            savedSupabaseSale.shop_id || ''
+          ).trim(),
+          items: canonicalizeSaleValue(
+            Array.isArray(
+              savedSupabaseSale.items
+            )
+              ? savedSupabaseSale.items
+              : []
+          ),
+          total: Number(
+            savedSupabaseSale.total || 0
+          ),
+          type:
+            savedSupabaseSale.type ||
+            'cash',
+          date:
+            savedSupabaseSale.date || '',
+          created_at: new Date(
+            savedSupabaseSale.created_at
+          ).getTime(),
+        };
+
+        if (
+          JSON.stringify(expectedSaleCopy) !==
+          JSON.stringify(savedSaleCopy)
+        ) {
+          throw new Error(
+            'The Supabase sale does not exactly match the cashier Journal. The Journal copy remains protected and synchronization will retry.'
+          );
+        }
+
         try {
           const journalRecord =
             await readSalesJournalRecord(
@@ -719,13 +853,62 @@ try {
             );
 
           if (journalRecord) {
+            const supabaseSaleStatus =
+              String(
+                savedSupabaseSale?.status ||
+                  saleResult?.status ||
+                  'confirmed'
+              )
+                .trim()
+                .toLowerCase();
+
+            const supabaseStockStatus =
+              String(
+                savedSupabaseSale?.stock_status ||
+                  saleResult?.stock_status ||
+                  saleResult?.stockStatus ||
+                  'applied'
+              )
+                .trim()
+                .toLowerCase();
+
+            const stockIssues =
+              savedSupabaseSale?.stock_issues ??
+              saleResult?.stock_issues ??
+              saleResult?.stockIssues ??
+              [];
+
+            const saleWasAccepted =
+              supabaseSaleStatus ===
+                'confirmed' &&
+              (
+                supabaseStockStatus ===
+                  'applied' ||
+                supabaseStockStatus ===
+                  'review'
+              );
+
+            if (!saleWasAccepted) {
+              throw new Error(
+                `Supabase saved the transaction but has not confirmed it yet. Sale status: ${supabaseSaleStatus}; stock status: ${supabaseStockStatus}.`
+              );
+            }
+
             const confirmedAt =
+              savedSupabaseSale?.confirmed_at ||
+              saleResult?.confirmed_at ||
+              saleResult?.confirmedAt ||
               new Date().toISOString();
 
             await writeSalesJournalRecord({
               ...journalRecord,
               status: 'confirmed',
               integrityStatus: 'ok',
+              supabaseStatus:
+                supabaseSaleStatus,
+              stockStatus:
+                supabaseStockStatus,
+              stockIssues,
               confirmedAt,
               updatedAt: confirmedAt,
             });
@@ -4830,6 +5013,30 @@ const [stockSearch, setStockSearch] = useState('');
   const [salesJournalOpen, setSalesJournalOpen] = useState(false);
   const [salesJournalSection, setSalesJournalSection] = useState('summary');
 
+  const [
+    salesJournalViewRecords,
+    setSalesJournalViewRecords,
+  ] = useState([]);
+
+  const [
+    salesJournalViewLoading,
+    setSalesJournalViewLoading,
+  ] = useState(false);
+
+  const [
+    salesJournalViewError,
+    setSalesJournalViewError,
+  ] = useState('');
+
+  const [
+    salesJournalViewRange,
+    setSalesJournalViewRange,
+  ] = useState({
+    start: todayIso,
+    end: todayIso,
+  });
+
+
   const [salesIntegrityRows, setSalesIntegrityRows] = useState([]);
   const [salesIntegrityLoading, setSalesIntegrityLoading] = useState(false);
   const [salesIntegrityError, setSalesIntegrityError] = useState('');
@@ -4930,7 +5137,15 @@ const [stockSearch, setStockSearch] = useState('');
           shop.id || ''
         ).trim();
 
-        const currentDate = todayIso;
+        const startDate = String(
+          salesJournalViewRange.start ||
+            todayIso
+        ).trim();
+
+        const endDate = String(
+          salesJournalViewRange.end ||
+            startDate
+        ).trim();
 
         const currentQueue = readSyncQueue();
 
@@ -4965,9 +5180,13 @@ const [stockSearch, setStockSearch] = useState('');
             'shop_id',
             currentShopId
           )
-          .eq(
+          .gte(
             'date',
-            currentDate
+            startDate
+          )
+          .lte(
+            'date',
+            endDate
           );
 
         if (confirmedSalesError) {
@@ -5057,7 +5276,21 @@ const [stockSearch, setStockSearch] = useState('');
 
         const integrityRows = [];
 
-        for (const journalRecord of salesJournalRecords) {
+        const selectedJournalRecords =
+          salesJournalViewRecords.filter(
+            (record) => {
+              const recordDate = String(
+                record?.date || ''
+              ).slice(0, 10);
+
+              return (
+                recordDate >= startDate &&
+                recordDate <= endDate
+              );
+            }
+          );
+
+        for (const journalRecord of selectedJournalRecords) {
           const saleId = String(
             journalRecord?.id || ''
           ).trim();
@@ -5365,8 +5598,9 @@ const [stockSearch, setStockSearch] = useState('');
   }, [
     salesJournalOpen,
     shop.id,
-    todayIso,
-    salesJournalRecords,
+    salesJournalViewRange.start,
+    salesJournalViewRange.end,
+    salesJournalViewRecords,
   ]);
 
   const retryJournalSale = async (saleId) => {
@@ -6227,6 +6461,328 @@ useEffect(() => {
 const [reportDate, setReportDate] = useState(todayISO());
 const [reportStartDate, setReportStartDate] = useState(todayISO());
 const [reportEndDate, setReportEndDate] = useState(todayISO());
+
+useEffect(() => {
+  const now = startOfDay(new Date());
+
+  const getWeekStart = (date) => {
+    const d = startOfDay(date);
+    const day = d.getDay();
+
+    return addDays(
+      d,
+      day === 0 ? -6 : 1 - day
+    );
+  };
+
+  let start = todayISO(now);
+  let end = todayISO(now);
+
+  if (reportPreset === 'yesterday') {
+    start = todayISO(addDays(now, -1));
+    end = start;
+  } else if (reportPreset === 'week') {
+    start = todayISO(
+      getWeekStart(now)
+    );
+  } else if (
+    reportPreset === 'lastweek'
+  ) {
+    const thisWeekStart =
+      getWeekStart(now);
+
+    start = todayISO(
+      addDays(thisWeekStart, -7)
+    );
+
+    end = todayISO(
+      addDays(thisWeekStart, -1)
+    );
+  } else if (
+    reportPreset === 'month'
+  ) {
+    start = todayISO(
+      startOfMonth(now)
+    );
+  } else if (
+    reportPreset === 'lastmonth'
+  ) {
+    const thisMonthStart =
+      startOfMonth(now);
+
+    const lastMonthStart =
+      new Date(
+        now.getFullYear(),
+        now.getMonth() - 1,
+        1
+      );
+
+    start = todayISO(
+      lastMonthStart
+    );
+
+    end = todayISO(
+      addDays(
+        thisMonthStart,
+        -1
+      )
+    );
+  } else if (
+    reportPreset === '3months'
+  ) {
+    start = todayISO(
+      addDays(now, -89)
+    );
+  } else if (
+    reportPreset === '6months'
+  ) {
+    start = todayISO(
+      addDays(now, -179)
+    );
+  } else if (
+    reportPreset === 'year'
+  ) {
+    start = todayISO(
+      new Date(
+        now.getFullYear(),
+        0,
+        1
+      )
+    );
+  } else if (
+    reportPreset === 'date'
+  ) {
+    start =
+      reportStartDate ||
+      todayISO(now);
+
+    end =
+      reportEndDate ||
+      start;
+  }
+
+  setSalesJournalViewRange({
+    start,
+    end,
+  });
+}, [
+  reportPreset,
+  reportStartDate,
+  reportEndDate,
+]);
+
+useEffect(() => {
+  if (!salesJournalOpen) {
+    return;
+  }
+
+  let cancelled = false;
+
+  const loadSalesJournalView =
+    async () => {
+      const currentShopId = String(
+        shop.id || ''
+      ).trim();
+
+      const startDate = String(
+        salesJournalViewRange.start || ''
+      ).trim();
+
+      const endDate = String(
+        salesJournalViewRange.end || ''
+      ).trim();
+
+      if (
+        !currentShopId ||
+        !startDate ||
+        !endDate ||
+        startDate > endDate
+      ) {
+        setSalesJournalViewRecords([]);
+        return;
+      }
+
+      setSalesJournalViewLoading(true);
+      setSalesJournalViewError('');
+
+      try {
+        const existingJournalRecords =
+          await readSalesJournalRecords();
+
+        const {
+          data: confirmedPeriodSales,
+          error: confirmedPeriodSalesError,
+        } = await supabase
+          .from('sales')
+          .select('*')
+          .eq(
+            'shop_id',
+            currentShopId
+          )
+          .gte(
+            'date',
+            startDate
+          )
+          .lte(
+            'date',
+            endDate
+          )
+          .order('created_at', {
+            ascending: true,
+          });
+
+        if (confirmedPeriodSalesError) {
+          throw confirmedPeriodSalesError;
+        }
+
+        const viewRecordsById =
+          new Map();
+
+        (
+          Array.isArray(
+            existingJournalRecords
+          )
+            ? existingJournalRecords
+            : []
+        )
+          .filter((record) => {
+            const recordShopId =
+              String(
+                record?.shop_id || ''
+              ).trim();
+
+            const recordDate =
+              String(
+                record?.date || ''
+              ).slice(0, 10);
+
+            return (
+              recordShopId ===
+                currentShopId &&
+              recordDate >=
+                startDate &&
+              recordDate <=
+                endDate
+            );
+          })
+          .forEach((record) => {
+            const saleId =
+              String(
+                record?.id || ''
+              ).trim();
+
+            if (!saleId) return;
+
+            viewRecordsById.set(
+              saleId,
+              record
+            );
+          });
+
+        (
+          Array.isArray(
+            confirmedPeriodSales
+          )
+            ? confirmedPeriodSales
+            : []
+        ).forEach((sale) => {
+          const saleId = String(
+            sale?.id || ''
+          ).trim();
+
+          if (!saleId) return;
+
+          const existingRecord =
+            viewRecordsById.get(
+              saleId
+            );
+
+          viewRecordsById.set(
+            saleId,
+            {
+              ...(existingRecord || {}),
+              ...sale,
+              id: saleId,
+              shop_id:
+                currentShopId,
+              date:
+                sale?.date ||
+                (
+                  sale?.created_at
+                    ? String(
+                        sale.created_at
+                      ).slice(0, 10)
+                    : startDate
+                ),
+              status: 'confirmed',
+              integrityStatus:
+                existingRecord
+                  ?.integrityStatus ||
+                'ok',
+              confirmed: true,
+              source:
+                existingRecord
+                  ?.source ||
+                'supabase_view',
+            }
+          );
+        });
+
+        if (cancelled) {
+          return;
+        }
+
+        setSalesJournalViewRecords(
+          Array.from(
+            viewRecordsById.values()
+          ).sort(
+            (a, b) =>
+              new Date(
+                a?.created_at || 0
+              ).getTime() -
+              new Date(
+                b?.created_at || 0
+              ).getTime()
+          )
+        );
+      } catch (error) {
+        console.error(
+          'Selected Sales Journal period load failed:',
+          error
+        );
+
+        if (!cancelled) {
+          setSalesJournalViewRecords(
+            []
+          );
+
+          setSalesJournalViewError(
+            error?.message ||
+              'Selected Sales Journal period could not be loaded.'
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setSalesJournalViewLoading(
+            false
+          );
+        }
+      }
+    };
+
+  loadSalesJournalView();
+
+  return () => {
+    cancelled = true;
+  };
+}, [
+  salesJournalOpen,
+  shop.id,
+  salesJournalViewRange.start,
+  salesJournalViewRange.end,
+  salesJournalRecords,
+]);
+
 const [reportType, setReportType] = useState('stockValue');
 
 const [commissionReportMonth, setCommissionReportMonth] = useState(() => {
@@ -6744,8 +7300,8 @@ const failedSaleInstruction =
   insufficientStockMatch
     ? `Tatizo: stock ya ${insufficientStockMatch[1]} kwenye Supabase ni ${insufficientStockMatch[2]}, lakini mauzo yanahitaji ${insufficientStockMatch[3]}. Rekebisha stock kwa kuingiza manunuzi/stoki sahihi, kisha mfumo utajaribu tena. Usirudie mauzo haya.`
     : firstFailedSaleError
-      ? `Sababu ya Supabase: ${firstFailedSaleError} Fungua Hali ya Mauzo → Ukaguzi wa Uadilifu kwa maelezo na Jaribu Tena baada ya kurekebisha tatizo. Usirudie mauzo haya.`
-      : 'Fungua Hali ya Mauzo → Ukaguzi wa Uadilifu kuona tatizo la muamala huu. Usirudie mauzo haya.';
+      ? `Sababu ya Supabase: ${firstFailedSaleError} Fungua Hali ya Mauzo → Kagua Miamala kwa maelezo na Jaribu Tena baada ya kurekebisha tatizo. Usirudie mauzo haya.`
+      : 'Fungua Hali ya Mauzo → Kagua Miamala kuona tatizo la muamala huu. Usirudie mauzo haya.';
 
 const sendingSupabaseSalesCount = sendingSupabaseSales.length;
 
@@ -11596,8 +12152,8 @@ sendingSupabaseSalesCount > 0 ? (
                   >
                     {t(
                       language,
-                      'Integrity Check',
-                      'Ukaguzi wa Uadilifu'
+                      'Check Transactions',
+                      'Kagua Miamala'
                     )}
                   </Button>
                 </div>
@@ -11623,15 +12179,15 @@ sendingSupabaseSalesCount > 0 ? (
                         <div className="text-xs text-slate-500">
                           {t(
                             language,
-                            'Today Sales',
-                            'Mauzo ya Leo'
+                            'Selected Period Sales',
+                            'Mauzo ya Kipindi Kilichochaguliwa'
                           )}
                         </div>
 
                         <div className="mt-1 text-lg font-semibold text-slate-900">
                           TZS{' '}
                           {currency(
-                            salesJournalRecords.reduce(
+                            salesJournalViewRecords.reduce(
                               (sum, record) =>
                                 sum +
                                 Number(
@@ -11655,7 +12211,7 @@ sendingSupabaseSalesCount > 0 ? (
                         <div className="mt-1 text-lg font-semibold text-green-700">
                           TZS{' '}
                           {currency(
-                            salesJournalRecords
+                            salesJournalViewRecords
                               .filter(
                                 (record) =>
                                   record?.status ===
@@ -11685,7 +12241,7 @@ sendingSupabaseSalesCount > 0 ? (
                         <div className="mt-1 text-lg font-semibold text-amber-700">
                           TZS{' '}
                           {currency(
-                            salesJournalRecords
+                            salesJournalViewRecords
                               .filter(
                                 (record) =>
                                   record?.status !==
@@ -11703,7 +12259,7 @@ sendingSupabaseSalesCount > 0 ? (
                         </div>
 
                         <div className="mt-1 text-xs text-slate-500">
-                          {salesJournalRecords.filter(
+                          {salesJournalViewRecords.filter(
                             (record) =>
                               record?.status !==
                               'confirmed'
@@ -11719,40 +12275,40 @@ sendingSupabaseSalesCount > 0 ? (
 
                     <div
                       className={`mt-3 rounded-2xl px-4 py-3 text-sm font-medium ${
-                        salesJournalError ||
-                        salesJournalRecords.some(
+                        salesJournalViewError ||
+                        salesJournalViewRecords.some(
                           (record) =>
                             record?.integrityStatus ===
                             'mismatch'
                         )
                           ? 'bg-red-50 text-red-700'
-                          : salesJournalLoading
+                          : salesJournalViewLoading
                             ? 'bg-amber-50 text-amber-700'
                             : 'bg-green-50 text-green-700'
                       }`}
                     >
-                      {salesJournalError
-                        ? salesJournalError
-                        : salesJournalLoading
+                      {salesJournalViewError
+                        ? salesJournalViewError
+                        : salesJournalViewLoading
                           ? t(
                               language,
-                              'Checking sales journal...',
-                              'Inakagua kumbukumbu za mauzo...'
+                              'Checking selected sales period...',
+                              'Inakagua kipindi cha mauzo kilichochaguliwa...'
                             )
-                          : salesJournalRecords.some(
+                          : salesJournalViewRecords.some(
                                 (record) =>
                                   record?.integrityStatus ===
                                   'mismatch'
                               )
                             ? t(
                                 language,
-                                'A sales record needs integrity review.',
-                                'Kuna rekodi ya mauzo inayohitaji ukaguzi wa uadilifu.'
+                                'A sales record needs checking.',
+                                'Kuna rekodi ya mauzo inayohitaji kukaguliwa.'
                               )
                             : t(
                                 language,
-                                'Sales journal records are intact.',
-                                'Kumbukumbu za Journal ya mauzo ziko salama.'
+                                'Selected-period sales records are intact.',
+                                'Kumbukumbu za mauzo za kipindi kilichochaguliwa ziko salama.'
                               )}
                     </div>
                   </section>
@@ -11785,7 +12341,7 @@ sendingSupabaseSalesCount > 0 ? (
                         <div className="text-lg font-bold text-slate-900">
                           TZS{' '}
                           {currency(
-                            salesJournalRecords.reduce(
+                            salesJournalViewRecords.reduce(
                               (sum, record) =>
                                 sum +
                                 Number(
@@ -11798,7 +12354,7 @@ sendingSupabaseSalesCount > 0 ? (
                       </div>
                     </div>
 
-                    {salesJournalLoading ? (
+                    {salesJournalViewLoading ? (
                       <div className="rounded-2xl border border-slate-200 p-4 text-sm text-slate-500">
                         {t(
                           language,
@@ -11806,17 +12362,17 @@ sendingSupabaseSalesCount > 0 ? (
                           'Inapakia rekodi za mauzo...'
                         )}
                       </div>
-                    ) : salesJournalRecords.length === 0 ? (
+                    ) : salesJournalViewRecords.length === 0 ? (
                       <div className="rounded-2xl border border-slate-200 p-4 text-sm text-slate-500">
                         {t(
                           language,
-                          'No sales recorded today.',
-                          'Hakuna mauzo yaliyorekodiwa leo.'
+                          'No sales recorded for the selected period.',
+                          'Hakuna mauzo yaliyorekodiwa katika kipindi kilichochaguliwa.'
                         )}
                       </div>
                     ) : (
                       <div className="space-y-4">
-                        {[...salesJournalRecords]
+                        {[...salesJournalViewRecords]
                           .sort(
                             (a, b) =>
                               new Date(
@@ -11874,7 +12430,7 @@ sendingSupabaseSalesCount > 0 ? (
                                         'Transaction',
                                         'Muamala'
                                       )}{' '}
-                                      {salesJournalRecords.length -
+                                      {salesJournalViewRecords.length -
                                         transactionIndex}
                                     </div>
 
@@ -12059,8 +12615,8 @@ sendingSupabaseSalesCount > 0 ? (
                     <h3 className="mb-3 font-semibold text-slate-900">
                       {t(
                         language,
-                        'Sales Integrity Check',
-                        'Ukaguzi wa Uadilifu wa Mauzo'
+                        'Check Transactions',
+                        'Kagua Miamala'
                       )}
                     </h3>
 
@@ -12080,8 +12636,8 @@ sendingSupabaseSalesCount > 0 ? (
                       <div className="rounded-2xl border border-slate-200 p-4 text-sm text-slate-500">
                         {t(
                           language,
-                          'No sales available for integrity checking today.',
-                          'Hakuna mauzo ya kukaguliwa leo.'
+                          'No sales available for checking in the selected period.',
+                          'Hakuna mauzo ya kukaguliwa katika kipindi kilichochaguliwa.'
                         )}
                       </div>
                     ) : (
@@ -12129,8 +12685,8 @@ sendingSupabaseSalesCount > 0 ? (
                                 )
                               : t(
                                   language,
-                                  'Integrity check passed. Today sales are confirmed in Supabase.',
-                                  'Ukaguzi umepita vizuri. Mauzo ya leo yamethibitishwa Supabase.'
+                                  'Check passed. Sales in the selected period are confirmed in Supabase.',
+                                  'Ukaguzi umepita vizuri. Mauzo ya kipindi kilichochaguliwa yamethibitishwa Supabase.'
                                 )}
                         </div>
 
@@ -12833,6 +13389,11 @@ sendingSupabaseSalesCount > 0 ? (
           shop={shop}
           language={language}
           currentUser={data.currentUser}
+          writeJournalSale={writeSalesJournalRecord}
+          syncPendingSales={processSyncQueue}
+          readLatestPosData={() =>
+            readFromDB(DB_DATA_KEY)
+          }
         />
       </TabsContent>
 
@@ -15642,7 +16203,179 @@ if (
     }
   }
 }
+/*
+ * Permanent sale-delivery rule:
+ * Every completed Journal sale belonging to this exact shop
+ * must remain in the synchronization queue until Supabase
+ * confirms it.
+ */
+if (currentShopId) {
+  const journalSales =
+    await readSalesJournalRecords();
 
+  const pendingJournalSales = (
+    Array.isArray(journalSales)
+      ? journalSales
+      : []
+  ).filter((journalSale) => {
+    const journalShopId = String(
+      journalSale?.shop_id ||
+        journalSale?.shopId ||
+        ''
+    ).trim();
+
+    const journalStatus = String(
+      journalSale?.status || 'pending'
+    )
+      .trim()
+      .toLowerCase();
+
+    return (
+      journalShopId === currentShopId &&
+      journalStatus !== 'confirmed' &&
+      String(journalSale?.id || '').trim()
+    );
+  });
+
+  if (pendingJournalSales.length > 0) {
+    const currentQueue = readSyncQueue();
+
+    const pendingJournalByKey = new Map(
+      pendingJournalSales.map(
+        (journalSale) => [
+          `${currentShopId}:${String(
+            journalSale.id
+          ).trim()}`,
+          journalSale,
+        ]
+      )
+    );
+
+    const recoveredSaleKeys = new Set();
+
+    const recoveredQueue = currentQueue.map(
+      (queueItem) => {
+        if (
+          queueItem?.actionType !==
+            'sale_created' ||
+          queueItem?.synced === true
+        ) {
+          return queueItem;
+        }
+
+        const queueShopId = String(
+          queueItem?.payload?.shop_id || ''
+        ).trim();
+
+        const queueSaleId = String(
+          queueItem?.payload?.id || ''
+        ).trim();
+
+        const queueSaleKey =
+          `${queueShopId}:${queueSaleId}`;
+
+        const journalSale =
+          pendingJournalByKey.get(
+            queueSaleKey
+          );
+
+        if (!journalSale) {
+          return queueItem;
+        }
+
+        recoveredSaleKeys.add(
+          queueSaleKey
+        );
+
+        return {
+          ...queueItem,
+          payload: {
+            id: String(
+              journalSale.id
+            ).trim(),
+            shop_id: currentShopId,
+            items: Array.isArray(
+              journalSale.items
+            )
+              ? journalSale.items
+              : [],
+            total: Number(
+              journalSale.total || 0
+            ),
+            type:
+              journalSale.type || 'cash',
+            date:
+              journalSale.date ||
+              todayISO(),
+            created_at:
+              journalSale.created_at ||
+              new Date().toISOString(),
+          },
+          synced: false,
+          status: 'pending',
+          attempts: 0,
+          lastAttemptAt: 0,
+          lastError: '',
+          recoveredFromJournalAt:
+            Date.now(),
+        };
+      }
+    );
+
+    pendingJournalByKey.forEach(
+      (journalSale, journalSaleKey) => {
+        if (
+          recoveredSaleKeys.has(
+            journalSaleKey
+          )
+        ) {
+          return;
+        }
+
+        recoveredQueue.push({
+          id: `sync-sale-${Date.now()}-${Math.random()
+            .toString(36)
+            .slice(2, 8)}`,
+          actionType: 'sale_created',
+          payload: {
+            id: String(
+              journalSale.id
+            ).trim(),
+            shop_id: currentShopId,
+            items: Array.isArray(
+              journalSale.items
+            )
+              ? journalSale.items
+              : [],
+            total: Number(
+              journalSale.total || 0
+            ),
+            type:
+              journalSale.type || 'cash',
+            date:
+              journalSale.date ||
+              todayISO(),
+            created_at:
+              journalSale.created_at ||
+              new Date().toISOString(),
+          },
+          createdAt: Date.now(),
+          synced: false,
+          status: 'pending',
+          attempts: 0,
+          lastAttemptAt: 0,
+          lastError: '',
+          recoveredFromJournalAt:
+            Date.now(),
+        });
+      }
+    );
+
+    writeSyncQueue(
+      recoveredQueue
+    );
+  }
+}
 await processSyncQueue();
 
 const pendingQueueItems = readSyncQueue().filter(

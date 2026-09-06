@@ -390,13 +390,31 @@ const writeSyncQueue = (queue) => {
 const addToSyncQueue = (actionType, payload) => {
   const queue = readSyncQueue();
 
-  const payloadId = String(payload?.id || '');
+  const payloadId = String(
+    payload?.id || ''
+  ).trim();
+
+  const payloadShopId = String(
+    payload?.shop_id || ''
+  ).trim();
 
   const existingIndex = queue.findIndex(
-    (item) =>
-      item.actionType === actionType &&
-      String(item?.payload?.id || '') === payloadId &&
-      item.synced === false
+    (item) => {
+      const itemPayloadId = String(
+        item?.payload?.id || ''
+      ).trim();
+
+      const itemShopId = String(
+        item?.payload?.shop_id || ''
+      ).trim();
+
+      return (
+        item?.actionType === actionType &&
+        itemPayloadId === payloadId &&
+        itemShopId === payloadShopId &&
+        item?.synced === false
+      );
+    }
   );
 
   if (existingIndex >= 0) {
@@ -646,6 +664,9 @@ export default function HomeExpensesCentre({
   shop,
   language = 'sw',
   currentUser,
+  writeJournalSale,
+  syncPendingSales,
+  readLatestPosData,
 }) {
   const [activeTab, setActiveTab] = useState('sale');
   const [productSearch, setProductSearch] = useState('');
@@ -674,6 +695,8 @@ export default function HomeExpensesCentre({
   const [customEndDate, setCustomEndDate] = useState(todayISO());
 
   const saleLock = useRef(false);
+  const saleCrossTabWaitLock =
+    useRef(false);
   const cashLock = useRef(false);
 
   const shopId = String(shop?.id || '').trim();
@@ -1802,7 +1825,33 @@ return {
     setSaleSaving(true);
     setSaleError('');
 
-    const nextProducts = [...(data?.products || [])];
+    let latestStoredData = null;
+
+    if (
+      typeof readLatestPosData ===
+      'function'
+    ) {
+      try {
+        latestStoredData =
+          await readLatestPosData();
+      } catch (latestReadError) {
+        console.error(
+          'Could not read latest POS data before Home Expenses sale:',
+          latestReadError
+        );
+      }
+    }
+
+    const saleBaseData =
+      latestStoredData &&
+      typeof latestStoredData ===
+        'object'
+        ? latestStoredData
+        : data;
+
+    const nextProducts = [
+      ...(saleBaseData?.products || []),
+    ];
 
     for (const item of cart) {
       const productIndex = nextProducts.findIndex(
@@ -1887,10 +1936,68 @@ return {
         confirmed: false,
       };
 
-      const nextSales = [...(data?.sales || []), saleRecord];
+      const journalCreatedAt =
+        new Date().toISOString();
+
+      const liveJournalRecord = {
+        id: saleRecord.id,
+        shop_id: saleRecord.shop_id,
+        items: (Array.isArray(
+          saleRecord.items
+        )
+          ? saleRecord.items
+          : []
+        ).map((item) => ({
+          ...item,
+        })),
+        total: Number(
+          saleRecord.total || 0
+        ),
+        type:
+          saleRecord.type || 'cash',
+        date: saleRecord.date,
+        created_at:
+          saleRecord.created_at,
+        status: 'pending',
+        integrityStatus: 'ok',
+        source: 'home_expense_sale',
+        createdAt: journalCreatedAt,
+        updatedAt: journalCreatedAt,
+      };
+
+      if (
+        typeof writeJournalSale !==
+        'function'
+      ) {
+        throw new Error(
+          'Sales Journal is not available.'
+        );
+      }
+
+      await writeJournalSale(
+        liveJournalRecord
+      );
+
+      window.dispatchEvent(
+        new CustomEvent(
+          'sales-journal-updated',
+          {
+            detail: {
+              saleId: saleRecord.id,
+              shopId:
+                saleRecord.shop_id,
+            },
+          }
+        )
+      );
+
+      const nextSales = [
+        ...(saleBaseData?.sales || []),
+        saleRecord,
+      ];
 
       await saveData({
-        ...data,
+        ...saleBaseData,
         products: nextProducts,
         sales: nextSales,
       });
@@ -1927,56 +2034,10 @@ return {
           }),
       };
 
-      addToSyncQueue('sale_created', salePayload);
-
-      if (navigator.onLine) {
-        const { error: saleErrorResponse } = await supabase
-          .from('sales')
-          .upsert(
-            [
-              {
-                id: saleRecord.id,
-                shop_id: saleRecord.shop_id,
-                items: saleRecord.items,
-                total: saleRecord.total,
-                type: saleRecord.type,
-                date: saleRecord.date,
-                created_at: saleRecord.created_at,
-              },
-            ],
-            { onConflict: 'id' }
-          );
-
-        if (saleErrorResponse) {
-          console.error(
-            'Home expense sale sync failed:',
-            saleErrorResponse
-          );
-        }
-
-        const productRows = salePayload.products.map((product) => ({
-          id: product.id,
-          name: String(product.name || '').trim(),
-          buyingprice: Number(product.buyPrice || 0),
-          sellingprice: Number(product.sellPrice || 0),
-          stock: Number(product.stockBaseQty || 0),
-          shop_id: product.shop_id,
-          baseunit: product.baseUnit || 'pc',
-          created_at:
-            product.created_at || new Date().toISOString(),
-        }));
-
-        const { error: productError } = await supabase
-          .from('products')
-          .upsert(productRows, { onConflict: 'id' });
-
-        if (productError) {
-          console.error(
-            'Home expense product sync failed:',
-            productError
-          );
-        }
-      }
+      addToSyncQueue(
+        'sale_created',
+        salePayload
+      );
 
       setCart([]);
       setProductSearch('');
@@ -1985,6 +2046,23 @@ return {
       setPurposeManuallyEdited(false);
       setNotes('');
       setSaleDate(todayISO());
+
+      if (
+        navigator.onLine &&
+        typeof syncPendingSales ===
+          'function'
+      ) {
+        Promise.resolve()
+          .then(() =>
+            syncPendingSales()
+          )
+          .catch((syncError) => {
+            console.error(
+              'Home expense sale sync will retry:',
+              syncError
+            );
+          });
+      }
     } catch (error) {
       console.error('Home expense sale failed:', error);
       setSaleError(error?.message || String(error));
@@ -1993,6 +2071,40 @@ return {
       saleLock.current = false;
     }
   };
+  const commitHomeExpenseSaleWithCrossTabProtection =
+    async () => {
+      if (!cart.length) return;
+
+      if (
+        saleCrossTabWaitLock.current ||
+        saleLock.current
+      ) {
+        return;
+      }
+
+      saleCrossTabWaitLock.current = true;
+
+      try {
+        const runProtectedHomeExpenseSale =
+          async () => {
+            await commitHomeExpenseSale();
+          };
+
+        if (
+          typeof navigator !== 'undefined' &&
+          navigator.locks?.request
+        ) {
+          await navigator.locks.request(
+            `rafikiai-pos-sale-commit-${shopId}`,
+            runProtectedHomeExpenseSale
+          );
+        } else {
+          await runProtectedHomeExpenseSale();
+        }
+      } finally {
+        saleCrossTabWaitLock.current = false;
+      }
+    };
 
   const saveCashTaken = async () => {
     if (!isShopOne) return;
@@ -3222,7 +3334,7 @@ const moneyReceived =
             <button
               type="button"
               disabled={saleSaving || !cart.length}
-              onClick={commitHomeExpenseSale}
+                            onClick={commitHomeExpenseSaleWithCrossTabProtection}
               className="w-full rounded-xl bg-emerald-700 px-4 py-3 text-sm font-black text-white disabled:opacity-50"
             >
               {saleSaving
