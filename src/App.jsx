@@ -16017,7 +16017,9 @@ if (salesMode === 'year') {
 
     try {
       setIsOnline(true);
-      setSyncMessage(message);
+      if (message) {
+        setSyncMessage(message);
+      }
 const latestData =
   latestDataRef.current || data;
 
@@ -16758,54 +16760,131 @@ const pendingQueueItems = readSyncQueue().filter(
     syncAndReloadConfirmedSales('Checking sync...');
   }
 
- refreshTimer = window.setInterval(async () => {
-  if (!navigator.onLine) return;
+  refreshTimer = window.setInterval(async () => {
+    if (!navigator.onLine) return;
 
-  const pendingBeforeSync = readSyncQueue().filter(
-    (queueItem) => queueItem?.synced === false
-  );
+    try {
+      await processSyncQueue();
 
-  if (!pendingBeforeSync.length) {
-    return;
-  }
+      const latestData =
+        latestDataRef.current || data;
 
-  setSyncMessage(
-    `Synchronizing ${pendingBeforeSync.length} pending record(s)...`
-  );
+      const currentUser =
+        latestData?.currentUser || {};
 
-  try {
-    await processSyncQueue();
+      const isOwnerUser =
+        String(
+          currentUser?.role || ''
+        ) === 'owner';
 
-    const pendingAfterSync = readSyncQueue().filter(
-      (queueItem) => queueItem?.synced === false
-    );
+      const currentShopId = String(
+        activeShopId ||
+          currentUser?.shop_id ||
+          currentUser?.shopId ||
+          ''
+      ).trim();
 
-    const failedAfterSync = pendingAfterSync.filter(
-      (queueItem) => queueItem?.status === 'failed'
-    );
+      if (
+        !isOwnerUser &&
+        !currentShopId
+      ) {
+        return;
+      }
 
-    if (failedAfterSync.length > 0) {
-      setSyncMessage(
-        `Sync pending: ${failedAfterSync.length} record(s) still require synchronization.`
+      let latestSalesQuery = supabase
+        .from('sales')
+        .select('*')
+        .eq('date', todayISO())
+        .order('created_at', {
+          ascending: false,
+        });
+
+      if (!isOwnerUser) {
+        latestSalesQuery =
+          latestSalesQuery.eq(
+            'shop_id',
+            currentShopId
+          );
+      }
+
+      const {
+        data: latestSales,
+        error: latestSalesError,
+      } = await latestSalesQuery;
+
+      if (latestSalesError) {
+        throw latestSalesError;
+      }
+
+      const mappedLatestSales = (
+        Array.isArray(latestSales)
+          ? latestSales
+          : []
+      ).map((sale) => ({
+        ...sale,
+        shop_id: String(
+          sale?.shop_id ||
+            sale?.shopId ||
+            sale?.shopid ||
+            ''
+        ).trim(),
+        date:
+          sale?.date ||
+          (
+            sale?.created_at
+              ? String(
+                  sale.created_at
+                ).slice(0, 10)
+              : todayISO()
+          ),
+        confirmed: true,
+      }));
+
+      setData((previousData) => {
+        const previousSales =
+          Array.isArray(
+            previousData.sales
+          )
+            ? previousData.sales
+            : [];
+
+        const mergedSales =
+          mergeRowsById(
+            previousSales,
+            mappedLatestSales
+          );
+
+        if (
+          JSON.stringify(previousSales) ===
+          JSON.stringify(mergedSales)
+        ) {
+          return previousData;
+        }
+
+        const nextData = {
+          ...previousData,
+          sales: mergedSales,
+        };
+
+        writeToDB(
+          DB_DATA_KEY,
+          nextData
+        ).catch((databaseError) => {
+          console.error(
+            'Automatic sales refresh persistence failed:',
+            databaseError
+          );
+        });
+
+        return nextData;
+      });
+    } catch (refreshError) {
+      console.error(
+        'Automatic Supabase sales refresh failed:',
+        refreshError
       );
-    } else if (pendingAfterSync.length > 0) {
-      setSyncMessage(
-        `Sync pending: ${pendingAfterSync.length} record(s) are still being synchronized.`
-      );
-    } else {
-      setSyncMessage('Sync complete');
     }
-  } catch (syncError) {
-    console.error(
-      'Pending-record synchronization failed:',
-      syncError
-    );
-
-    setSyncMessage(
-      'Some records are still waiting for synchronization.'
-    );
-  }
-}, 15000);
+  }, 5000);
 
   return () => {
     window.removeEventListener('online', goOnline);
