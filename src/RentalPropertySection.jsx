@@ -2490,8 +2490,15 @@ Salio lililobaki: TZS ${currency(
     setIsSavingRentalPayment(false);
   }
 };
-const openRentalCorrectionForm = (account) => {
-  if (!account) return;
+const openRentalCorrectionForm = (account = null) => {
+  if (!account) {
+    setRentalCorrectionForm({
+      ...emptyRentalCorrectionForm,
+    });
+
+    setIsRentalCorrectionOpen(true);
+    return;
+  }
 
   setRentalCorrectionForm({
     tenancyId: account.id || '',
@@ -8017,7 +8024,7 @@ const serviceChargeSections = [
                         type="button"
                         className="bg-amber-600 px-6 py-3"
                         onClick={() =>
-                          openRentalPaymentCorrectionForm()
+                          openRentalCorrectionForm()
                         }
                       >
                         {t(
@@ -9710,44 +9717,21 @@ const serviceChargeSections = [
                                     </td>
 
                                     <td className="whitespace-nowrap px-5 py-4">
-                                      {activeRentalPayments.some(
-                                        (payment) =>
-                                          String(
-                                            payment.tenancyId
-                                          ) ===
-                                          String(account.id)
-                                      ) ||
-                                      activeRentInvoices.some(
-                                        (invoice) =>
-                                          String(
-                                            invoice.tenancyId
-                                          ) ===
-                                          String(account.id)
-                                      ) ? (
-                                        <span className="rounded-full bg-slate-200 px-3 py-2 text-xs font-bold text-slate-600">
-                                          {t(
-                                            language,
-                                            'Financial records locked',
-                                            'Rekodi za fedha zimefungwa'
-                                          )}
-                                        </span>
-                                      ) : (
-                                        <Button
-                                          type="button"
-                                          className="bg-amber-600"
-                                          onClick={() =>
-                                            openRentalCorrectionForm(
-                                              account
-                                            )
-                                          }
-                                        >
-                                          {t(
-                                            language,
-                                            'Edit Initial Details',
-                                            'Hariri Taarifa za Mwanzo'
-                                          )}
-                                        </Button>
-                                      )}
+                                      <Button
+                                        type="button"
+                                        className="bg-amber-600"
+                                        onClick={() =>
+                                          openRentalCorrectionForm(
+                                            account
+                                          )
+                                        }
+                                      >
+                                        {t(
+                                          language,
+                                          'Correct Rental Details',
+                                          'Sahihisha Taarifa za Kodi'
+                                        )}
+                                      </Button>
                                     </td>
                                   </tr>
                                 )
@@ -11383,21 +11367,79 @@ const serviceChargeSections = [
                 <h3 className="text-2xl font-bold text-amber-950">
                   {t(
                     language,
-                    'Edit Initial Rental Details',
-                    'Hariri Taarifa za Mwanzo za Kodi'
+                    'Correct Rental Details',
+                    'Sahihisha Taarifa za Kodi'
                   )}
                 </h3>
 
                 <p className="mt-1 text-sm text-amber-700">
                   {t(
                     language,
-                    'This correction is allowed only before invoices or payments exist. The previous values will remain permanently recorded.',
-                    'Marekebisho haya yanaruhusiwa tu kabla ya kuwepo ankara au malipo. Taarifa za awali zitabaki zimehifadhiwa moja kwa moja.'
+                    'Correct the selected tenant’s rental details. Existing invoices and payments will remain permanently preserved, and the correction will be recorded.',
+                    'Sahihisha taarifa za kodi za mpangaji uliyemchagua. Ankara na malipo yaliyopo yatabaki yamehifadhiwa, na marekebisho yatarekodiwa.'
                   )}
                 </p>
               </div>
 
               <div className="space-y-4 p-6">
+                <Select
+                  label={t(
+                    language,
+                    'Select Tenant to Correct',
+                    'Chagua Mpangaji wa Kusahihisha'
+                  )}
+                  value={rentalCorrectionForm.tenancyId}
+                  onChange={(e) => {
+                    const selectedAccount =
+                      activeRentAccounts.find(
+                        (account) =>
+                          String(account.id) ===
+                          String(e.target.value)
+                      );
+
+                    if (selectedAccount) {
+                      openRentalCorrectionForm(
+                        selectedAccount
+                      );
+                    } else {
+                      openRentalCorrectionForm();
+                    }
+                  }}
+                >
+                  <option value="">
+                    {t(
+                      language,
+                      'Select tenant',
+                      'Chagua mpangaji'
+                    )}
+                  </option>
+
+                  {activeRentAccounts
+                    .slice()
+                    .sort((a, b) =>
+                      String(
+                        a.house?.houseNumber || ''
+                      ).localeCompare(
+                        String(
+                          b.house?.houseNumber || ''
+                        )
+                      )
+                    )
+                    .map((account) => (
+                      <option
+                        key={account.id}
+                        value={account.id}
+                      >
+                        {account.house?.houseNumber || '-'}
+                        {' — '}
+                        {account.tenant?.fullName ||
+                          account.tenant?.tenantName ||
+                          account.house?.tenantName ||
+                          '-'}
+                      </option>
+                    ))}
+                </Select>
+
                 <div className="grid gap-4 md:grid-cols-2">
                   <Input
                     label={t(

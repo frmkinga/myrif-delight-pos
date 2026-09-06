@@ -3194,14 +3194,6 @@ const submit = async (e) => {
                   <h1 className="mt-6 max-w-md text-4xl font-semibold leading-tight">
                     {t(language, 'Welcome back.', 'Karibu tena, Huduma bora, fahari yetu')}
                   </h1>
-
-                  <p className="mt-4 max-w-lg text-sm leading-7 text-white/85">
-                    {t(
-                      language,
-                      'Manage kiosk, wakala, reports, stock and shop performance in one modern workspace.',
-                      'Simamia kioski, wakala, ripoti, stock na utendaji wa duka katika eneo moja la kisasa.'
-                    )}
-                  </p>
                 </div>
 
                 <div className="relative z-10 grid gap-4">
@@ -3242,21 +3234,12 @@ const submit = async (e) => {
                 <div className="mx-auto w-full max-w-md">
                   <div className="mb-6 flex items-start justify-between gap-4">
                     <div>
-                      <div className={`inline-flex rounded-full ${loginTheme.badge} px-3 py-1 text-xs font-semibold text-white shadow-lg`}>
-                        {t(language, 'Secure Access', 'Kuingia kwa Usalama')}
-                      </div>
 
                       <h2 className="mt-4 text-3xl font-semibold text-slate-900">
-                        {t(language, 'Please login to continue', 'Tafadhali ingia kuendelea')}
+                        {t(language, 'Please identify yourself', 'Tafadhali jitambulishe')}
                       </h2>
 
-                      <p className="mt-2 text-sm leading-6 text-slate-600">
-                        {t(
-                          language,
-                          'Use your shop credentials to open your workspace.',
-                          'Tumia jina na nenosiri kufungua duka lako.'
-                        )}
-                      </p>
+
                       {loginWelcomeMessage ? (
   <div className="mt-3 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800 shadow-sm">
     {loginWelcomeMessage}
@@ -3316,14 +3299,6 @@ const submit = async (e) => {
   </Button>
 </div>
 </form>
-</div>
-
-<div className="mt-5 text-center text-xs text-slate-500">
-  {t(
-    language,
-    'Owner and shop users use the same secure sign-in area.',
-    'Mmiliki na watumiaji wa duka hutumia eneo hili hili salama la kuingia.'
-  )}
 </div>
                 </div>
               </div>
@@ -3817,6 +3792,8 @@ function OwnerDashboard({
   language,
   setLanguage,
   dashboardDataReady,
+  isOnline,
+  syncMessage,
 }) {
 const ownerDashboardLoadingText = 'Inapakia taarifa...';
 const [currentPasswordInput, setCurrentPasswordInput] = useState('');
@@ -4482,9 +4459,31 @@ const totalBankCapital =
         <div className="mb-6 flex items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-semibold">{t(language, 'Owner Dashboard', 'Dashibodi ya Mmiliki')}</h1>
-          <p className="mt-2 text-sm text-slate-500">
-            {t(language, 'Open any shop and view its kiosk and wakala performance.', 'Fungua duka lolote na uone kioski na wakala wake.')}
-          </p>
+
+
+          <div
+            className={`mt-3 inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-bold ${
+              isOnline
+                ? 'bg-emerald-100 text-emerald-800'
+                : 'bg-orange-100 text-orange-800'
+            }`}
+          >
+            <span
+              className={`h-2.5 w-2.5 rounded-full ${
+                isOnline
+                  ? 'bg-emerald-500'
+                  : 'bg-orange-500'
+              }`}
+            />
+
+            {!isOnline
+              ? t(language, 'Offline', 'Hakuna mtandao')
+              : /checking|syncing|pending|refreshing|inasawazisha/i.test(
+                    String(syncMessage || '')
+                  )
+                ? t(language, 'Refreshing...', 'Inasawazisha...')
+                : t(language, 'Refresh complete', 'Imesawazishwa')}
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <select className="rounded-xl border border-slate-200 px-3 py-2 text-sm" value={language} onChange={(e) => setLanguage(e.target.value)}>
@@ -4955,6 +4954,8 @@ function ShopDashboard({
   exportBackup,
   dashboardDataReady,
   setSyncMessage,
+  isOnline,
+  syncMessage,
 }) {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [quickSearch, setQuickSearch] = useState('');
@@ -11145,21 +11146,36 @@ banks: mobileMoneyForm.banks.map((b) => ({
                 ) : null}
               </div>
 
-              <div className="mt-3 inline-flex rounded-full bg-gradient-to-r from-indigo-500 via-violet-500 to-fuchsia-500 px-3 py-1 text-xs font-semibold text-white shadow-sm">
-                {shopWorkspaceLabel}
-              </div>
+
 
               <h1 className="mt-4 text-3xl font-semibold tracking-tight text-slate-900">
                 {shop.name}
               </h1>
 
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-                {t(
-                  language,
-                  'Sales, stock, credit, gas, mobile money and reports in one elegant workspace.',
-                  'Mauzo, stock, madeni, gesi, wakala na ripoti katika eneo moja lenye mwonekano wa kifahari.'
-                )}
-              </p>
+
+              <div
+                className={`mt-3 inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-bold ${
+                  isOnline
+                    ? 'bg-emerald-100 text-emerald-800'
+                    : 'bg-orange-100 text-orange-800'
+                }`}
+              >
+                <span
+                  className={`h-2.5 w-2.5 rounded-full ${
+                    isOnline
+                      ? 'bg-emerald-500'
+                      : 'bg-orange-500'
+                  }`}
+                />
+
+                {!isOnline
+                  ? t(language, 'Offline', 'Hakuna mtandao')
+                  : /checking|syncing|pending|refreshing|inasawazisha/i.test(
+                        String(syncMessage || '')
+                      )
+                    ? t(language, 'Refreshing...', 'Inasawazisha...')
+                    : t(language, 'Refresh complete', 'Imesawazishwa')}
+              </div>
             </div>
 
             <div className="flex flex-wrap items-center justify-end gap-2">
@@ -18193,6 +18209,8 @@ if (isHydrating) {
   language={language}
   setLanguage={setLanguage}
   dashboardDataReady={dashboardDataReady}
+  isOnline={isOnline}
+  syncMessage={syncMessage}
 />
   </>
 );
@@ -18216,6 +18234,8 @@ return (
   exportBackup={exportBackup}
   dashboardDataReady={dashboardDataReady}
   setSyncMessage={setSyncMessage}
+  isOnline={isOnline}
+  syncMessage={syncMessage}
 />
 
 
