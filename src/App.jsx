@@ -5977,6 +5977,35 @@ const [stockSearch, setStockSearch] = useState('');
         const existingJournalRecords =
           await readSalesJournalRecords();
 
+        const localTodayJournalRecords =
+          existingJournalRecords
+            .filter(
+              (record) =>
+                String(
+                  record?.shop_id || ''
+                ).trim() ===
+                  currentShopId &&
+                String(
+                  record?.date || ''
+                ).slice(0, 10) ===
+                  currentDate
+            )
+            .sort(
+              (a, b) =>
+                new Date(
+                  a?.created_at || 0
+                ).getTime() -
+                new Date(
+                  b?.created_at || 0
+                ).getTime()
+            );
+
+        if (!cancelled) {
+          setSalesJournalRecords(
+            localTodayJournalRecords
+          );
+        }
+
         const existingJournalById = new Map(
           existingJournalRecords.map((record) => [
             String(record?.id || '').trim(),
@@ -6641,6 +6670,49 @@ useEffect(() => {
         const existingJournalRecords =
           await readSalesJournalRecords();
 
+        const localViewRecords = (
+          Array.isArray(
+            existingJournalRecords
+          )
+            ? existingJournalRecords
+            : []
+        )
+          .filter((record) => {
+            const recordShopId =
+              String(
+                record?.shop_id || ''
+              ).trim();
+
+            const recordDate =
+              String(
+                record?.date || ''
+              ).slice(0, 10);
+
+            return (
+              recordShopId ===
+                currentShopId &&
+              recordDate >=
+                startDate &&
+              recordDate <=
+                endDate
+            );
+          })
+          .sort(
+            (a, b) =>
+              new Date(
+                a?.created_at || 0
+              ).getTime() -
+              new Date(
+                b?.created_at || 0
+              ).getTime()
+          );
+
+        if (!cancelled) {
+          setSalesJournalViewRecords(
+            localViewRecords
+          );
+        }
+
         const {
           data: confirmedPeriodSales,
           error: confirmedPeriodSalesError,
@@ -6784,13 +6856,8 @@ useEffect(() => {
         );
 
         if (!cancelled) {
-          setSalesJournalViewRecords(
-            []
-          );
-
           setSalesJournalViewError(
-            error?.message ||
-              'Selected Sales Journal period could not be loaded.'
+            'Mtandao haupatikani kwa sasa. Mauzo yako yamehifadhiwa salama na yanaonekana.'
           );
         }
       } finally {
@@ -7172,16 +7239,6 @@ const shopCalculationData = useMemo(() => {
       : Array.isArray(data.sales)
         ? data.sales
         : [];
-
-  if (
-    salesJournalLoading ||
-    salesJournalError
-  ) {
-    return {
-      ...data,
-      sales: baseSales,
-    };
-  }
 
   const journalTodaySales =
     salesJournalRecords
