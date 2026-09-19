@@ -8985,21 +8985,28 @@ const serviceChargeSections = [
                       reminder.status === 'Failed'
                   );
 
-                const visibleReminders = [
-                  ...rentSmsReminders,
-                ].sort(
-                  (first, second) =>
-                    new Date(
-                      first.scheduledDate ||
-                        first.created_at ||
-                        0
-                    ) -
-                    new Date(
-                      second.scheduledDate ||
-                        second.created_at ||
-                        0
+                const visibleReminders =
+                  rentSmsReminders
+                    .filter((reminder) =>
+                      [
+                        'Pending',
+                        'Sent',
+                        'Delivered',
+                      ].includes(reminder.status)
                     )
-                );
+                    .sort(
+                      (first, second) =>
+                        new Date(
+                          first.scheduledDate ||
+                            first.created_at ||
+                            0
+                        ) -
+                        new Date(
+                          second.scheduledDate ||
+                            second.created_at ||
+                            0
+                        )
+                    );
 
                 const reminderStatusClass = (reminder) => {
                   if (
