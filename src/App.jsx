@@ -3148,11 +3148,38 @@ const submit = async (e) => {
     name: authError.name,
   });
 
-  setError(
-    `Supabase: ${authError.message || 'Unknown login error'}${
-      authError.code ? ` (${authError.code})` : ''
-    }`
+  const authMessage = String(
+    authError.message || ''
+  ).toLowerCase();
+
+  const authStatus = Number(
+    authError.status || 0
   );
+
+  const isInvalidCredentials =
+    authStatus === 400 &&
+    (
+      authMessage.includes('invalid login credentials') ||
+      authMessage.includes('invalid credentials')
+    );
+
+  if (isInvalidCredentials) {
+    setError(
+      t(
+        language,
+        'Wrong username or password.',
+        'Jina la mtumiaji au nenosiri si sahihi.'
+      )
+    );
+  } else {
+    setError(
+      t(
+        language,
+        'Supabase is temporarily unavailable. Please try again.',
+        'Mtandao haupatikani kwa sasa. Tafadhali jaribu tena baadae.'
+      )
+    );
+  }
 
   return;
 }
