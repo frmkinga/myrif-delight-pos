@@ -6,7 +6,8 @@ import {
   HOME_EXPENSES_PERFORMANCE_START_DATE,
 } from '../remittance/DailyRemittanceCentre';
 
-const HOME_EXPENSES_START_DATE = '2026-08-01';
+const HOME_EXPENSES_START_DATE =
+  HOME_EXPENSES_PERFORMANCE_START_DATE;
 /*
  * Read Home Expenses funding from one consistent set of fields.
  * Historical dates retain the old funding calculation.
@@ -2687,6 +2688,13 @@ const moneyReceived =
       gasContribution +
       confirmedAdditionalFunding;
 
+      if (
+        dateKey === PERMANENT_HOME_FUNDS_START_DATE
+      ) {
+        runningOldDebt = 0;
+        runningSavings = 0;
+      }
+
       const riceMonthKey = String(dateKey).slice(0, 7);
 
       if (riceMonthKey !== runningRiceMonthKey) {
@@ -4480,11 +4488,11 @@ const moneyReceived =
     </h3>
 
     <p className="mt-1 text-sm font-bold text-slate-500">
-      t(
-  language,
-  'This report tracks daily Home Expenses funding, usage, surplus or shortfall, remaining debt and fund balance.',
-  'Ripoti hii inafuatilia fedha za Matumizi ya Nyumbani zilizoingia, zilizotumika, ziada au pungufu, deni lililobaki na salio la mfuko kwa kila siku.'
-)
+      {t(
+        language,
+        'This report tracks daily Home Expenses funding, usage, surplus or shortfall, remaining debt and fund balance.',
+        'Ripoti hii inafuatilia fedha za Matumizi ya Nyumbani zilizoingia, zilizotumika, ziada au pungufu, deni lililobaki na salio la mfuko kwa kila siku.'
+      )}
     </p>
     <div className="mt-4 grid gap-3 md:grid-cols-3">
   <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm">

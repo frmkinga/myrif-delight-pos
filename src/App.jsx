@@ -15840,25 +15840,15 @@ if (salesMode === 'year') {
       throw new Error('Supabase sales response was not a valid list.');
     }
 
-    let centralFundTransactionsQuery = supabase
+    const {
+      data: cloudCentralFundTransactions,
+      error: centralFundTransactionsError,
+    } = await supabase
       .from('centralFundTransactions')
       .select('*')
       .order('created_at', {
         ascending: false,
       });
-
-    if (!isOwnerUser) {
-      centralFundTransactionsQuery =
-        centralFundTransactionsQuery.eq(
-          'shop_id',
-          shopId
-        );
-    }
-
-    const {
-      data: cloudCentralFundTransactions,
-      error: centralFundTransactionsError,
-    } = await centralFundTransactionsQuery;
 
     if (centralFundTransactionsError) {
       throw centralFundTransactionsError;
