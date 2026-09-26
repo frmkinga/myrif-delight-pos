@@ -258,6 +258,17 @@ const emptyWaterPaymentForm = {
   notes: '',
 };
 
+const emptyWaterBillCorrectionForm = {
+  billId: '',
+  previousReadingDate: '',
+  readingDate: '',
+  previousUnits: '',
+  currentUnits: '',
+  costPerUnit: String(WATER_UNIT_PRICE),
+  discount: '',
+  reason: '',
+};
+
 const emptyWaterSupplierBillForm = {
   id: '',
   billNumber: '',
@@ -272,7 +283,7 @@ const emptyWaterFundExpenseForm = {
   expenseType: 'DAWASCO Payment',
   expenseDate: todayISO(),
   amount: '',
-  payee: '',
+  payee: 'DAWASCO',
   referenceNumber: '',
   notes: '',
 };
@@ -386,6 +397,120 @@ const waterPaymentAllocations = Array.isArray(
 )
   ? data.waterPaymentAllocations
   : [];
+
+const waterBillCorrections = Array.isArray(
+  data?.waterBillCorrections
+)
+  ? data.waterBillCorrections
+  : [];
+
+const refreshWaterBillCorrectionRecords = async () => {
+  const shopId =
+    data?.currentUser?.shop_id ||
+    data?.currentUser?.shopId ||
+    'shop-1';
+
+  const [
+    { data: refreshedBills, error: billsError },
+    { data: refreshedCorrections, error: correctionsError },
+  ] = await Promise.all([
+    supabase
+      .from('waterBills')
+      .select('*')
+      .eq('shop_id', shopId),
+
+    supabase
+      .from('waterBillCorrections')
+      .select('*')
+      .eq('shop_id', shopId)
+      .order('created_at', {
+        ascending: false,
+      }),
+  ]);
+
+  if (billsError || correctionsError) {
+    throw billsError || correctionsError;
+  }
+
+  const normalizedBills = (refreshedBills || []).map(
+    (bill) => ({
+      ...bill,
+      previousUnits: Number(bill.previousUnits || 0),
+      currentUnits: Number(bill.currentUnits || 0),
+      unitsUsed: Number(bill.unitsUsed || 0),
+      costPerUnit: Number(bill.costPerUnit || 0),
+      discount: Number(bill.discount || 0),
+      currentBillAmount: Number(
+        bill.currentBillAmount || 0
+      ),
+      previousBalance: Number(
+        bill.previousBalance || 0
+      ),
+      totalPayable: Number(bill.totalPayable || 0),
+      amountPaid: Number(bill.amountPaid || 0),
+      balance: Number(bill.balance || 0),
+    })
+  );
+
+  saveData({
+    ...data,
+    waterBills: normalizedBills,
+    waterBillCorrections:
+      refreshedCorrections || [],
+  });
+
+  return {
+    bills: normalizedBills,
+    corrections: refreshedCorrections || [],
+  };
+};
+
+useEffect(() => {
+  let isWaterCorrectionLoadActive = true;
+
+  const loadPermanentWaterCorrectionRecords =
+    async () => {
+      const shopId =
+        data?.currentUser?.shop_id ||
+        data?.currentUser?.shopId ||
+        'shop-1';
+
+      const {
+        data: correctionRecords,
+        error: correctionError,
+      } = await supabase
+        .from('waterBillCorrections')
+        .select('*')
+        .eq('shop_id', shopId)
+        .order('created_at', {
+          ascending: false,
+        });
+
+      if (correctionError) {
+        console.error(
+          'Water bill correction history failed to load:',
+          correctionError
+        );
+        return;
+      }
+
+      if (!isWaterCorrectionLoadActive) {
+        return;
+      }
+
+      saveData({
+        ...data,
+        waterBillCorrections:
+          correctionRecords || [],
+      });
+    };
+
+  loadPermanentWaterCorrectionRecords();
+
+  return () => {
+    isWaterCorrectionLoadActive = false;
+  };
+}, [data?.currentUser?.id]);
 
 const serviceCharges = Array.isArray(data?.serviceCharges)
   ? data.serviceCharges
@@ -833,6 +958,23 @@ useEffect(() => {
 
 const [isWaterPaymentOpen, setIsWaterPaymentOpen] = useState(false);
 const [isSavingWaterPayment, setIsSavingWaterPayment] = useState(false);
+
+const [
+  waterBillCorrectionForm,
+  setWaterBillCorrectionForm,
+] = useState({
+  ...emptyWaterBillCorrectionForm,
+});
+
+const [
+  isWaterBillCorrectionOpen,
+  setIsWaterBillCorrectionOpen,
+] = useState(false);
+
+const [
+  isSavingWaterBillCorrection,
+  setIsSavingWaterBillCorrection,
+] = useState(false);
 
 const [waterSupplierBillForm, setWaterSupplierBillForm] = useState({
   ...emptyWaterSupplierBillForm,
@@ -3696,72 +3838,105 @@ const saveWaterFundExpense = async () => {
 
   if (
     isDawascoPayment &&
-    !waterFundExpenseForm.supplierBillId
+    !waterFundExpenseForm.id &&
+    expenseAmount > availableWaterCashThisMonth
   ) {
     alert(
       t(
         language,
-        'Select the DAWASCO bill being paid.',
-        'Chagua ankara ya DAWASCO inayolipwa.'
+        `The amount entered exceeds the TZS ${currency(
+          availableWaterCashThisMonth
+        )} currently available in the Water Fund.`,
+        `Kiasi kilichoingizwa kinazidi TZS ${currency(
+          availableWaterCashThisMonth
+        )} iliyopo sasa kwenye Mfuko wa Maji.`
       )
     );
     return;
   }
 
-  if (isDawascoPayment) {
-    const selectedBill = activeWaterSupplierBills.find(
-      (bill) =>
-        String(bill.id || '') ===
-        String(
-          waterFundExpenseForm.supplierBillId || ''
-        )
-    );
+  const outstandingDawascoBills =
+    activeWaterSupplierBills
+      .map((bill) => {
+        const amountAlreadyPaid =
+          activeWaterFundExpenses
+            .filter(
+              (expense) =>
+                String(
+                  expense.supplierBillId || ''
+                ) === String(bill.id || '') &&
+                String(
+                  expense.expenseType || ''
+                ) === 'DAWASCO Payment'
+            )
+            .reduce(
+              (total, expense) =>
+                total +
+                Number(expense.amount || 0),
+              0
+            );
 
-    if (!selectedBill) {
-      alert(
-        t(
-          language,
-          'The selected DAWASCO bill was not found.',
-          'Ankara ya DAWASCO iliyochaguliwa haijapatikana.'
-        )
-      );
-      return;
-    }
-
-    const amountAlreadyPaid = activeWaterFundExpenses
+        return {
+          ...bill,
+          remainingBalance: Math.max(
+            0,
+            Number(bill.billAmount || 0) -
+              amountAlreadyPaid
+          ),
+        };
+      })
       .filter(
-        (expense) =>
-          String(expense.supplierBillId || '') ===
-            String(selectedBill.id || '') &&
-          String(expense.expenseType || '') ===
-            'DAWASCO Payment'
+        (bill) =>
+          Number(bill.remainingBalance || 0) > 0
       )
-      .reduce(
-        (total, expense) =>
-          total + Number(expense.amount || 0),
-        0
+      .sort(
+        (a, b) =>
+          new Date(
+            a.billDate ||
+              a.created_at ||
+              0
+          ).getTime() -
+          new Date(
+            b.billDate ||
+              b.created_at ||
+              0
+          ).getTime()
       );
 
-    const remainingBillBalance = Math.max(
-      0,
-      Number(selectedBill.billAmount || 0) -
-        amountAlreadyPaid
+  const totalOutstandingDawasco =
+    outstandingDawascoBills.reduce(
+      (total, bill) =>
+        total +
+        Number(bill.remainingBalance || 0),
+      0
     );
 
-    if (expenseAmount > remainingBillBalance) {
-      alert(
-        t(
-          language,
-          `The payment exceeds the remaining DAWASCO balance of TZS ${currency(
-            remainingBillBalance
-          )}.`,
-          `Malipo yanazidi salio la DAWASCO la TZS ${currency(
-            remainingBillBalance
-          )}.`
-        )
-      );
-      return;
-    }
+  const amountToDawasco = isDawascoPayment
+    ? Math.min(
+        expenseAmount,
+        totalOutstandingDawasco
+      )
+    : 0;
+
+  const amountRemainingInFund = isDawascoPayment
+    ? Math.max(
+        0,
+        expenseAmount - amountToDawasco
+      )
+    : 0;
+
+  if (
+    isDawascoPayment &&
+    totalOutstandingDawasco <= 0
+  ) {
+    alert(
+      t(
+        language,
+        'There is no outstanding DAWASCO bill to clear. The money should remain in the Water Fund.',
+        'Hakuna deni la DAWASCO linalodaiwa. Fedha zinapaswa kubaki kwenye Mfuko wa Maji.'
+      )
+    );
+    return;
   }
 
   const shopId = String(
@@ -3770,15 +3945,10 @@ const saveWaterFundExpense = async () => {
       'shop-1'
   ).trim();
 
-  const record = {
-    id: `water-fund-expense-${Date.now()}`,
+  const baseRecord = {
     shop_id: shopId,
-    supplierBillId: isDawascoPayment
-      ? waterFundExpenseForm.supplierBillId
-      : null,
     expenseType: waterFundExpenseForm.expenseType,
     expenseDate: waterFundExpenseForm.expenseDate,
-    amount: expenseAmount,
     payee: String(
       waterFundExpenseForm.payee ||
         (isDawascoPayment ? 'DAWASCO' : '')
@@ -3787,14 +3957,75 @@ const saveWaterFundExpense = async () => {
       waterFundExpenseForm.referenceNumber || ''
     ).trim(),
     status: 'Active',
-correctedFromId:
-  waterFundExpenseForm.id || null,
-notes: String(
-  waterFundExpenseForm.notes || ''
-).trim(),
+    correctedFromId:
+      waterFundExpenseForm.id || null,
+    notes: String(
+      waterFundExpenseForm.notes || ''
+    ).trim(),
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
+
+  let recordsToSave = [];
+
+  if (
+    isDawascoPayment &&
+    !waterFundExpenseForm.id
+  ) {
+    let amountStillAvailable =
+      amountToDawasco;
+
+    recordsToSave =
+      outstandingDawascoBills
+        .map((bill, index) => {
+          if (amountStillAvailable <= 0) {
+            return null;
+          }
+
+          const amountApplied = Math.min(
+            amountStillAvailable,
+            Number(
+              bill.remainingBalance || 0
+            )
+          );
+
+          amountStillAvailable -=
+            amountApplied;
+
+          return {
+            ...baseRecord,
+            id: `water-fund-expense-${Date.now()}-${index}`,
+            supplierBillId: bill.id,
+            amount: amountApplied,
+            notes: [
+              baseRecord.notes,
+              `Automatic DAWASCO allocation: TZS ${currency(
+                amountApplied
+              )} applied to ${
+                bill.billNumber ||
+                bill.controlNumber ||
+                bill.id
+              }.`,
+            ]
+              .filter(Boolean)
+              .join(' '),
+          };
+        })
+        .filter(Boolean);
+  } else {
+    recordsToSave = [
+      {
+        ...baseRecord,
+        id: `water-fund-expense-${Date.now()}`,
+        supplierBillId: isDawascoPayment
+          ? waterFundExpenseForm.supplierBillId
+          : null,
+        amount: expenseAmount,
+      },
+    ];
+  }
+
+  const record = recordsToSave[0];
 
 setIsSavingWaterFundExpense(true);
 
@@ -3822,7 +4053,7 @@ if (waterFundExpenseForm.id) {
 } else {
   const { error: insertError } = await supabase
     .from('waterFundExpenses')
-    .insert([record]);
+    .insert(recordsToSave);
 
   error = insertError;
 }
@@ -3841,23 +4072,26 @@ setIsSavingWaterFundExpense(false);
   }
 
   saveData({
-  ...data,
-  waterFundExpenses: waterFundExpenseForm.id
-    ? [
-        record,
-        ...waterFundExpenses.map((expense) =>
-          String(expense.id || '') ===
-          String(waterFundExpenseForm.id || '')
-            ? {
-                ...expense,
-                status: 'Reversed',
-                updated_at: new Date().toISOString(),
-              }
-            : expense
-        ),
-      ]
-    : [record, ...waterFundExpenses],
-});
+    ...data,
+    waterFundExpenses: waterFundExpenseForm.id
+      ? [
+          record,
+          ...waterFundExpenses.map((expense) =>
+            String(expense.id || '') ===
+            String(waterFundExpenseForm.id || '')
+              ? {
+                  ...expense,
+                  status: 'Reversed',
+                  updated_at: new Date().toISOString(),
+                }
+              : expense
+          ),
+        ]
+      : [
+          ...recordsToSave,
+          ...waterFundExpenses,
+        ],
+  });
 
   setWaterFundExpenseForm({
     ...emptyWaterFundExpenseForm,
@@ -3865,13 +4099,38 @@ setIsSavingWaterFundExpense(false);
 
   setIsWaterFundExpenseFormOpen(false);
 
-  alert(
-    t(
-      language,
-      'The water expense has been saved permanently.',
-      'Matumizi ya maji yamehifadhiwa kwa kudumu.'
-    )
-  );
+  if (
+    isDawascoPayment &&
+    !waterFundExpenseForm.id
+  ) {
+    alert(
+      t(
+        language,
+        `DAWASCO allocation saved successfully.\n\nAmount entered: TZS ${currency(
+          expenseAmount
+        )}\nApplied to DAWASCO: TZS ${currency(
+          amountToDawasco
+        )}\nRemaining in Water Fund: TZS ${currency(
+          amountRemainingInFund
+        )}`,
+        `Mgawanyo wa DAWASCO umehifadhiwa vizuri.\n\nKiasi kilichoingizwa: TZS ${currency(
+          expenseAmount
+        )}\nKilichotumika kulipa DAWASCO: TZS ${currency(
+          amountToDawasco
+        )}\nKilichobaki Mfuko wa Maji: TZS ${currency(
+          amountRemainingInFund
+        )}`
+      )
+    );
+  } else {
+    alert(
+      t(
+        language,
+        'The water expense has been saved permanently.',
+        'Matumizi ya maji yamehifadhiwa kwa kudumu.'
+      )
+    );
+  }
 };
 
 const reverseWaterFundExpense = async (expense) => {
@@ -4883,6 +5142,214 @@ const startWaterPayment = (bill) => {
 
   setIsWaterPaymentOpen(true);
 };
+
+const openWaterBillCorrectionForm = (bill) => {
+  if (!bill?.id) {
+    return;
+  }
+
+  setWaterBillCorrectionForm({
+    ...emptyWaterBillCorrectionForm,
+    billId: bill.id,
+    previousReadingDate:
+      bill.billingPeriodStart || '',
+    readingDate: bill.readingDate || '',
+    previousUnits: String(
+      Number(bill.previousUnits || 0)
+    ),
+    currentUnits: String(
+      Number(bill.currentUnits || 0)
+    ),
+    costPerUnit: String(
+      Number(
+        bill.costPerUnit || WATER_UNIT_PRICE
+      )
+    ),
+    discount: String(
+      Number(bill.discount || 0)
+    ),
+    reason: '',
+  });
+
+  setIsWaterBillCorrectionOpen(true);
+};
+
+const saveWaterBillCorrection = async () => {
+  const selectedBill = waterBills.find(
+    (bill) =>
+      String(bill.id) ===
+      String(waterBillCorrectionForm.billId)
+  );
+
+  if (!selectedBill) {
+    alert(
+      t(
+        language,
+        'The selected water bill could not be found.',
+        'Ankara ya maji iliyochaguliwa haijapatikana.'
+      )
+    );
+    return;
+  }
+
+  const previousUnits = Number(
+    waterBillCorrectionForm.previousUnits || 0
+  );
+
+  const currentUnits = Number(
+    waterBillCorrectionForm.currentUnits || 0
+  );
+
+  const costPerUnit = Number(
+    waterBillCorrectionForm.costPerUnit || 0
+  );
+
+  const discount = Number(
+    waterBillCorrectionForm.discount || 0
+  );
+
+  const reason = String(
+    waterBillCorrectionForm.reason || ''
+  ).trim();
+
+  if (
+    !waterBillCorrectionForm.readingDate ||
+    currentUnits < previousUnits ||
+    costPerUnit <= 0 ||
+    discount < 0 ||
+    !reason
+  ) {
+    alert(
+      t(
+        language,
+        'Check the reading date, meter readings, unit price, discount and correction reason.',
+        'Kagua tarehe ya usomaji, usomaji wa mita, bei kwa unit, punguzo na sababu ya marekebisho.'
+      )
+    );
+    return;
+  }
+
+  const correctedUnitsUsed =
+    currentUnits - previousUnits;
+
+  const correctedBillAmount = Math.max(
+    0,
+    correctedUnitsUsed * costPerUnit - discount
+  );
+
+  const amountAlreadyPaid = Number(
+    selectedBill.amountPaid || 0
+  );
+
+  if (correctedBillAmount < amountAlreadyPaid) {
+    alert(
+      t(
+        language,
+        `The corrected bill of TZS ${currency(
+          correctedBillAmount
+        )} cannot be below the TZS ${currency(
+          amountAlreadyPaid
+        )} already allocated to this bill.`,
+        `Ankara iliyosahihishwa ya TZS ${currency(
+          correctedBillAmount
+        )} haiwezi kuwa chini ya TZS ${currency(
+          amountAlreadyPaid
+        )} ambayo tayari imelipwa kwenye ankara hii.`
+      )
+    );
+    return;
+  }
+
+  const confirmed = window.confirm(
+    t(
+      language,
+      `Correct the water bill for ${
+        selectedBill.houseNumber || '-'
+      } from TZS ${currency(
+        selectedBill.currentBillAmount || 0
+      )} to TZS ${currency(
+        correctedBillAmount
+      )}? The original values will remain in correction history.`,
+      `Usahihishe ankara ya maji ya ${
+        selectedBill.houseNumber || '-'
+      } kutoka TZS ${currency(
+        selectedBill.currentBillAmount || 0
+      )} kwenda TZS ${currency(
+        correctedBillAmount
+      )}? Taarifa za awali zitabaki kwenye historia ya marekebisho.`
+    )
+  );
+
+  if (!confirmed) {
+    return;
+  }
+
+  setIsSavingWaterBillCorrection(true);
+
+  try {
+    const {
+      data: correctionResult,
+      error: correctionError,
+    } = await supabase.rpc(
+      'correct_water_bill',
+      {
+        p_bill_id: selectedBill.id,
+        p_previous_reading_date:
+          waterBillCorrectionForm.previousReadingDate ||
+          null,
+        p_reading_date:
+          waterBillCorrectionForm.readingDate,
+        p_previous_units: previousUnits,
+        p_current_units: currentUnits,
+        p_cost_per_unit: costPerUnit,
+        p_discount: discount,
+        p_reason: reason,
+      }
+    );
+
+    if (correctionError) {
+      throw correctionError;
+    }
+
+    await refreshWaterBillCorrectionRecords();
+
+    setWaterBillCorrectionForm({
+      ...emptyWaterBillCorrectionForm,
+    });
+
+    setIsWaterBillCorrectionOpen(false);
+
+    alert(
+      t(
+        language,
+        `Water bill corrected successfully. New bill: TZS ${currency(
+          correctionResult?.currentBillAmount ??
+            correctedBillAmount
+        )}.`,
+        `Ankara ya maji imesahihishwa vizuri. Ankara mpya: TZS ${currency(
+          correctionResult?.currentBillAmount ??
+            correctedBillAmount
+        )}.`
+      )
+    );
+  } catch (error) {
+    alert(
+      t(
+        language,
+        `Correcting the water bill failed: ${
+          error?.message || 'Unknown error'
+        }`,
+        `Kusahihisha ankara ya maji kumeshindikana: ${
+          error?.message ||
+          'Hitilafu isiyojulikana'
+        }`
+      )
+    );
+  } finally {
+    setIsSavingWaterBillCorrection(false);
+  }
+};
+
   const saveServiceChargeHouseSetting =
     async () => {
       const selectedHouse = houses.find(
@@ -6277,29 +6744,145 @@ const availableWaterCash =
 
 const realWaterFundBalance =
   availableWaterCash - unpaidDawascoBalance;
-  const currentWaterMonth = todayISO().slice(0, 7);
+const getUtilityReportingPeriod = () => {
+  const today = todayISO();
+  const [year, month, day] = today
+    .split('-')
+    .map(Number);
+
+  let periodStart;
+  let periodEnd;
+
+  if (day >= 22) {
+    periodStart =
+      `${year}-${String(month).padStart(2, '0')}-22`;
+
+    const nextMonthDate = new Date(
+      Date.UTC(year, month, 1)
+    );
+
+    periodEnd =
+      `${nextMonthDate.getUTCFullYear()}-${String(
+        nextMonthDate.getUTCMonth() + 1
+      ).padStart(2, '0')}-21`;
+  } else {
+    const previousMonthDate = new Date(
+      Date.UTC(year, month - 2, 1)
+    );
+
+    periodStart =
+      `${previousMonthDate.getUTCFullYear()}-${String(
+        previousMonthDate.getUTCMonth() + 1
+      ).padStart(2, '0')}-22`;
+
+    periodEnd =
+      `${year}-${String(month).padStart(2, '0')}-21`;
+  }
+
+  return {
+    start: periodStart,
+    end: periodEnd,
+  };
+};
+
+const currentUtilityPeriod =
+  getUtilityReportingPeriod();
+
+const isDateInCurrentUtilityPeriod = (value) => {
+  const date = String(value || '').slice(0, 10);
+
+  return (
+    date >= currentUtilityPeriod.start &&
+    date <= currentUtilityPeriod.end
+  );
+};
+
+const waterBillsThisMonth = waterBills.filter(
+  (bill) =>
+    isDateInCurrentUtilityPeriod(
+      bill.billDate ||
+        bill.readingDate ||
+        bill.createdAt
+    )
+);
 
 const waterPaymentsThisMonth = waterPayments.filter(
   (payment) =>
-    String(payment.paymentDate || '').slice(0, 7) ===
-    currentWaterMonth
+    isDateInCurrentUtilityPeriod(
+      payment.paymentDate
+    )
 );
 
+const [utilityPeriodStartYear, utilityPeriodStartMonth] =
+  currentUtilityPeriod.start
+    .split('-')
+    .map(Number);
+
+const dawascoPeriodStart =
+  `${utilityPeriodStartYear}-${String(
+    utilityPeriodStartMonth
+  ).padStart(2, '0')}-13`;
+
+const dawascoPeriodEnd =
+  `${utilityPeriodStartYear}-${String(
+    utilityPeriodStartMonth
+  ).padStart(2, '0')}-30`;
+
 const supplierBillsThisMonth = activeWaterSupplierBills.filter(
-  (bill) =>
-    String(bill.billDate || '').slice(0, 7) ===
-    currentWaterMonth
+  (bill) => {
+    const billDate = String(
+      bill.billDate || ''
+    ).slice(0, 10);
+
+    return (
+      billDate >= dawascoPeriodStart &&
+      billDate <= dawascoPeriodEnd
+    );
+  }
 );
 
 const waterExpensesThisMonth = activeWaterFundExpenses.filter(
   (expense) =>
-    String(expense.expenseDate || '').slice(0, 7) ===
-    currentWaterMonth
+    isDateInCurrentUtilityPeriod(
+      expense.expenseDate
+    )
 );
 
-const waterCollectedThisMonth = waterPaymentsThisMonth.reduce(
+const waterAmountThisMonth = waterBillsThisMonth.reduce(
+  (total, bill) =>
+    total + Number(bill.currentBillAmount || 0),
+  0
+);
+
+const currentWaterBillIds = new Set(
+  waterBillsThisMonth.map((bill) =>
+    String(bill.id || '')
+  )
+);
+
+const waterCollectedThisMonth =
+  waterPaymentAllocations
+    .filter((allocation) =>
+      currentWaterBillIds.has(
+        String(allocation.billId || '')
+      )
+    )
+    .reduce(
+      (total, allocation) =>
+        total +
+        Number(allocation.allocatedAmount || 0),
+      0
+    );
+
+const waterOutstandingThisMonth = waterBillsThisMonth.reduce(
+  (total, bill) =>
+    total + Number(bill.balance || 0),
+  0
+);
+
+const waterCreditThisMonth = waterPayments.reduce(
   (total, payment) =>
-    total + Number(payment.amountReceived || 0),
+    total + Number(payment.unappliedAmount || 0),
   0
 );
 
@@ -6314,6 +6897,101 @@ const waterExpensesPaidThisMonth = waterExpensesThisMonth.reduce(
     total + Number(expense.amount || 0),
   0
 );
+
+const waterCashCollectedThisMonth = waterPaymentsThisMonth.reduce(
+  (total, payment) =>
+    total + Number(payment.amountReceived || 0),
+  0
+);
+
+const previousWaterPayments = waterPayments.filter(
+  (payment) =>
+    String(payment.paymentDate || '').slice(0, 10) <
+    currentUtilityPeriod.start
+);
+
+const previousWaterExpenses = activeWaterFundExpenses.filter(
+  (expense) =>
+    String(expense.expenseDate || '').slice(0, 10) <
+    currentUtilityPeriod.start
+);
+
+const previousDawascoBills = activeWaterSupplierBills.filter(
+  (bill) =>
+    String(bill.billDate || '').slice(0, 10) <
+    dawascoPeriodStart
+);
+
+const previousWaterCashCollected = previousWaterPayments.reduce(
+  (total, payment) =>
+    total + Number(payment.amountReceived || 0),
+  0
+);
+
+const previousWaterExpensesPaid = previousWaterExpenses.reduce(
+  (total, expense) =>
+    total + Number(expense.amount || 0),
+  0
+);
+
+const previousDawascoBillsTotal = previousDawascoBills.reduce(
+  (total, bill) =>
+    total + Number(bill.billAmount || 0),
+  0
+);
+
+const previousDawascoPayments = previousWaterExpenses
+  .filter(
+    (expense) =>
+      String(expense.expenseType || '') ===
+      'DAWASCO Payment'
+  )
+  .reduce(
+    (total, expense) =>
+      total + Number(expense.amount || 0),
+    0
+  );
+
+const previousUnpaidDawascoBalance = Math.max(
+  0,
+  previousDawascoBillsTotal -
+    previousDawascoPayments
+);
+
+const openingWaterFundBalance = Math.max(
+  0,
+  previousWaterCashCollected -
+    previousWaterExpensesPaid -
+    previousUnpaidDawascoBalance
+);
+
+const dawascoPaymentsThisMonth = waterExpensesThisMonth
+  .filter(
+    (expense) =>
+      String(expense.expenseType || '') ===
+      'DAWASCO Payment'
+  )
+  .reduce(
+    (total, expense) =>
+      total + Number(expense.amount || 0),
+    0
+  );
+
+const unpaidDawascoThisMonth = Math.max(
+  0,
+  dawascoBillsThisMonth -
+    dawascoPaymentsThisMonth
+);
+
+const availableWaterCashThisMonth =
+  openingWaterFundBalance +
+  waterCashCollectedThisMonth -
+  waterExpensesPaidThisMonth;
+
+const realWaterFundBalanceThisMonth =
+  availableWaterCashThisMonth -
+  unpaidDawascoThisMonth;
+
 const totalDiscount = waterBills.reduce(
   (total, bill) =>
     total + Number(bill.discount || 0),
@@ -6950,6 +7628,434 @@ const serviceChargeSections = [
             </div>
           </div>
         )}
+
+{isWaterBillCorrectionOpen ? (() => {
+  const selectedBill = waterBills.find(
+    (bill) =>
+      String(bill.id) ===
+      String(waterBillCorrectionForm.billId)
+  );
+
+  const correctedPreviousUnits = Number(
+    waterBillCorrectionForm.previousUnits || 0
+  );
+
+  const correctedCurrentUnits = Number(
+    waterBillCorrectionForm.currentUnits || 0
+  );
+
+  const correctedUnitsUsed = Math.max(
+    0,
+    correctedCurrentUnits -
+      correctedPreviousUnits
+  );
+
+  const correctedCostPerUnit = Number(
+    waterBillCorrectionForm.costPerUnit || 0
+  );
+
+  const correctedDiscount = Number(
+    waterBillCorrectionForm.discount || 0
+  );
+
+  const correctedBillAmount = Math.max(
+    0,
+    correctedUnitsUsed *
+      correctedCostPerUnit -
+      correctedDiscount
+  );
+
+  const amountAlreadyPaid = Number(
+    selectedBill?.amountPaid || 0
+  );
+
+  const correctedBalance = Math.max(
+    0,
+    correctedBillAmount -
+      amountAlreadyPaid
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
+      <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
+        <div className="bg-gradient-to-r from-cyan-800 to-blue-800 p-6">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h3 className="text-xl font-bold text-white">
+                {t(
+                  language,
+                  'Correct Water Bill',
+                  'Sahihisha Ankara ya Maji'
+                )}
+              </h3>
+
+              <p className="mt-1 text-sm text-cyan-100">
+                {t(
+                  language,
+                  'The original bill will remain permanently in the correction history.',
+                  'Ankara ya awali itabaki kwenye historia ya marekebisho.'
+                )}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-white/15 text-xl font-bold text-white hover:bg-white/25"
+              onClick={() => {
+                setIsWaterBillCorrectionOpen(false);
+                setWaterBillCorrectionForm({
+                  ...emptyWaterBillCorrectionForm,
+                });
+              }}
+            >
+              ×
+            </button>
+          </div>
+        </div>
+
+        <div className="space-y-6 p-6">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-xs text-slate-500">
+                {t(language, 'House', 'Nyumba')}
+              </p>
+              <p className="mt-1 font-bold text-slate-900">
+                {selectedBill?.houseNumber || '-'}
+              </p>
+            </div>
+
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-xs text-slate-500">
+                {t(language, 'Tenant', 'Mpangaji')}
+              </p>
+              <p className="mt-1 font-bold text-slate-900">
+                {selectedBill?.tenantName || '-'}
+              </p>
+            </div>
+
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-xs text-slate-500">
+                {t(language, 'Meter', 'Mita')}
+              </p>
+              <p className="mt-1 font-bold text-slate-900">
+                {selectedBill?.meterNumber || '-'}
+              </p>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="mb-3 text-sm font-bold text-slate-900">
+              {t(
+                language,
+                'Original Bill',
+                'Ankara ya Awali'
+              )}
+            </p>
+
+            <div className="grid gap-3 sm:grid-cols-4">
+              <PreviewValue
+                label={t(
+                  language,
+                  'Previous Reading',
+                  'Usomaji wa Awali'
+                )}
+                value={formatQty(
+                  selectedBill?.previousUnits || 0
+                )}
+              />
+
+              <PreviewValue
+                label={t(
+                  language,
+                  'Current Reading',
+                  'Usomaji wa Sasa'
+                )}
+                value={formatQty(
+                  selectedBill?.currentUnits || 0
+                )}
+              />
+
+              <PreviewValue
+                label={t(
+                  language,
+                  'Bill Amount',
+                  'Kiasi cha Ankara'
+                )}
+                value={`TZS ${currency(
+                  selectedBill?.currentBillAmount || 0
+                )}`}
+              />
+
+              <PreviewValue
+                label={t(
+                  language,
+                  'Already Paid',
+                  'Kilicholipwa'
+                )}
+                value={`TZS ${currency(
+                  amountAlreadyPaid
+                )}`}
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Input
+              label={t(
+                language,
+                'Previous Reading Date',
+                'Tarehe ya Usomaji wa Awali'
+              )}
+              type="date"
+              value={
+                waterBillCorrectionForm.previousReadingDate
+              }
+              onChange={(e) =>
+                setWaterBillCorrectionForm(
+                  (previous) => ({
+                    ...previous,
+                    previousReadingDate:
+                      e.target.value,
+                  })
+                )
+              }
+            />
+
+            <Input
+              label={t(
+                language,
+                'Current Reading Date',
+                'Tarehe ya Usomaji wa Sasa'
+              )}
+              type="date"
+              value={
+                waterBillCorrectionForm.readingDate
+              }
+              onChange={(e) =>
+                setWaterBillCorrectionForm(
+                  (previous) => ({
+                    ...previous,
+                    readingDate: e.target.value,
+                  })
+                )
+              }
+            />
+
+            <Input
+              label={t(
+                language,
+                'Previous Reading',
+                'Usomaji wa Awali'
+              )}
+              type="number"
+              min="0"
+              step="0.01"
+              value={
+                waterBillCorrectionForm.previousUnits
+              }
+              onChange={(e) =>
+                setWaterBillCorrectionForm(
+                  (previous) => ({
+                    ...previous,
+                    previousUnits: e.target.value,
+                  })
+                )
+              }
+            />
+
+            <Input
+              label={t(
+                language,
+                'Current Reading',
+                'Usomaji wa Sasa'
+              )}
+              type="number"
+              min="0"
+              step="0.01"
+              value={
+                waterBillCorrectionForm.currentUnits
+              }
+              onChange={(e) =>
+                setWaterBillCorrectionForm(
+                  (previous) => ({
+                    ...previous,
+                    currentUnits: e.target.value,
+                  })
+                )
+              }
+            />
+
+            <Input
+              label={t(
+                language,
+                'Price per Unit',
+                'Bei kwa Unit'
+              )}
+              type="number"
+              min="0"
+              step="0.01"
+              value={
+                waterBillCorrectionForm.costPerUnit
+              }
+              onChange={(e) =>
+                setWaterBillCorrectionForm(
+                  (previous) => ({
+                    ...previous,
+                    costPerUnit: e.target.value,
+                  })
+                )
+              }
+            />
+
+            <Input
+              label={t(
+                language,
+                'Discount',
+                'Punguzo'
+              )}
+              type="number"
+              min="0"
+              step="0.01"
+              value={
+                waterBillCorrectionForm.discount
+              }
+              onChange={(e) =>
+                setWaterBillCorrectionForm(
+                  (previous) => ({
+                    ...previous,
+                    discount: e.target.value,
+                  })
+                )
+              }
+            />
+          </div>
+
+          <div className="rounded-2xl border border-cyan-200 bg-cyan-50 p-5">
+            <p className="mb-3 text-sm font-bold text-cyan-950">
+              {t(
+                language,
+                'Corrected Position',
+                'Hali Baada ya Marekebisho'
+              )}
+            </p>
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              <PreviewValue
+                label={t(
+                  language,
+                  'Units Used',
+                  'Unit Zilizotumika'
+                )}
+                value={formatQty(
+                  correctedUnitsUsed
+                )}
+              />
+
+              <PreviewValue
+                label={t(
+                  language,
+                  'Corrected Bill',
+                  'Ankara Iliyosahihishwa'
+                )}
+                value={`TZS ${currency(
+                  correctedBillAmount
+                )}`}
+              />
+
+              <PreviewValue
+                label={t(
+                  language,
+                  'New Balance',
+                  'Salio Jipya'
+                )}
+                value={`TZS ${currency(
+                  correctedBalance
+                )}`}
+              />
+            </div>
+          </div>
+
+          {correctedBillAmount <
+          amountAlreadyPaid ? (
+            <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-800">
+              {t(
+                language,
+                'The corrected bill is below the amount already paid. This correction cannot be saved until the payment allocation is corrected.',
+                'Ankara iliyosahihishwa ni ndogo kuliko kiasi ambacho tayari kimelipwa. Marekebisho haya hayawezi kuhifadhiwa mpaka mgao wa malipo usahihishwe.'
+              )}
+            </div>
+          ) : null}
+
+          <Textarea
+            label={t(
+              language,
+              'Reason for Correction',
+              'Sababu ya Marekebisho'
+            )}
+            rows={3}
+            value={waterBillCorrectionForm.reason}
+            onChange={(e) =>
+              setWaterBillCorrectionForm(
+                (previous) => ({
+                  ...previous,
+                  reason: e.target.value,
+                })
+              )
+            }
+            placeholder={t(
+              language,
+              'Explain what was entered wrongly and why it is being corrected.',
+              'Eleza kilichoingizwa kimakosa na sababu ya kusahihisha.'
+            )}
+          />
+
+          <div className="flex flex-col-reverse gap-3 border-t border-slate-200 pt-5 sm:flex-row sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setIsWaterBillCorrectionOpen(false);
+                setWaterBillCorrectionForm({
+                  ...emptyWaterBillCorrectionForm,
+                });
+              }}
+            >
+              {t(language, 'Cancel', 'Ghairi')}
+            </Button>
+
+            <Button
+              type="button"
+              className="min-w-[220px] bg-cyan-800 hover:bg-cyan-900 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={
+                isSavingWaterBillCorrection ||
+                !waterBillCorrectionForm.reason.trim() ||
+                correctedCurrentUnits <
+                  correctedPreviousUnits ||
+                correctedCostPerUnit <= 0 ||
+                correctedBillAmount <
+                  amountAlreadyPaid
+              }
+              onClick={saveWaterBillCorrection}
+            >
+              {isSavingWaterBillCorrection
+                ? t(
+                    language,
+                    'Saving Correction...',
+                    'Inahifadhi Marekebisho...'
+                  )
+                : t(
+                    language,
+                    'Save Correction',
+                    'Hifadhi Marekebisho'
+                  )}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+})() : null}
+
 {isWaterPaymentOpen ? (() => {
   const unpaidMeterBills = waterBills
     .filter(
@@ -13541,10 +14647,15 @@ const serviceChargeSections = [
                     <p className="mt-1 text-sm text-slate-600">
                       {t(
                         language,
-                        'Actual bills, cash received, outstanding debt and tenant credit.',
-                        'Ankara halisi, fedha zilizopokelewa, madeni na salio la wapangaji.'
+                        'Current billing period: bills, cash received, outstanding debt and tenant credit.',
+                        'Kipindi cha sasa cha bili: ankara, fedha zilizopokelewa, madeni na salio la wapangaji.'
                       )}
                     </p>
+
+                    <div className="mt-3 inline-flex rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-800">
+                      {t(language, 'Period', 'Kipindi')}:{' '}
+                      {currentUtilityPeriod.start} → {currentUtilityPeriod.end}
+                    </div>
 
                     <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                       <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
@@ -13552,10 +14663,10 @@ const serviceChargeSections = [
                           {t(language, 'Amount Billed', 'Ankara Zilizotolewa')}
                         </p>
                         <p className="mt-2 text-2xl font-bold text-blue-950">
-                          TZS {currency(totalWaterAmount)}
+                          TZS {currency(waterAmountThisMonth)}
                         </p>
                         <p className="mt-1 text-xs text-blue-700">
-                          {t(language, 'Total recorded', 'Jumla iliyorekodiwa')}
+                          {t(language, 'Current period', 'Kipindi cha sasa')}
                         </p>
                       </div>
 
@@ -13564,10 +14675,10 @@ const serviceChargeSections = [
                           {t(language, 'Cash Collected', 'Fedha Zilizopokelewa')}
                         </p>
                         <p className="mt-2 text-2xl font-bold text-emerald-950">
-                          TZS {currency(totalWaterCollected)}
+                          TZS {currency(waterCollectedThisMonth)}
                         </p>
                         <p className="mt-1 text-xs text-emerald-700">
-                          {t(language, 'Total received', 'Jumla iliyopokelewa')}
+                          {t(language, 'Current period', 'Kipindi cha sasa')}
                         </p>
                       </div>
 
@@ -13576,10 +14687,10 @@ const serviceChargeSections = [
                           {t(language, 'Outstanding Debt', 'Deni Linalodaiwa')}
                         </p>
                         <p className="mt-2 text-2xl font-bold text-amber-950">
-                          TZS {currency(totalWaterOutstanding)}
+                          TZS {currency(waterOutstandingThisMonth)}
                         </p>
                         <p className="mt-1 text-xs text-amber-700">
-                          {t(language, 'Amount still unpaid', 'Kiasi ambacho hakijalipwa')}
+                          {t(language, 'Current period unpaid', 'Ambacho hakijalipwa kipindi hiki')}
                         </p>
                       </div>
 
@@ -13588,10 +14699,10 @@ const serviceChargeSections = [
                           {t(language, 'Tenant Credit', 'Salio la Wapangaji')}
                         </p>
                         <p className="mt-2 text-2xl font-bold text-cyan-950">
-                          TZS {currency(totalWaterCredit)}
+                          TZS {currency(waterCreditThisMonth)}
                         </p>
                         <p className="mt-1 text-xs text-cyan-700">
-                          {t(language, 'Available tenant balance', 'Salio linalopatikana')}
+                          {t(language, 'Current period credit', 'Salio la kipindi hiki')}
                         </p>
                       </div>
                     </div>
@@ -13631,7 +14742,9 @@ const serviceChargeSections = [
                         )}
                       </p>
                       <p className="mt-3 text-3xl font-bold text-blue-700">
-                        {waterBills.filter((bill) => Number(bill.balance || 0) > 0).length}
+                        {waterBillsThisMonth.filter(
+  (bill) => Number(bill.balance || 0) > 0
+).length}
                       </p>
                       <p className="mt-1 text-xs text-blue-600">
                         {t(language, 'View bills and payments', 'Angalia ankara na malipo')}
@@ -13661,11 +14774,12 @@ const serviceChargeSections = [
                   </div>
                 </div>
               )}
+
 {activeWaterSection === 'billing' && (
   <div className="space-y-4 lg:col-span-2">
-    <div className="rounded-3xl border border-blue-200 bg-white shadow-sm">
-      <div className="border-b border-blue-100 bg-blue-50 px-6 py-5">
-        <h3 className="text-2xl font-bold text-blue-900">
+    <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+      <div className="border-b border-slate-200 bg-slate-50 px-6 py-5">
+        <h3 className="text-2xl font-bold text-slate-900">
           {t(
             language,
             'Water Bills and Payments',
@@ -13673,342 +14787,429 @@ const serviceChargeSections = [
           )}
         </h3>
 
-        <p className="mt-1 text-sm text-blue-700">
+        <p className="mt-1 text-sm text-slate-600">
           {t(
             language,
             'Review issued water bills, amounts paid and outstanding balances.',
             'Angalia ankara za maji zilizotolewa, kiasi kilicholipwa na salio linalodaiwa.'
           )}
         </p>
-      </div>
 
-      <div className="grid gap-4 p-6 sm:grid-cols-3">
-        <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
-          <p className="text-xs font-bold uppercase text-blue-700">
-            {t(language, 'Total Billed', 'Jumla ya Ankara')}
-          </p>
-          <p className="mt-2 text-2xl font-bold text-blue-950">
-            TZS {currency(totalWaterAmount)}
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
-          <p className="text-xs font-bold uppercase text-emerald-700">
-            {t(language, 'Total Paid', 'Jumla Iliyolipwa')}
-          </p>
-          <p className="mt-2 text-2xl font-bold text-emerald-950">
-            TZS {currency(totalWaterCollected)}
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
-          <p className="text-xs font-bold uppercase text-amber-700">
-            {t(language, 'Outstanding Balance', 'Salio Linalodaiwa')}
-          </p>
-          <p className="mt-2 text-2xl font-bold text-amber-950">
-            TZS {currency(totalWaterOutstanding)}
-          </p>
+        <div className="mt-4 inline-flex rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700">
+          {t(language, 'Period', 'Kipindi')}:{' '}
+          <span className="ml-1 font-bold text-slate-900">
+            {currentUtilityPeriod.start} →{' '}
+            {currentUtilityPeriod.end}
+          </span>
         </div>
       </div>
 
-      <div className="overflow-x-auto border-t border-slate-100">
-        <table className="min-w-[1900px] text-sm">
-          <thead>
-            <tr className="bg-slate-100 text-left text-slate-600">
-              <th className="px-4 py-3">
-                {t(language, 'House', 'Nyumba')}
-              </th>
+      <div className="grid gap-3 border-b border-slate-200 p-5 sm:grid-cols-3">
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+            {t(
+              language,
+              'Amount Billed',
+              'Ankara Zilizotolewa'
+            )}
+          </p>
 
-              <th className="px-4 py-3">
-                {t(language, 'Meter Number', 'Namba ya Mita')}
-              </th>
+          <p className="mt-2 text-2xl font-bold text-slate-900">
+            TZS {currency(waterAmountThisMonth)}
+          </p>
+        </div>
 
-              <th className="px-4 py-3">
-                {t(language, 'Tenant / Occupant', 'Mpangaji / Mkazi')}
-              </th>
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+            {t(
+              language,
+              'Payments Received',
+              'Malipo Yaliyopokelewa'
+            )}
+          </p>
 
-              <th className="px-4 py-3">
-                {t(language, 'Reading Date', 'Tarehe ya Usomaji')}
-              </th>
+          <p className="mt-2 text-2xl font-bold text-slate-900">
+            TZS {currency(waterCollectedThisMonth)}
+          </p>
+        </div>
 
-              <th className="px-4 py-3">
-                {t(language, 'Previous Reading', 'Usomaji Uliopita')}
-              </th>
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+            {t(
+              language,
+              'Outstanding Debt',
+              'Deni Linalodaiwa'
+            )}
+          </p>
 
-              <th className="px-4 py-3">
-                {t(language, 'Current Reading', 'Usomaji wa Sasa')}
-              </th>
+          <p
+            className={`mt-2 text-2xl font-bold ${
+              waterOutstandingThisMonth > 0
+                ? 'text-red-700'
+                : 'text-slate-900'
+            }`}
+          >
+            TZS {currency(waterOutstandingThisMonth)}
+          </p>
+        </div>
+      </div>
 
-              <th className="px-4 py-3">
-                {t(language, 'Units Used', 'Uniti Zilizotumika')}
-              </th>
+      <div className="p-5">
+        <div className="overflow-hidden rounded-2xl border border-slate-300">
+          <table className="w-full table-fixed text-sm">
+            <thead>
+              <tr className="border-b border-slate-300 bg-slate-100 text-left text-xs font-bold uppercase tracking-wide text-slate-600">
+                <th className="w-[11%] px-4 py-3">
+                  {t(language, 'Account', 'Akaunti')}
+                </th>
 
-              <th className="px-4 py-3">
-                {t(language, 'Price per Unit', 'Bei kwa Uniti')}
-              </th>
-
-              <th className="px-4 py-3">
-                {t(language, 'Total Bill', 'Jumla ya Ankara')}
-              </th>
-
-              <th className="px-4 py-3">
-                {t(language, 'Amount Paid', 'Kiasi Kilicholipwa')}
-              </th>
-
-              <th className="px-4 py-3">
-                {t(language, 'Balance', 'Salio')}
-              </th>
-
-              <th className="px-4 py-3">
-                {t(language, 'Payment Date', 'Tarehe ya Malipo')}
-              </th>
-
-              <th className="px-4 py-3">
-                {t(language, 'Status', 'Hali')}
-              </th>
-
-              <th className="px-4 py-3">
-                {t(language, 'Action', 'Hatua')}
-              </th>
-            </tr>
-          </thead>
-
-          <tbody>
-            {waterBills.length === 0 ? (
-              <tr>
-                <td
-                  colSpan={14}
-                  className="px-4 py-8 text-center text-slate-500"
-                >
+                <th className="w-[18%] px-4 py-3">
                   {t(
                     language,
-                    'No water bills have been recorded.',
-                    'Hakuna ankara za maji zilizorekodiwa.'
+                    'Tenant / Occupant',
+                    'Mpangaji / Mkazi'
                   )}
-                </td>
+                </th>
+
+                <th className="w-[17%] px-4 py-3">
+                  {t(
+                    language,
+                    'Meter Reading',
+                    'Usomaji wa Mita'
+                  )}
+                </th>
+
+                <th className="w-[12%] px-4 py-3 text-right">
+                  {t(language, 'Bill', 'Ankara')}
+                </th>
+
+                <th className="w-[12%] px-4 py-3 text-right">
+                  {t(language, 'Paid', 'Imelipwa')}
+                </th>
+
+                <th className="w-[12%] px-4 py-3 text-right">
+                  {t(language, 'Balance', 'Salio')}
+                </th>
+
+                <th className="w-[9%] px-4 py-3 text-center">
+                  {t(language, 'Status', 'Hali')}
+                </th>
+
+                <th className="w-[9%] px-4 py-3 text-center">
+                  {t(language, 'Action', 'Hatua')}
+                </th>
               </tr>
-            ) : (
-              waterBills.map((bill) => {
-                const billAmount = Number(
-                  bill.currentBillAmount ||
-                    bill.totalPayable ||
-                    bill.totalAmount ||
-                    bill.amount ||
-                    0
-                );
+            </thead>
 
-                const previousReading = Number(
-                  bill.previousUnits || 0
-                );
-
-                const currentReading = Number(
-                  bill.currentUnits || 0
-                );
-
-                const unitsUsed = Number(
-                  bill.unitsUsed ??
-                    Math.max(
-                      0,
-                      currentReading - previousReading
-                    )
-                );
-
-                const pricePerUnit = Number(
-                  bill.costPerUnit || WATER_UNIT_PRICE || 0
-                );
-
-                const balance = Math.max(
-                  0,
-                  Number(bill.balance || 0)
-                );
-
-                const amountPaid = Math.max(
-                  0,
-                  Number(
-                    bill.amountPaid ??
-                      (billAmount - balance)
-                  )
-                );
-
-                const hasNoConsumption =
-                  unitsUsed <= 0 && billAmount <= 0;
-
-                const paymentIdsForBill =
-                  waterPaymentAllocations
-                    .filter(
-                      (allocation) =>
-                        String(allocation.billId || '') ===
-                        String(bill.id || '')
-                    )
-                    .map((allocation) =>
-                      String(allocation.paymentId || '')
-                    );
-
-                const paymentDatesForBill =
-                  waterPayments
-                    .filter((payment) =>
-                      paymentIdsForBill.includes(
-                        String(payment.id || '')
-                      )
-                    )
-                    .map(
-                      (payment) =>
-                        payment.paymentDate ||
-                        payment.paidAt?.slice(0, 10) ||
-                        payment.created_at?.slice(0, 10) ||
-                        ''
-                    )
-                    .filter(Boolean)
-                    .sort();
-
-                const latestPaymentDate =
-                  paymentDatesForBill.length > 0
-                    ? paymentDatesForBill[
-                        paymentDatesForBill.length - 1
-                      ]
-                    : '-';
-
-                return (
-                  <tr
-                    key={`water-billing-${bill.id}`}
-                    className="border-t border-slate-100 transition hover:bg-slate-50"
+            <tbody>
+              {waterBillsThisMonth.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={8}
+                    className="px-4 py-10 text-center text-slate-500"
                   >
-                    <td className="whitespace-nowrap px-4 py-3 font-semibold text-slate-900">
-                      {bill.houseNumber || '-'}
-                    </td>
+                    {t(
+                      language,
+                      'No water bills have been recorded for the current period.',
+                      'Hakuna ankara za maji zilizorekodiwa katika kipindi cha sasa.'
+                    )}
+                  </td>
+                </tr>
+              ) : (
+                waterBillsThisMonth.map((bill) => {
+                  const billAmount = Number(
+                    bill.currentBillAmount ||
+                      bill.totalPayable ||
+                      bill.totalAmount ||
+                      bill.amount ||
+                      0
+                  );
 
-                    <td className="whitespace-nowrap px-4 py-3 font-semibold text-cyan-800">
-                      {bill.meterNumber || '-'}
-                    </td>
+                  const previousReading = Number(
+                    bill.previousUnits || 0
+                  );
 
-                    <td className="whitespace-nowrap px-4 py-3 text-slate-700">
-                      {bill.tenantName || '-'}
-                    </td>
+                  const currentReading = Number(
+                    bill.currentUnits || 0
+                  );
 
-                    <td className="whitespace-nowrap px-4 py-3 text-slate-700">
-                      {bill.readingDate ||
-                        bill.billDate ||
-                        bill.created_at?.slice(0, 10) ||
-                        '-'}
-                    </td>
+                  const unitsUsed = Number(
+                    bill.unitsUsed ??
+                      Math.max(
+                        0,
+                        currentReading -
+                          previousReading
+                      )
+                  );
 
-                    <td className="px-4 py-3 font-semibold text-slate-700">
-                      {formatQty(previousReading)}
-                    </td>
+                  const pricePerUnit = Number(
+                    bill.costPerUnit ||
+                      WATER_UNIT_PRICE ||
+                      0
+                  );
 
-                    <td className="px-4 py-3 font-semibold text-blue-700">
-                      {formatQty(currentReading)}
-                    </td>
+                  const balance = Math.max(
+                    0,
+                    Number(bill.balance || 0)
+                  );
 
-                    <td className="px-4 py-3 font-semibold text-cyan-700">
-                      {formatQty(unitsUsed)}
-                    </td>
+                  const amountPaid = Math.max(
+                    0,
+                    Number(
+                      bill.amountPaid ??
+                        (billAmount - balance)
+                    )
+                  );
 
-                    <td className="whitespace-nowrap px-4 py-3 text-slate-700">
-                      TZS {currency(pricePerUnit)}
-                    </td>
+                  const hasNoConsumption =
+                    unitsUsed <= 0 &&
+                    billAmount <= 0;
 
-                    <td className="whitespace-nowrap px-4 py-3 font-semibold text-blue-800">
-                      TZS {currency(billAmount)}
-                    </td>
+                  const paymentIdsForBill =
+                    waterPaymentAllocations
+                      .filter(
+                        (allocation) =>
+                          String(
+                            allocation.billId || ''
+                          ) ===
+                          String(bill.id || '')
+                      )
+                      .map((allocation) =>
+                        String(
+                          allocation.paymentId || ''
+                        )
+                      );
 
-                    <td className="whitespace-nowrap px-4 py-3 font-semibold text-emerald-700">
-                      TZS {currency(amountPaid)}
-                    </td>
+                  const paymentDatesForBill =
+                    waterPayments
+                      .filter((payment) =>
+                        paymentIdsForBill.includes(
+                          String(payment.id || '')
+                        )
+                      )
+                      .map(
+                        (payment) =>
+                          payment.paymentDate ||
+                          payment.paidAt?.slice(
+                            0,
+                            10
+                          ) ||
+                          payment.created_at?.slice(
+                            0,
+                            10
+                          ) ||
+                          ''
+                      )
+                      .filter(Boolean)
+                      .sort();
 
-                    <td className="whitespace-nowrap px-4 py-3 font-semibold text-amber-700">
-                      TZS {currency(balance)}
-                    </td>
+                  const latestPaymentDate =
+                    paymentDatesForBill.length > 0
+                      ? paymentDatesForBill[
+                          paymentDatesForBill.length -
+                            1
+                        ]
+                      : '-';
 
-                    <td className="whitespace-nowrap px-4 py-3">
-                      {latestPaymentDate === '-' ? (
-                        <span className="text-slate-500">
-                          -
-                        </span>
-                      ) : (
-                        <span className="font-semibold text-emerald-700">
-                          {latestPaymentDate}
-                        </span>
-                      )}
-                    </td>
+                  return (
+                    <tr
+                      key={`water-billing-${bill.id}`}
+                      className="border-b border-slate-300 bg-white align-middle transition last:border-b-0 hover:bg-slate-50"
+                    >
+                      <td className="px-4 py-4">
+                        <p className="font-bold text-slate-900">
+                          {bill.houseNumber || '-'}
+                        </p>
 
-                    <td className="px-4 py-3">
-                      <span
-                        className={`whitespace-nowrap rounded-full px-3 py-1 text-xs font-bold ${
-                          hasNoConsumption
-                            ? 'bg-slate-100 text-slate-700'
-                            : balance <= 0
-                              ? 'bg-emerald-100 text-emerald-700'
-                              : amountPaid > 0
-                                ? 'bg-blue-100 text-blue-700'
-                                : 'bg-amber-100 text-amber-700'
-                        }`}
-                      >
-                        {hasNoConsumption
-                          ? t(
-                              language,
-                              'No Consumption',
-                              'Hakuna Matumizi'
-                            )
-                          : balance <= 0
-                            ? t(
-                                language,
-                                'Paid',
-                                'Imelipwa'
-                              )
-                            : amountPaid > 0
-                              ? t(
-                                  language,
-                                  'Partly Paid',
-                                  'Imelipwa Sehemu'
-                                )
-                              : t(
-                                  language,
-                                  'Unpaid',
-                                  'Haijalipwa'
-                                )}
-                      </span>
-                    </td>
+                        <div className="mt-1 flex items-center gap-1 text-xs text-slate-500">
+                          <span className="font-semibold text-slate-700">
+                            {bill.meterNumber || '-'}
+                          </span>
 
-                    <td className="px-4 py-3">
-                      {hasNoConsumption ? (
-                        <span className="whitespace-nowrap font-semibold text-slate-500">
-                          {t(
-                            language,
-                            'No Payment Required',
-                            'Hakuna Malipo'
-                          )}
-                        </span>
-                      ) : balance > 0 ? (
-                        <Button
+                          <span>·</span>
+
+                          <span>
+                            {bill.readingDate ||
+                              bill.billDate ||
+                              bill.created_at?.slice(
+                                0,
+                                10
+                              ) ||
+                              '-'}
+                          </span>
+                        </div>
+                      </td>
+
+                      <td className="px-4 py-4">
+                        <p className="truncate font-semibold text-slate-900">
+                          {bill.tenantName || '-'}
+                        </p>
+
+                        <button
                           type="button"
-                          className="whitespace-nowrap bg-emerald-700 hover:bg-emerald-800"
+                          className="mt-1 text-xs font-semibold text-slate-500 hover:text-slate-900 hover:underline"
                           onClick={() =>
-                            startWaterPayment(bill)
+                            openWaterBillCorrectionForm(
+                              bill
+                            )
                           }
                         >
                           {t(
                             language,
-                            'Record Payment',
-                            'Rekodi Malipo'
+                            'Correct Bill',
+                            'Sahihisha Ankara'
                           )}
-                        </Button>
-                      ) : (
-                        <span className="whitespace-nowrap font-semibold text-emerald-700">
-                          {t(
-                            language,
-                            'Fully Paid',
-                            'Imelipwa Yote'
-                          )}
+                        </button>
+                      </td>
+
+                      <td className="px-4 py-4">
+                        <div className="flex items-center gap-2 font-semibold text-slate-800">
+                          <span>
+                            {formatQty(
+                              previousReading
+                            )}
+                          </span>
+
+                          <span className="text-slate-400">
+                            →
+                          </span>
+
+                          <span>
+                            {formatQty(
+                              currentReading
+                            )}
+                          </span>
+                        </div>
+
+                        <div className="mt-1 text-xs text-slate-500">
+                          <span className="font-semibold text-slate-700">
+                            {formatQty(unitsUsed)}{' '}
+                            {t(
+                              language,
+                              'units',
+                              'uniti'
+                            )}
+                          </span>
+
+                          <span>
+                            {' '}· TZS{' '}
+                            {currency(pricePerUnit)}/
+                            {t(
+                              language,
+                              'unit',
+                              'uniti'
+                            )}
+                          </span>
+                        </div>
+                      </td>
+
+                      <td className="px-4 py-4 text-right">
+                        <p className="font-bold text-slate-900">
+                          TZS {currency(billAmount)}
+                        </p>
+                      </td>
+
+                      <td className="px-4 py-4 text-right">
+                        <p className="font-bold text-slate-900">
+                          TZS {currency(amountPaid)}
+                        </p>
+
+                        {latestPaymentDate !== '-' && (
+                          <p className="mt-1 text-xs text-slate-500">
+                            {latestPaymentDate}
+                          </p>
+                        )}
+                      </td>
+
+                      <td className="px-4 py-4 text-right">
+                        <p
+                          className={`font-bold ${
+                            balance > 0
+                              ? 'text-red-700'
+                              : 'text-slate-900'
+                          }`}
+                        >
+                          TZS {currency(balance)}
+                        </p>
+                      </td>
+
+                      <td className="px-4 py-4 text-center">
+                        <span
+                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${
+                            hasNoConsumption
+                              ? 'bg-slate-100 text-slate-600'
+                              : balance <= 0
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : 'bg-red-100 text-red-700'
+                          }`}
+                        >
+                          {hasNoConsumption
+                            ? t(
+                                language,
+                                'No Use',
+                                'Hakuna'
+                              )
+                            : balance <= 0
+                              ? t(
+                                  language,
+                                  'Paid',
+                                  'Imelipwa'
+                                )
+                              : amountPaid > 0
+                                ? t(
+                                    language,
+                                    'Partial',
+                                    'Sehemu'
+                                  )
+                                : t(
+                                    language,
+                                    'Unpaid',
+                                    'Deni'
+                                  )}
                         </span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
+                      </td>
+
+                      <td className="px-4 py-4 text-center">
+                        {hasNoConsumption ? (
+                          <span className="text-xs font-semibold text-slate-500">
+                            {t(
+                              language,
+                              'No Payment',
+                              'Hakuna Malipo'
+                            )}
+                          </span>
+                        ) : balance > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              startWaterPayment(bill)
+                            }
+                            className="rounded-lg bg-slate-800 px-3 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-slate-900"
+                          >
+                            {t(
+                              language,
+                              'Pay',
+                              'Lipa'
+                            )}
+                          </button>
+                        ) : (
+                          <span className="text-xs font-semibold text-slate-600">
+                            ✓{' '}
+                            {t(
+                              language,
+                              'Complete',
+                              'Kamili'
+                            )}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>
@@ -14398,126 +15599,37 @@ const serviceChargeSections = [
 
         {waterFundExpenseForm.expenseType ===
           'DAWASCO Payment' && (
-          <Select
-            label={t(
-              language,
-              'DAWASCO Bill Being Paid',
-              'Ankara ya DAWASCO Inayolipwa'
-            )}
-            value={waterFundExpenseForm.supplierBillId}
-            onChange={(e) => {
-              const selectedBillId = e.target.value;
-
-              const selectedBill =
-                activeWaterSupplierBills.find(
-                  (bill) =>
-                    String(bill.id || '') ===
-                    String(selectedBillId)
-                );
-
-              const amountAlreadyPaid =
-                activeWaterFundExpenses
-                  .filter(
-                    (expense) =>
-                      String(expense.supplierBillId || '') ===
-                        String(selectedBillId) &&
-                      String(expense.expenseType || '') ===
-                        'DAWASCO Payment'
-                  )
-                  .reduce(
-                    (total, expense) =>
-                      total + Number(expense.amount || 0),
-                    0
-                  );
-
-              const remainingBalance = selectedBill
-                ? Math.max(
-                    0,
-                    Number(selectedBill.billAmount || 0) -
-                      amountAlreadyPaid
-                  )
-                : '';
-
-              setWaterFundExpenseForm((previous) => ({
-                ...previous,
-                supplierBillId: selectedBillId,
-                amount:
-                  remainingBalance === ''
-                    ? ''
-                    : String(remainingBalance),
-                payee: selectedBillId
-                  ? 'DAWASCO'
-                  : '',
-              }));
-            }}
-          >
-            <option value="">
+          <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+            <p className="text-sm font-bold text-blue-900">
               {t(
                 language,
-                'Select an unpaid bill',
-                'Chagua ankara ambayo haijamalizika'
+                'Automatic DAWASCO Allocation',
+                'Mgawanyo wa DAWASCO Moja kwa Moja'
               )}
-            </option>
+            </p>
 
-            {activeWaterSupplierBills
-              .filter((bill) => {
-                const amountPaid =
-                  activeWaterFundExpenses
-                    .filter(
-                      (expense) =>
-                        String(
-                          expense.supplierBillId || ''
-                        ) === String(bill.id || '') &&
-                        String(
-                          expense.expenseType || ''
-                        ) === 'DAWASCO Payment'
-                    )
-                    .reduce(
-                      (total, expense) =>
-                        total +
-                        Number(expense.amount || 0),
-                      0
-                    );
+            <p className="mt-2 text-sm text-blue-800">
+              {t(
+                language,
+                'Enter the amount available below. The system will automatically clear the oldest outstanding DAWASCO bill first. If the amount is more than the total DAWASCO debt, the remaining amount will stay in the Water Fund.',
+                'Weka kiasi kilichopo hapa chini. Mfumo utalipa kwanza ankara ya zamani zaidi ya DAWASCO ambayo haijamalizika. Kiasi kikizidi deni lote la DAWASCO, fedha iliyobaki itaendelea kubaki kwenye Mfuko wa Maji.'
+              )}
+            </p>
 
-                return (
-                  Number(bill.billAmount || 0) -
-                    amountPaid >
-                  0
-                );
-              })
-              .map((bill) => {
-                const amountPaid =
-                  activeWaterFundExpenses
-                    .filter(
-                      (expense) =>
-                        String(
-                          expense.supplierBillId || ''
-                        ) === String(bill.id || '') &&
-                        String(
-                          expense.expenseType || ''
-                        ) === 'DAWASCO Payment'
-                    )
-                    .reduce(
-                      (total, expense) =>
-                        total +
-                        Number(expense.amount || 0),
-                      0
-                    );
+            <div className="mt-3 flex items-center justify-between gap-4 rounded-xl bg-white px-4 py-3">
+              <span className="text-sm font-medium text-slate-600">
+                {t(
+                  language,
+                  'Outstanding DAWASCO',
+                  'Deni la DAWASCO'
+                )}
+              </span>
 
-                const remainingBalance = Math.max(
-                  0,
-                  Number(bill.billAmount || 0) -
-                    amountPaid
-                );
-
-                return (
-                  <option key={bill.id} value={bill.id}>
-                    {bill.billNumber || bill.billDate} — TZS{' '}
-                    {currency(remainingBalance)}
-                  </option>
-                );
-              })}
-          </Select>
+              <strong className="text-red-700">
+                TZS {currency(unpaidDawascoBalance)}
+              </strong>
+            </div>
+          </div>
         )}
 
         <Input
@@ -14537,7 +15649,20 @@ const serviceChargeSections = [
         />
 
         <Input
-          label={t(language, 'Amount Paid', 'Kiasi Kilicholipwa')}
+          label={
+            waterFundExpenseForm.expenseType ===
+            'DAWASCO Payment'
+              ? t(
+                  language,
+                  'Amount Available',
+                  'Kiasi Kilichopo'
+                )
+              : t(
+                  language,
+                  'Amount Paid',
+                  'Kiasi Kilicholipwa'
+                )
+          }
           type="number"
           min="0"
           step="0.01"
@@ -14669,7 +15794,7 @@ const serviceChargeSections = [
             )}
           </p>
           <p className="mt-3 text-3xl font-bold text-blue-950">
-            TZS {currency(waterCollectedThisMonth)}
+            TZS {currency(waterCashCollectedThisMonth)}
           </p>
           <p className="mt-1 text-xs text-blue-700">
             {t(
@@ -14767,7 +15892,7 @@ const serviceChargeSections = [
               <span>
                 {t(language, 'Total Received', 'Jumla Iliyoingia')}
               </span>
-              <span>TZS {currency(waterCollectedThisMonth)}</span>
+              <span>TZS {currency(waterCashCollectedThisMonth)}</span>
             </div>
           </div>
         </div>
@@ -14920,16 +16045,20 @@ const serviceChargeSections = [
           <div className="mt-4 space-y-4 text-sm">
             <div className="flex justify-between gap-3">
               <span className="text-slate-700">
-                {t(language, 'Available Cash', 'Fedha Iliyopo')}
+                {t(
+                  language,
+                  'Balance Brought Forward',
+                  'Salio Lililoletwa'
+                )}
               </span>
               <strong
                 className={
-                  availableWaterCash >= 0
+                  openingWaterFundBalance >= 0
                     ? 'text-emerald-800'
                     : 'text-red-700'
                 }
               >
-                TZS {currency(availableWaterCash)}
+                TZS {currency(openingWaterFundBalance)}
               </strong>
             </div>
 
@@ -14937,12 +16066,38 @@ const serviceChargeSections = [
               <span className="text-slate-700">
                 {t(
                   language,
-                  'Unpaid DAWASCO Bills',
-                  'Deni la DAWASCO'
+                  'Current Period Cash',
+                  'Fedha za Kipindi Hiki'
+                )}
+              </span>
+              <strong className="text-emerald-800">
+                TZS {currency(waterCashCollectedThisMonth)}
+              </strong>
+            </div>
+
+            <div className="flex justify-between gap-3">
+              <span className="text-slate-700">
+                {t(
+                  language,
+                  'Current Period Expenses',
+                  'Matumizi ya Kipindi Hiki'
                 )}
               </span>
               <strong className="text-red-700">
-                TZS {currency(unpaidDawascoBalance)}
+                TZS {currency(waterExpensesPaidThisMonth)}
+              </strong>
+            </div>
+
+            <div className="flex justify-between gap-3">
+              <span className="text-slate-700">
+                {t(
+                  language,
+                  'Current DAWASCO Debt',
+                  'Deni la DAWASCO la Kipindi Hiki'
+                )}
+              </span>
+              <strong className="text-red-700">
+                TZS {currency(unpaidDawascoThisMonth)}
               </strong>
             </div>
 
@@ -14953,17 +16108,17 @@ const serviceChargeSections = [
                 </span>
                 <strong
                   className={
-                    realWaterFundBalance >= 0
+                    realWaterFundBalanceThisMonth >= 0
                       ? 'text-emerald-800'
                       : 'text-red-700'
                   }
                 >
-                  TZS {currency(realWaterFundBalance)}
+                  TZS {currency(realWaterFundBalanceThisMonth)}
                 </strong>
               </div>
 
               <p className="mt-2 text-xs text-slate-500">
-                {realWaterFundBalance >= 0
+                {realWaterFundBalanceThisMonth >= 0
                   ? t(
                       language,
                       'This amount remains available for future water expenses.',
@@ -15489,6 +16644,7 @@ const serviceChargeSections = [
       waterBills={waterBills}
       waterPayments={waterPayments}
       waterPaymentAllocations={waterPaymentAllocations}
+      waterBillCorrections={waterBillCorrections}
       waterSupplierBills={waterSupplierBills}
       waterFundExpenses={waterFundExpenses}
       totalUnitsUsed={totalUnitsUsed}
@@ -20674,6 +21830,7 @@ function ReportsSection({
   waterBills,
   waterPayments,
 waterPaymentAllocations,
+waterBillCorrections = [],
 waterSupplierBills,
 waterFundExpenses,
 onEditWaterSupplierBill,
@@ -20835,7 +21992,7 @@ return (
       </p>
     </div>
 
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
       {[
         [
           'waterMeters',
@@ -20875,6 +22032,14 @@ return (
             language,
             'Previous Water Records',
             'Historia ya Zamani ya Maji'
+          ),
+        ],
+        [
+          'waterCorrections',
+          t(
+            language,
+            'Correction History',
+            'Historia ya Marekebisho'
           ),
         ],
       ].map(([value, label]) => (
@@ -23042,6 +24207,334 @@ const hasConfirmedBaseline =
     </div>
   );
 })()}
+
+{reportType === 'waterCorrections' && (
+  <div className="space-y-4">
+    <div className="overflow-hidden rounded-3xl border border-purple-200 bg-white shadow-sm">
+      <div className="border-b border-purple-200 bg-purple-50 px-6 py-5">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h3 className="text-2xl font-bold text-purple-950">
+              {t(
+                language,
+                'Permanent Water Bill Correction History',
+                'Historia ya Kudumu ya Marekebisho ya Ankara za Maji'
+              )}
+            </h3>
+
+            <p className="mt-2 text-sm text-purple-700">
+              {t(
+                language,
+                'Every water bill correction preserves the original and corrected values for audit purposes.',
+                'Kila marekebisho ya ankara ya maji yanatunza taarifa za awali na zilizosahihishwa kwa ajili ya ukaguzi.'
+              )}
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-purple-200 bg-white px-5 py-3 text-center">
+            <p className="text-xs font-bold uppercase text-purple-600">
+              {t(
+                language,
+                'Correction Records',
+                'Rekodi za Marekebisho'
+              )}
+            </p>
+
+            <p className="mt-1 text-2xl font-bold text-purple-950">
+              {waterBillCorrections.length}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {waterBillCorrections.length === 0 ? (
+        <div className="p-10 text-center text-slate-500">
+          {t(
+            language,
+            'No water bill correction has been recorded.',
+            'Hakuna marekebisho ya ankara ya maji yaliyorekodiwa.'
+          )}
+        </div>
+      ) : (
+        <div className="divide-y divide-slate-200">
+          {waterBillCorrections
+            .slice()
+            .sort(
+              (a, b) =>
+                new Date(
+                  b.created_at || 0
+                ).getTime() -
+                new Date(
+                  a.created_at || 0
+                ).getTime()
+            )
+            .map((correction) => {
+              const before =
+                correction.beforeData || {};
+
+              const after =
+                correction.afterData || {};
+
+              return (
+                <div
+                  key={correction.id}
+                  className="p-6"
+                >
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <p className="text-lg font-bold text-slate-950">
+                        {after.houseNumber ||
+                          before.houseNumber ||
+                          '-'}{' '}
+                        —{' '}
+                        {after.meterNumber ||
+                          before.meterNumber ||
+                          '-'}
+                      </p>
+
+                      <p className="mt-1 text-sm text-slate-500">
+                        {after.tenantName ||
+                          before.tenantName ||
+                          '-'}
+                      </p>
+                    </div>
+
+                    <div className="text-sm text-slate-500">
+                      {correction.created_at
+                        ? new Date(
+                            correction.created_at
+                          ).toLocaleString()
+                        : '-'}
+                    </div>
+                  </div>
+
+                  <div className="mt-5 grid gap-4 md:grid-cols-2">
+                    <div className="rounded-2xl border border-red-200 bg-red-50 p-4">
+                      <p className="mb-3 text-sm font-bold text-red-800">
+                        {t(
+                          language,
+                          'Original Bill',
+                          'Ankara ya Awali'
+                        )}
+                      </p>
+
+                      <div className="space-y-2 text-sm text-slate-700">
+                        <p>
+                          {t(
+                            language,
+                            'Reading Date',
+                            'Tarehe ya Usomaji'
+                          )}
+                          :{' '}
+                          <strong>
+                            {before.readingDate || '-'}
+                          </strong>
+                        </p>
+
+                        <p>
+                          {t(
+                            language,
+                            'Previous Reading',
+                            'Usomaji wa Awali'
+                          )}
+                          :{' '}
+                          <strong>
+                            {formatQty(
+                              before.previousUnits || 0
+                            )}
+                          </strong>
+                        </p>
+
+                        <p>
+                          {t(
+                            language,
+                            'Current Reading',
+                            'Usomaji wa Sasa'
+                          )}
+                          :{' '}
+                          <strong>
+                            {formatQty(
+                              before.currentUnits || 0
+                            )}
+                          </strong>
+                        </p>
+
+                        <p>
+                          {t(
+                            language,
+                            'Units Used',
+                            'Unit Zilizotumika'
+                          )}
+                          :{' '}
+                          <strong>
+                            {formatQty(
+                              before.unitsUsed || 0
+                            )}
+                          </strong>
+                        </p>
+
+                        <p>
+                          {t(
+                            language,
+                            'Bill Amount',
+                            'Kiasi cha Ankara'
+                          )}
+                          :{' '}
+                          <strong>
+                            TZS{' '}
+                            {currency(
+                              before.currentBillAmount ||
+                                0
+                            )}
+                          </strong>
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                      <p className="mb-3 text-sm font-bold text-emerald-800">
+                        {t(
+                          language,
+                          'Corrected Bill',
+                          'Ankara Iliyosahihishwa'
+                        )}
+                      </p>
+
+                      <div className="space-y-2 text-sm text-slate-700">
+                        <p>
+                          {t(
+                            language,
+                            'Reading Date',
+                            'Tarehe ya Usomaji'
+                          )}
+                          :{' '}
+                          <strong>
+                            {after.readingDate || '-'}
+                          </strong>
+                        </p>
+
+                        <p>
+                          {t(
+                            language,
+                            'Previous Reading',
+                            'Usomaji wa Awali'
+                          )}
+                          :{' '}
+                          <strong>
+                            {formatQty(
+                              after.previousUnits || 0
+                            )}
+                          </strong>
+                        </p>
+
+                        <p>
+                          {t(
+                            language,
+                            'Current Reading',
+                            'Usomaji wa Sasa'
+                          )}
+                          :{' '}
+                          <strong>
+                            {formatQty(
+                              after.currentUnits || 0
+                            )}
+                          </strong>
+                        </p>
+
+                        <p>
+                          {t(
+                            language,
+                            'Units Used',
+                            'Unit Zilizotumika'
+                          )}
+                          :{' '}
+                          <strong>
+                            {formatQty(
+                              after.unitsUsed || 0
+                            )}
+                          </strong>
+                        </p>
+
+                        <p>
+                          {t(
+                            language,
+                            'Bill Amount',
+                            'Kiasi cha Ankara'
+                          )}
+                          :{' '}
+                          <strong>
+                            TZS{' '}
+                            {currency(
+                              after.currentBillAmount ||
+                                0
+                            )}
+                          </strong>
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 rounded-2xl border border-purple-200 bg-purple-50 p-4">
+                    <p className="text-xs font-bold uppercase tracking-wide text-purple-700">
+                      {t(
+                        language,
+                        'Reason for Correction',
+                        'Sababu ya Marekebisho'
+                      )}
+                    </p>
+
+                    <p className="mt-2 font-medium text-purple-950">
+                      {correction.reason || '-'}
+                    </p>
+
+                    <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2 text-xs text-purple-700">
+                      <span>
+                        {t(
+                          language,
+                          'Action',
+                          'Kitendo'
+                        )}
+                        :{' '}
+                        <strong>
+                          {correction.actionType ||
+                            'Update'}
+                        </strong>
+                      </span>
+
+                      <span>
+                        {t(
+                          language,
+                          'Record ID',
+                          'Namba ya Rekodi'
+                        )}
+                        :{' '}
+                        <strong>
+                          {correction.billId || '-'}
+                        </strong>
+                      </span>
+
+                      <span>
+                        {t(
+                          language,
+                          'Corrected By',
+                          'Aliyesahihisha'
+                        )}
+                        :{' '}
+                        <strong>
+                          {correction.correctedBy ||
+                            '-'}
+                        </strong>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+        </div>
+      )}
+    </div>
+  </div>
+)}
 
 {reportType === 'legacyWater' && (() => {
   const sortedLegacyMeters = meters
