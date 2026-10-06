@@ -2421,6 +2421,487 @@ const [
   setShowEmergencyBorrowingForm,
 ] = useState(false);
 const [activeReport, setActiveReport] = useState('daily-remittance');
+
+
+const [monthlyCollectionsReportMonth, setMonthlyCollectionsReportMonth] =
+  useState(() => {
+    const now = new Date();
+
+    return `${now.getFullYear()}-${String(
+      now.getMonth() + 1
+    ).padStart(2, '0')}`;
+  });
+
+const [
+  monthlyCollectionsTransactions,
+  setMonthlyCollectionsTransactions,
+] = useState([]);
+
+const [
+  monthlyCollectionsLoading,
+  setMonthlyCollectionsLoading,
+] = useState(false);
+
+const [
+  monthlyCollectionsLoadError,
+  setMonthlyCollectionsLoadError,
+] = useState('');
+
+useEffect(() => {
+  let cancelled = false;
+
+  const loadMonthlyCollectionsTransactions =
+    async () => {
+      const selectedMonth =
+        monthlyCollectionsReportMonth;
+
+      if (!selectedMonth) {
+        setMonthlyCollectionsTransactions([]);
+        return;
+      }
+
+      const [year, month] =
+        selectedMonth.split('-').map(Number);
+
+      const monthStart =
+        `${selectedMonth}-01`;
+
+      const lastDay = new Date(
+        year,
+        month,
+        0
+      ).getDate();
+
+      const monthEnd =
+        `${selectedMonth}-${String(
+          lastDay
+        ).padStart(2, '0')}`;
+
+      setMonthlyCollectionsLoading(true);
+      setMonthlyCollectionsLoadError('');
+
+      const pageSize = 1000;
+      let pageStart = 0;
+      let allTransactionRows = [];
+      let loadError = null;
+
+      while (true) {
+        const {
+          data: transactionRows,
+          error,
+        } = await supabase
+          .from('centralFundTransactions')
+          .select('*')
+          .gte('transaction_date', monthStart)
+          .lte('transaction_date', monthEnd)
+          .in('status', [
+            'confirmed',
+            'snapshot',
+          ])
+          .order('transaction_date', {
+            ascending: true,
+          })
+          .order('id', {
+            ascending: true,
+          })
+          .range(
+            pageStart,
+            pageStart + pageSize - 1
+          );
+
+        if (cancelled) {
+          return;
+        }
+
+        if (error) {
+          loadError = error;
+          break;
+        }
+
+        const pageRows =
+          Array.isArray(transactionRows)
+            ? transactionRows
+            : [];
+
+        allTransactionRows = [
+          ...allTransactionRows,
+          ...pageRows,
+        ];
+
+        if (pageRows.length < pageSize) {
+          break;
+        }
+
+        pageStart += pageSize;
+      }
+
+      if (cancelled) {
+        return;
+      }
+
+      if (loadError) {
+        console.error(
+          'Monthly collections and expenses report load failed:',
+          loadError
+        );
+
+        setMonthlyCollectionsTransactions([]);
+
+        setMonthlyCollectionsLoadError(
+          language === 'sw'
+            ? 'Imeshindikana kusoma kumbukumbu za mwezi huu kutoka Supabase.'
+            : 'Failed to load this month’s records from Supabase.'
+        );
+
+        setMonthlyCollectionsLoading(false);
+        return;
+      }
+
+      setMonthlyCollectionsTransactions(
+        allTransactionRows
+      );
+
+      setMonthlyCollectionsLoading(false);
+    };
+
+  loadMonthlyCollectionsTransactions();
+
+  return () => {
+    cancelled = true;
+  };
+}, [
+  monthlyCollectionsReportMonth,
+  language,
+]);
+
+const monthlyCollectionsExpenseReport = useMemo(() => {
+  const selectedMonth =
+    monthlyCollectionsReportMonth ||
+    new Date().toISOString().slice(0, 7);
+
+  const selectedMonthStart =
+    `${selectedMonth}-01`;
+
+  const [selectedYear, selectedMonthNumber] =
+    selectedMonth.split('-').map(Number);
+
+  const selectedMonthEnd = new Date(
+    selectedYear,
+    selectedMonthNumber,
+    0
+  );
+
+  const selectedMonthEndKey =
+    `${selectedMonthEnd.getFullYear()}-${String(
+      selectedMonthEnd.getMonth() + 1
+    ).padStart(2, '0')}-${String(
+      selectedMonthEnd.getDate()
+    ).padStart(2, '0')}`;
+
+  const permanentLedgerStart =
+    '2026-09-01';
+
+  const transactions = Array.isArray(
+    monthlyCollectionsTransactions
+  )
+    ? monthlyCollectionsTransactions
+    : [];
+
+  const expenseOrder = [
+    'salary',
+    'rent',
+    'homeExpenses',
+    'medical',
+    'tra',
+    'dataBundle',
+    'electricity',
+    'fare',
+  ];
+
+  const expenseNames = {
+    salary:
+      language === 'sw'
+        ? 'Mishahara'
+        : 'Salary',
+
+    rent:
+      language === 'sw'
+        ? 'Kodi'
+        : 'Rent',
+
+    homeExpenses:
+      language === 'sw'
+        ? 'Matumizi ya Nyumbani'
+        : 'Home Expenses',
+
+    medical:
+      language === 'sw'
+        ? 'Matibabu'
+        : 'Medical',
+
+    tra: 'TRA',
+
+    dataBundle:
+      language === 'sw'
+        ? 'Bando la Intaneti'
+        : 'Data Bundle',
+
+    electricity:
+      language === 'sw'
+        ? 'Umeme'
+        : 'Electricity',
+
+    fare:
+      language === 'sw'
+        ? 'Nauli'
+        : 'Fare',
+  };
+
+  const rowsByExpense = new Map(
+    expenseOrder.map((expenseKey) => [
+      expenseKey,
+      {
+        key: expenseKey,
+        name:
+          expenseNames[expenseKey] ||
+          expenseKey,
+        collected: 0,
+        spent: 0,
+      },
+    ])
+  );
+
+  const normalizeExpenseKey = (transaction) => {
+    const rawExpenseKey = String(
+      transaction?.expense_key ||
+        transaction?.expenseKey ||
+        ''
+    ).trim();
+
+    if (rawExpenseKey) {
+      const normalizedExpenseKey =
+        rawExpenseKey
+          .replace(/[\s_-]+/g, '')
+          .toLowerCase();
+
+      const expenseKeyAliases = {
+        salary: 'salary',
+        salaries: 'salary',
+
+        rent: 'rent',
+
+        homeexpenses: 'homeExpenses',
+        homeexpense: 'homeExpenses',
+
+        medical: 'medical',
+
+        tra: 'tra',
+
+        databundle: 'dataBundle',
+        internet: 'dataBundle',
+
+        electricity: 'electricity',
+
+        fare: 'fare',
+      };
+
+      if (
+        expenseKeyAliases[
+          normalizedExpenseKey
+        ]
+      ) {
+        return expenseKeyAliases[
+          normalizedExpenseKey
+        ];
+      }
+    }
+
+    const fundKey = String(
+      transaction?.destination_fund_key ||
+        transaction?.destinationFundKey ||
+        transaction?.source_fund_key ||
+        transaction?.sourceFundKey ||
+        ''
+    )
+      .trim()
+      .replace(/^shop-\d+-/, '')
+      .replace(/[\s_-]+/g, '')
+      .toLowerCase();
+
+    const fundKeyAliases = {
+      salary: 'salary',
+      rent: 'rent',
+      homeexpenses: 'homeExpenses',
+      medical: 'medical',
+      tra: 'tra',
+      databundle: 'dataBundle',
+      electricity: 'electricity',
+      fare: 'fare',
+    };
+
+    return fundKeyAliases[fundKey] || '';
+  };
+
+  transactions.forEach((transaction) => {
+    const transactionStatus = String(
+      transaction?.status || ''
+    ).toLowerCase();
+
+    const transactionType = String(
+      transaction?.transaction_type ||
+        transaction?.transactionType ||
+        ''
+    ).toLowerCase();
+
+    const amount = Math.max(
+      0,
+      Number(transaction?.amount || 0)
+    );
+
+    if (!amount) {
+      return;
+    }
+
+    /*
+     * NORMAL EXPENSE COLLECTIONS
+     *
+     * These are permanent amounts accumulated
+     * into Salary, Rent, Medical, TRA,
+     * Data Bundle and other expense funds.
+     *
+     * Home Expenses fund_accrual is also the
+     * permanent pooled amount collected.
+     */
+    if (
+      transactionStatus === 'confirmed' &&
+      transactionType === 'fund_accrual'
+    ) {
+      const expenseKey =
+        normalizeExpenseKey(transaction);
+
+      if (
+        expenseKey &&
+        rowsByExpense.has(expenseKey)
+      ) {
+        rowsByExpense.get(
+          expenseKey
+        ).collected += amount;
+      }
+
+      return;
+    }
+
+    /*
+     * NORMAL EXPENSE PAYMENTS
+     *
+     * Money actually paid from the relevant
+     * expense fund.
+     */
+    if (
+      transactionStatus === 'confirmed' &&
+      transactionType === 'expense_payment'
+    ) {
+      const expenseKey =
+        normalizeExpenseKey(transaction);
+
+      if (
+        expenseKey &&
+        rowsByExpense.has(expenseKey)
+      ) {
+        rowsByExpense.get(
+          expenseKey
+        ).spent += amount;
+      }
+
+      return;
+    }
+
+    /*
+     * HOME EXPENSES SPENDING
+     *
+     * home_expense_cash_taken means cash was
+     * actually taken from the pooled Home
+     * Expenses fund. It is therefore SPENT.
+     */
+    if (
+      transactionStatus === 'confirmed' &&
+      transactionType ===
+        'home_expense_cash_taken'
+    ) {
+      rowsByExpense.get(
+        'homeExpenses'
+      ).spent += amount;
+    }
+  });
+
+  const rows = expenseOrder.map(
+    (expenseKey) => {
+      const row =
+        rowsByExpense.get(expenseKey);
+
+      return {
+        ...row,
+
+        balance:
+          Number(row.collected || 0) -
+          Number(row.spent || 0),
+      };
+    }
+  );
+
+  const totals = rows.reduce(
+    (acc, row) => ({
+      collected:
+        acc.collected +
+        Number(row.collected || 0),
+
+      spent:
+        acc.spent +
+        Number(row.spent || 0),
+
+      balance:
+        acc.balance +
+        Number(row.balance || 0),
+    }),
+    {
+      collected: 0,
+      spent: 0,
+      balance: 0,
+    }
+  );
+
+  const monthLabel = new Date(
+    selectedYear,
+    selectedMonthNumber - 1,
+    1
+  ).toLocaleDateString(
+    language === 'sw'
+      ? 'sw-TZ'
+      : 'en-GB',
+    {
+      month: 'long',
+      year: 'numeric',
+    }
+  );
+
+  return {
+    selectedMonth,
+    selectedMonthStart,
+    selectedMonthEndKey,
+    monthLabel,
+    rows,
+    totals,
+
+    hasPermanentLedger:
+      selectedMonthStart >=
+      permanentLedgerStart,
+  };
+}, [
+  monthlyCollectionsReportMonth,
+  monthlyCollectionsTransactions,
+  language,
+]);
+
 const homeFundingSnapshotSaveRef = useRef(new Map());
   
   const [selectedShopId, setSelectedShopId] = useState(
@@ -17135,6 +17616,12 @@ alert(
             ? 'Ripoti ya Matumizi ya Nyumbani'
             : 'Home Expenses Report',
         ],
+        [
+          'monthly-collections-expenses',
+          language === 'sw'
+            ? 'Makusanyo na Matumizi ya Mwezi'
+            : 'Monthly Collections & Expenses',
+        ],
       ].map(([value, label]) => (
         <button
           key={value}
@@ -17150,6 +17637,280 @@ alert(
         </button>
       ))}
     </div>
+
+{activeReport === 'monthly-collections-expenses' ? (
+  <div className="space-y-5">
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h2 className="text-xl font-black text-slate-950">
+            {language === 'sw'
+              ? 'Makusanyo na Matumizi ya Mwezi'
+              : 'Monthly Collections & Expenses'}
+          </h2>
+
+          <p className="mt-2 max-w-3xl text-sm text-slate-600">
+            {language === 'sw'
+              ? 'Chagua mwezi wowote uliopita ili kuona fedha zilizokusanywa kwa matumizi, fedha zilizotumika na salio la kila aina ya matumizi.'
+              : 'Select any historical month to see money collected for expenses, money spent and the balance for each expense category.'}
+          </p>
+        </div>
+
+        <div className="w-full md:w-auto">
+          <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-500">
+            {language === 'sw'
+              ? 'Chagua Mwezi'
+              : 'Select Month'}
+          </label>
+
+          <input
+            type="month"
+            value={monthlyCollectionsReportMonth}
+            onChange={(event) =>
+              setMonthlyCollectionsReportMonth(
+                event.target.value
+              )
+            }
+            className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-blue-500 md:w-[220px]"
+          />
+        </div>
+      </div>
+    </div>
+
+    {!monthlyCollectionsExpenseReport.hasPermanentLedger ? (
+      <div className="rounded-2xl border border-amber-300 bg-amber-50 p-5 text-sm text-amber-900">
+        <p className="font-bold">
+          {language === 'sw'
+            ? `Kumbukumbu za kudumu za makusanyo na matumizi zinaanza Septemba 2026. ${monthlyCollectionsExpenseReport.monthLabel} iko kabla ya mwanzo wa kumbukumbu hizo.`
+            : `Permanent collections and expense records begin in September 2026. ${monthlyCollectionsExpenseReport.monthLabel} is before the start of that permanent ledger.`}
+        </p>
+
+        <p className="mt-2">
+          {language === 'sw'
+            ? 'Kwa hiyo mfumo hautabuni au kuchanganya takwimu za mwezi huu na kumbukumbu za sasa.'
+            : 'The system will therefore not invent or mix figures for this month with the current permanent records.'}
+        </p>
+      </div>
+    ) : (
+      <>
+        <div className="grid gap-4 md:grid-cols-3">
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+              {language === 'sw'
+                ? 'Jumla Iliyokusanywa'
+                : 'Total Collected'}
+            </p>
+
+            <p className="mt-2 text-2xl font-black text-slate-950">
+              TZS{' '}
+              {money(
+                monthlyCollectionsExpenseReport
+                  .totals.collected
+              )}
+            </p>
+
+            <p className="mt-1 text-xs text-slate-500">
+              {
+                monthlyCollectionsExpenseReport
+                  .monthLabel
+              }
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+              {language === 'sw'
+                ? 'Jumla Iliyotumika'
+                : 'Total Spent'}
+            </p>
+
+            <p className="mt-2 text-2xl font-black text-slate-950">
+              TZS{' '}
+              {money(
+                monthlyCollectionsExpenseReport
+                  .totals.spent
+              )}
+            </p>
+
+            <p className="mt-1 text-xs text-slate-500">
+              {
+                monthlyCollectionsExpenseReport
+                  .monthLabel
+              }
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+              {language === 'sw'
+                ? 'Salio'
+                : 'Balance'}
+            </p>
+
+            <p
+              className={`mt-2 text-2xl font-black ${
+                monthlyCollectionsExpenseReport
+                  .totals.balance < 0
+                  ? 'text-red-700'
+                  : 'text-slate-950'
+              }`}
+            >
+              TZS{' '}
+              {money(
+                monthlyCollectionsExpenseReport
+                  .totals.balance
+              )}
+            </p>
+
+            <p className="mt-1 text-xs text-slate-500">
+              {language === 'sw'
+                ? 'Makusanyo pungufu matumizi'
+                : 'Collections less expenses'}
+            </p>
+          </div>
+        </div>
+
+        <div className="overflow-hidden rounded-2xl border border-slate-300 bg-white shadow-sm">
+          <div className="border-b border-slate-300 bg-slate-50 px-5 py-4">
+            <h3 className="font-black text-slate-950">
+              {
+                monthlyCollectionsExpenseReport
+                  .monthLabel
+              }
+            </h3>
+
+            <p className="mt-1 text-xs text-slate-500">
+              {monthlyCollectionsExpenseReport
+                .selectedMonthStart}{' '}
+              →{' '}
+              {
+                monthlyCollectionsExpenseReport
+                  .selectedMonthEndKey
+              }
+            </p>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] text-sm">
+              <thead className="bg-slate-100 text-xs uppercase tracking-wide text-slate-600">
+                <tr>
+                  <th className="px-5 py-3 text-left">
+                    {language === 'sw'
+                      ? 'Aina ya Matumizi'
+                      : 'Expense Category'}
+                  </th>
+
+                  <th className="px-5 py-3 text-right">
+                    {language === 'sw'
+                      ? 'Iliyokusanywa'
+                      : 'Collected'}
+                  </th>
+
+                  <th className="px-5 py-3 text-right">
+                    {language === 'sw'
+                      ? 'Iliyotumika'
+                      : 'Spent'}
+                  </th>
+
+                  <th className="px-5 py-3 text-right">
+                    {language === 'sw'
+                      ? 'Salio'
+                      : 'Balance'}
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {monthlyCollectionsExpenseReport.rows.map(
+                  (row) => (
+                    <tr
+                      key={row.key}
+                      className="border-t border-slate-200"
+                    >
+                      <td className="px-5 py-4 font-bold text-slate-900">
+                        {row.name}
+                      </td>
+
+                      <td className="px-5 py-4 text-right font-semibold text-slate-800">
+                        TZS{' '}
+                        {money(
+                          row.collected
+                        )}
+                      </td>
+
+                      <td className="px-5 py-4 text-right font-semibold text-slate-800">
+                        TZS{' '}
+                        {money(row.spent)}
+                      </td>
+
+                      <td
+                        className={`px-5 py-4 text-right font-bold ${
+                          row.balance < 0
+                            ? 'text-red-700'
+                            : 'text-slate-900'
+                        }`}
+                      >
+                        TZS{' '}
+                        {money(row.balance)}
+                      </td>
+                    </tr>
+                  )
+                )}
+              </tbody>
+
+              <tfoot>
+                <tr className="border-t-2 border-slate-400 bg-slate-100">
+                  <td className="px-5 py-4 font-black text-slate-950">
+                    {language === 'sw'
+                      ? 'JUMLA'
+                      : 'TOTAL'}
+                  </td>
+
+                  <td className="px-5 py-4 text-right font-black text-slate-950">
+                    TZS{' '}
+                    {money(
+                      monthlyCollectionsExpenseReport
+                        .totals.collected
+                    )}
+                  </td>
+
+                  <td className="px-5 py-4 text-right font-black text-slate-950">
+                    TZS{' '}
+                    {money(
+                      monthlyCollectionsExpenseReport
+                        .totals.spent
+                    )}
+                  </td>
+
+                  <td
+                    className={`px-5 py-4 text-right font-black ${
+                      monthlyCollectionsExpenseReport
+                        .totals.balance < 0
+                        ? 'text-red-700'
+                        : 'text-slate-950'
+                    }`}
+                  >
+                    TZS{' '}
+                    {money(
+                      monthlyCollectionsExpenseReport
+                        .totals.balance
+                    )}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-600">
+          {language === 'sw'
+            ? 'Ripoti hii inasoma kumbukumbu za kudumu za mwezi uliochaguliwa. Kubadilisha mwezi hakubadilishi kumbukumbu za miezi iliyopita.'
+            : 'This report reads the permanent records for the selected month. Changing the month does not alter previous months’ records.'}
+        </div>
+      </>
+    )}
+  </div>
+) : null}
 
 {activeReport === 'daily-remittance' ? (
   <div className="space-y-4">

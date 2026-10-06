@@ -6685,7 +6685,9 @@ useEffect(() => {
 
             const recordDate =
               String(
-                record?.date || ''
+                record?.date ||
+                  record?.created_at ||
+                  ''
               ).slice(0, 10);
 
             return (
@@ -6707,157 +6709,28 @@ useEffect(() => {
               ).getTime()
           );
 
-        if (!cancelled) {
-          setSalesJournalViewRecords(
-            localViewRecords
-          );
-        }
-
-        const {
-          data: confirmedPeriodSales,
-          error: confirmedPeriodSalesError,
-        } = await supabase
-          .from('sales')
-          .select('*')
-          .eq(
-            'shop_id',
-            currentShopId
-          )
-          .gte(
-            'date',
-            startDate
-          )
-          .lte(
-            'date',
-            endDate
-          )
-          .order('created_at', {
-            ascending: true,
-          });
-
-        if (confirmedPeriodSalesError) {
-          throw confirmedPeriodSalesError;
-        }
-
-        const viewRecordsById =
-          new Map();
-
-        (
-          Array.isArray(
-            existingJournalRecords
-          )
-            ? existingJournalRecords
-            : []
-        )
-          .filter((record) => {
-            const recordShopId =
-              String(
-                record?.shop_id || ''
-              ).trim();
-
-            const recordDate =
-              String(
-                record?.date || ''
-              ).slice(0, 10);
-
-            return (
-              recordShopId ===
-                currentShopId &&
-              recordDate >=
-                startDate &&
-              recordDate <=
-                endDate
-            );
-          })
-          .forEach((record) => {
-            const saleId =
-              String(
-                record?.id || ''
-              ).trim();
-
-            if (!saleId) return;
-
-            viewRecordsById.set(
-              saleId,
-              record
-            );
-          });
-
-        (
-          Array.isArray(
-            confirmedPeriodSales
-          )
-            ? confirmedPeriodSales
-            : []
-        ).forEach((sale) => {
-          const saleId = String(
-            sale?.id || ''
-          ).trim();
-
-          if (!saleId) return;
-
-          const existingRecord =
-            viewRecordsById.get(
-              saleId
-            );
-
-          viewRecordsById.set(
-            saleId,
-            {
-              ...(existingRecord || {}),
-              ...sale,
-              id: saleId,
-              shop_id:
-                currentShopId,
-              date:
-                sale?.date ||
-                (
-                  sale?.created_at
-                    ? String(
-                        sale.created_at
-                      ).slice(0, 10)
-                    : startDate
-                ),
-              status: 'confirmed',
-              integrityStatus:
-                existingRecord
-                  ?.integrityStatus ||
-                'ok',
-              confirmed: true,
-              source:
-                existingRecord
-                  ?.source ||
-                'supabase_view',
-            }
-          );
-        });
-
         if (cancelled) {
           return;
         }
 
         setSalesJournalViewRecords(
-          Array.from(
-            viewRecordsById.values()
-          ).sort(
-            (a, b) =>
-              new Date(
-                a?.created_at || 0
-              ).getTime() -
-              new Date(
-                b?.created_at || 0
-              ).getTime()
-          )
+          localViewRecords
         );
       } catch (error) {
         console.error(
-          'Selected Sales Journal period load failed:',
+          'Local Sales Journal load failed:',
           error
         );
 
         if (!cancelled) {
+          setSalesJournalViewRecords([]);
+
           setSalesJournalViewError(
-            'Mtandao haupatikani kwa sasa. Mauzo yako yamehifadhiwa salama na yanaonekana.'
+            t(
+              language,
+              'The local Sales Journal could not be read on this device.',
+              'Imeshindikana kusoma Sales Journal iliyohifadhiwa kwenye kifaa hiki.'
+            )
           );
         }
       } finally {
@@ -6880,6 +6753,7 @@ useEffect(() => {
   salesJournalViewRange.start,
   salesJournalViewRange.end,
   salesJournalRecords,
+  language,
 ]);
 
 const [reportType, setReportType] = useState('stockValue');
@@ -12405,6 +12279,173 @@ sendingSupabaseSalesCount > 0 ? (
                         : 'hidden'
                     }
                   >
+                    <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                      <div className="flex flex-wrap items-end gap-3">
+                        <div>
+                          <div className="mb-1 text-xs font-medium text-slate-500">
+                            {t(
+                              language,
+                              'Sales Period',
+                              'Kipindi cha Mauzo'
+                            )}
+                          </div>
+
+                          <select
+                            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                            value={reportPreset}
+                            onChange={(e) =>
+                              setReportPreset(
+                                e.target.value
+                              )
+                            }
+                          >
+                            <option value="today">
+                              {t(
+                                language,
+                                'Today',
+                                'Leo'
+                              )}
+                            </option>
+
+                            <option value="yesterday">
+                              {t(
+                                language,
+                                'Yesterday',
+                                'Jana'
+                              )}
+                            </option>
+
+                            <option value="week">
+                              {t(
+                                language,
+                                'This week to date',
+                                'Wiki hii hadi leo'
+                              )}
+                            </option>
+
+                            <option value="lastweek">
+                              {t(
+                                language,
+                                'Last week',
+                                'Wiki iliyopita'
+                              )}
+                            </option>
+
+                            <option value="month">
+                              {t(
+                                language,
+                                'This month to date',
+                                'Mwezi huu hadi leo'
+                              )}
+                            </option>
+
+                            <option value="lastmonth">
+                              {t(
+                                language,
+                                'Last month',
+                                'Mwezi uliopita'
+                              )}
+                            </option>
+
+                            <option value="3months">
+                              {t(
+                                language,
+                                'Last 3 months',
+                                'Miezi 3 iliyopita'
+                              )}
+                            </option>
+
+                            <option value="6months">
+                              {t(
+                                language,
+                                'Last 6 months',
+                                'Miezi 6 iliyopita'
+                              )}
+                            </option>
+
+                            <option value="year">
+                              {t(
+                                language,
+                                'This year',
+                                'Mwaka huu'
+                              )}
+                            </option>
+
+                            <option value="date">
+                              {t(
+                                language,
+                                'Custom Date Range',
+                                'Chagua tarehe'
+                              )}
+                            </option>
+                          </select>
+                        </div>
+
+                        {reportPreset === 'date' ? (
+                          <>
+                            <div>
+                              <div className="mb-1 text-xs font-medium text-slate-500">
+                                {t(
+                                  language,
+                                  'From',
+                                  'Kuanzia'
+                                )}
+                              </div>
+
+                              <Input
+                                type="date"
+                                value={
+                                  reportStartDate
+                                }
+                                onChange={(e) =>
+                                  setReportStartDate(
+                                    e.target.value
+                                  )
+                                }
+                                className="w-40"
+                              />
+                            </div>
+
+                            <div>
+                              <div className="mb-1 text-xs font-medium text-slate-500">
+                                {t(
+                                  language,
+                                  'To',
+                                  'Mpaka'
+                                )}
+                              </div>
+
+                              <Input
+                                type="date"
+                                value={
+                                  reportEndDate
+                                }
+                                onChange={(e) =>
+                                  setReportEndDate(
+                                    e.target.value
+                                  )
+                                }
+                                className="w-40"
+                              />
+                            </div>
+                          </>
+                        ) : null}
+                      </div>
+
+                      <div className="mt-3 text-xs text-slate-500">
+                        {t(
+                          language,
+                          'Local Journal period',
+                          'Kipindi cha Journal ya kifaa'
+                        )}:{' '}
+                        <span className="font-semibold text-slate-700">
+                          {salesJournalViewRange.start}
+                          {' — '}
+                          {salesJournalViewRange.end}
+                        </span>
+                      </div>
+                    </div>
+
                     <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                       <h3 className="font-semibold text-slate-900">
                         {t(
