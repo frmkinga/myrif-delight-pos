@@ -10164,6 +10164,102 @@ const dateKeys = getExpenseDateKeys(
     ])
   );
 
+  const salesPositionByShopDate = new Map();
+
+  sales.forEach((sale) => {
+    const saleShopId = String(
+      sale?.shop_id ||
+        sale?.shopId ||
+        sale?.shopid ||
+        ''
+    ).trim();
+
+    const saleDateKey = String(
+      sale?.date ||
+        sale?.created_at ||
+        ''
+    ).slice(0, 10);
+
+    if (!saleShopId || !saleDateKey) return;
+
+    const positionKey =
+      `${saleShopId}::${saleDateKey}`;
+
+    const currentPosition =
+      salesPositionByShopDate.get(positionKey) || {
+        salesAmount: 0,
+        replacementAmount: 0,
+      };
+
+    const items = Array.isArray(sale?.items)
+      ? sale.items
+      : [];
+
+    const saleReplacementAmount = items.reduce(
+      (itemTotal, item) => {
+        const product = productById.get(
+          String(item?.productId || '')
+        );
+
+        const quantity = Number(
+          item?.quantity || 0
+        );
+
+        const buyPrice = Number(
+          item?.buyPrice ||
+            product?.buyPrice ||
+            product?.buyingprice ||
+            0
+        );
+
+        return itemTotal + quantity * buyPrice;
+      },
+      0
+    );
+
+    salesPositionByShopDate.set(positionKey, {
+      salesAmount:
+        currentPosition.salesAmount +
+        Number(sale?.total || 0),
+      replacementAmount:
+        currentPosition.replacementAmount +
+        saleReplacementAmount,
+    });
+  });
+
+  const gasEntriesByShopDate = new Map();
+
+  gasEntries.forEach((entry) => {
+    if (entry?.confirmed === false) return;
+
+    const entryShopId = String(
+      entry?.shop_id ||
+        entry?.shopId ||
+        ''
+    ).trim();
+
+    const entryDateKey = String(
+      entry?.date ||
+        entry?.created_at ||
+        ''
+    ).slice(0, 10);
+
+    if (!entryShopId || !entryDateKey) return;
+
+    const positionKey =
+      `${entryShopId}::${entryDateKey}`;
+
+    const currentEntries =
+      gasEntriesByShopDate.get(positionKey) || [];
+
+    currentEntries.push(entry);
+
+    gasEntriesByShopDate.set(
+      positionKey,
+      currentEntries
+    );
+  });
+
   const expenseOrder = [
     'salary',
     'rent',
@@ -10272,66 +10368,22 @@ const dateKeys = getExpenseDateKeys(
     shopId,
     dateKey
   ) => {
-    const dateSales = sales.filter((sale) => {
-      const saleShopId = String(
-        sale?.shop_id ||
-          sale?.shopId ||
-          sale?.shopid ||
-          ''
-      ).trim();
-
-      const saleDateKey = String(
-        sale?.date ||
-          sale?.created_at ||
-          ''
-      ).slice(0, 10);
-
-      return (
-        saleShopId === String(shopId) &&
-        saleDateKey === dateKey
-      );
-    });
-
-    const salesAmount = dateSales.reduce(
-      (sum, sale) => sum + Number(sale?.total || 0),
-      0
-    );
-
-    const replacementAmount = dateSales.reduce(
-      (saleTotal, sale) => {
-        const items = Array.isArray(sale?.items)
-          ? sale.items
-          : [];
-
-        return (
-          saleTotal +
-          items.reduce((itemTotal, item) => {
-            const product = productById.get(
-              String(item?.productId || '')
-            );
-
-            const quantity = Number(item?.quantity || 0);
-
-            const buyPrice = Number(
-              item?.buyPrice ||
-                product?.buyPrice ||
-                product?.buyingprice ||
-                0
-            );
-
-            return itemTotal + quantity * buyPrice;
-          }, 0)
-        );
-      },
-      0
-    );
+    const position =
+      salesPositionByShopDate.get(
+        `${String(shopId)}::${dateKey}`
+      ) || {
+        salesAmount: 0,
+        replacementAmount: 0,
+      };
 
     return {
-      salesAmount,
-      replacementAmount,
+      salesAmount: position.salesAmount,
+      replacementAmount:
+        position.replacementAmount,
       grossProfit: Math.max(
         0,
-        salesAmount - replacementAmount
+        position.salesAmount -
+          position.replacementAmount
       ),
     };
   };

@@ -4246,6 +4246,40 @@ if (
   }
 }
 
+const ownerRemittancePositionCache = useMemo(() => {
+  const positions = new Map();
+  const shops = Array.isArray(data?.shops) ? data.shops : [];
+
+  ownerRemittanceDateKeys.forEach((dateKey) => {
+    shops.forEach((shop) => {
+      const shopId = String(shop?.id || '').trim();
+
+      if (!shopId) return;
+
+      positions.set(
+        `${shopId}::${dateKey}`,
+        getLiveRemittanceShopPosition({
+          data: ownerConfirmedCalculationData,
+          shopId,
+          calculationDateKey: dateKey,
+        })
+      );
+    });
+  });
+
+  return positions;
+}, [
+  ownerConfirmedCalculationData,
+  data?.shops,
+  ownerRemittanceStartKey,
+  ownerRemittancePeriod.endKey,
+]);
+
+const getCachedOwnerRemittancePosition = (shopId, dateKey) =>
+  ownerRemittancePositionCache.get(
+    `${String(shopId || '').trim()}::${dateKey}`
+  ) || {};
+
 const ownerTotalMatumiziYaLeo =
   ownerRemittanceDateKeys.reduce(
     (periodTotal, dateKey) => {
@@ -4261,11 +4295,10 @@ const ownerTotalMatumiziYaLeo =
         if (!shopId) return shopTotal;
 
         const shopRemittancePosition =
-          getLiveRemittanceShopPosition({
-            data: ownerConfirmedCalculationData,
+          getCachedOwnerRemittancePosition(
             shopId,
-            calculationDateKey: dateKey,
-          });
+            dateKey
+          );
 
         return (
           shopTotal +
@@ -4292,11 +4325,10 @@ const displayedOwnerProfit =
           : []
       ).reduce((shopTotal, shop) => {
         const position =
-          getLiveRemittanceShopPosition({
-            data: ownerConfirmedCalculationData,
-            shopId: shop.id,
-            calculationDateKey: dateKey,
-          });
+          getCachedOwnerRemittancePosition(
+            shop.id,
+            dateKey
+          );
 
         return (
           shopTotal +
@@ -4321,11 +4353,10 @@ const displayedOwnerProfit =
           : []
       ).reduce((shopTotal, shop) => {
         const position =
-          getLiveRemittanceShopPosition({
-            data: ownerConfirmedCalculationData,
-            shopId: shop.id,
-            calculationDateKey: dateKey,
-          });
+          getCachedOwnerRemittancePosition(
+            shop.id,
+            dateKey
+          );
 
         return (
           shopTotal +
@@ -4875,11 +4906,10 @@ const totalBankCapital =
   ownerRemittanceDateKeys.reduce(
     (total, dateKey) => {
       const shopRemittancePosition =
-        getLiveRemittanceShopPosition({
-          data: ownerConfirmedCalculationData,
-          shopId: shop.id,
-          calculationDateKey: dateKey,
-        });
+        getCachedOwnerRemittancePosition(
+          shop.id,
+          dateKey
+        );
 
       return (
         total +
@@ -4899,11 +4929,10 @@ const totalBankCapital =
   ownerRemittanceDateKeys.reduce(
     (periodTotal, dateKey) => {
       const position =
-        getLiveRemittanceShopPosition({
-         data: ownerConfirmedCalculationData,
-          shopId: shop.id,
-          calculationDateKey: dateKey,
-        });
+        getCachedOwnerRemittancePosition(
+          shop.id,
+          dateKey
+        );
 
       return (
         periodTotal +
@@ -5074,7 +5103,7 @@ const bankCapital = latest
 
       <div className="mt-6">
   {dashboardDataReady && !ownerSalesLoading ? (
-    <CEODecisionCentre
+    <MemoizedCEODecisionCentre
   data={ownerConfirmedCalculationData}
   language={language}
   ownerPeriod={ownerPeriod}
@@ -5155,7 +5184,6 @@ function ShopDashboard({
 
   useEffect(() => {
     let cancelled = false;
-    let remittanceHandle = null;
     let homeExpensesHandle = null;
 
     const scheduleDuringIdle = (callback, timeout) => {
@@ -5196,30 +5224,19 @@ function ShopDashboard({
       window.clearTimeout(handle.id);
     };
 
-    remittanceHandle = scheduleDuringIdle(() => {
-      if (cancelled) return;
+    homeExpensesHandle =
+      scheduleDuringIdle(() => {
+        if (cancelled) return;
 
-      setPreparedHeavyTabs((previous) =>
-        previous.includes('remittance')
-          ? previous
-          : [...previous, 'remittance']
-      );
-
-      homeExpensesHandle =
-        scheduleDuringIdle(() => {
-          if (cancelled) return;
-
-          setPreparedHeavyTabs((previous) =>
-            previous.includes('homeExpenses')
-              ? previous
-              : [...previous, 'homeExpenses']
-          );
-        }, 2500);
-    }, 1500);
+        setPreparedHeavyTabs((previous) =>
+          previous.includes('homeExpenses')
+            ? previous
+            : [...previous, 'homeExpenses']
+        );
+      }, 2500);
 
     return () => {
       cancelled = true;
-      cancelScheduledWork(remittanceHandle);
       cancelScheduledWork(homeExpensesHandle);
     };
   }, []);
