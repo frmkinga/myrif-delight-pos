@@ -37,6 +37,9 @@ const STORAGE_META_KEY = 'rafikiai_storage_meta';
 const STORAGE_SYNC_QUEUE_KEY = 'rafikiai_sync_queue';
 const STORAGE_LAST_SYNC_KEY = 'rafikiai_last_sync';
 const STORAGE_SESSION_KEY = 'rafikiai_current_user';
+
+// Tracks authentication cleanup without delaying the logout screen.
+let pendingPosSignOut = Promise.resolve();
 const STORAGE_CART_DRAFTS_KEY = 'rafikiai_cart_drafts_v1';
 const STORAGE_LAST_ACTIVITY_KEY = 'rafikiai_last_activity_v1';
 const STORAGE_LOCK_ON_RETURN_KEY = 'rafikiai_lock_on_return_v1';
@@ -183,7 +186,7 @@ function getCartDraft(shopId) {
 
 function saveCartDraft(shopId, cart) {
   const selectedShopId = String(shopId || '').trim();
-  if (!selectedShopId) return;
+  if (!selectedShopId) return false;
 
   const drafts = readCartDrafts();
   const safeCart = Array.isArray(cart) ? cart : [];
@@ -198,7 +201,17 @@ function saveCartDraft(shopId, cart) {
     };
   }
 
-  writeStorage(STORAGE_CART_DRAFTS_KEY, drafts);
+  try {
+    writeStorage(STORAGE_CART_DRAFTS_KEY, drafts);
+    return true;
+  } catch (error) {
+    console.error(
+      'Cart draft could not be saved. Existing stored data was not cleared:',
+      error
+    );
+
+    return false;
+  }
 }
 
 function clearCartDraft(shopId) {
@@ -1683,8 +1696,9 @@ const parseMoneyInput = (value) => {
   return Number(String(value).replace(/,/g, '').trim() || 0);
 };
 
-const currency = (value) =>
-  new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(parseMoneyInput(value));
+const posCurrencyFormatter = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
+const posWholeNumberFormatter = new Intl.NumberFormat('en-US');
+const currency = (value) => posCurrencyFormatter.format(parseMoneyInput(value));
 
 const formatMoneyInput = (value) => {
   const raw = String(value ?? '').replace(/,/g, '').replace(/[^\d.]/g, '');
@@ -1692,7 +1706,7 @@ const formatMoneyInput = (value) => {
   if (!raw) return '';
 
   const [whole, decimal] = raw.split('.');
-  const formattedWhole = new Intl.NumberFormat('en-US').format(Number(whole || 0));
+  const formattedWhole = posWholeNumberFormatter.format(Number(whole || 0));
 
   return decimal !== undefined ? `${formattedWhole}.${decimal.slice(0, 2)}` : formattedWhole;
 };
@@ -1704,7 +1718,7 @@ const roundStockQty = (value, decimals = 2) => {
 
 const formatQty = (value) => {
   const num = roundStockQty(value, 2);
-  return Number.isInteger(num) ? String(num) : new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(num);
+  return Number.isInteger(num) ? String(num) : posCurrencyFormatter.format(num);
 };
 
 const roundToCashStep = (value, step = 50) => {
@@ -2230,9 +2244,31 @@ rentSmsAttempts: (data.rentSmsAttempts || []).filter(sameShop),
   });
 }
 
-async function readData({ preferFresh = true, salesMode = 'today' } = {}) {
+async function readData({
+  preferFresh = true,
+  salesMode = 'today',
+  onProgress = null,
+} = {}) {
+  let lastReportedProgress = -1;
+
+  const reportProgress = (value) => {
+    const safeValue = Math.max(
+      0,
+      Math.min(10, Math.round(Number(value) || 0))
+    );
+
+    if (
+      safeValue !== lastReportedProgress &&
+      typeof onProgress === 'function'
+    ) {
+      lastReportedProgress = safeValue;
+      onProgress(safeValue);
+    }
+  };
+
   try {
     const dbData = await readFromDB(DB_DATA_KEY);
+    reportProgress(1);
 
     if (!preferFresh && dbData) {
       return normalizeData(dbData);
@@ -2244,6 +2280,8 @@ async function readData({ preferFresh = true, salesMode = 'today' } = {}) {
 const {
   data: { session },
 } = await supabase.auth.getSession();
+
+reportProgress(2);
 
 const isOwnerUser = String(savedSessionUser?.role || '') === 'owner';
 let sessionShopId = isOwnerUser
@@ -2261,7 +2299,7 @@ if (session?.user?.id && !isOwnerUser) {
     sessionShopId = String(shopUserRow.shop_id).trim();
   }
 }
-
+reportProgress(3);
         let productsQuery = supabase.from('products').select('*');
 let salesQuery = supabase
   .from('sales')
@@ -2365,6 +2403,7 @@ rentRecordCorrectionsQuery = rentRecordCorrectionsQuery.eq('shop_id', sessionSho
 rentSmsRemindersQuery = rentSmsRemindersQuery.eq('shop_id', sessionShopId);
 rentSmsAttemptsQuery = rentSmsAttemptsQuery.eq('shop_id', sessionShopId);
 }
+let completedCloudQueries = 0;
 
         const [
   { data: cloudProducts },
@@ -2398,7 +2437,8 @@ rentSmsAttemptsQuery = rentSmsAttemptsQuery.eq('shop_id', sessionShopId);
 { data: cloudRentSmsReminders },
 { data: cloudRentSmsAttempts },
 { data: cloudCentralFundTransactions },
-] = await Promise.all([
+] = await Promise.all(
+  [
   productsQuery,
   salesQuery,
   purchasesQuery,
@@ -2430,7 +2470,22 @@ rentSmsAttemptsQuery = rentSmsAttemptsQuery.eq('shop_id', sessionShopId);
   rentSmsRemindersQuery,
   rentSmsAttemptsQuery,
   centralFundTransactionsQuery,
-]);
+  ].map((query, index, allQueries) =>
+    Promise.resolve(query).finally(() => {
+      completedCloudQueries += 1;
+
+      const queryProgress =
+        3 +
+        Math.ceil(
+          (completedCloudQueries /
+            allQueries.length) *
+            5
+        );
+
+      reportProgress(queryProgress);
+    })
+  )
+);
 
 const normalized = normalizeData({
   ...seedData,
@@ -2877,6 +2932,8 @@ serviceCharges: (cloudServiceCharges || []).map((s) => ({
       gasEntries: cloudGasEntries || [],
     });
 
+        reportProgress(9);
+
         if (isOwnerUser) {
           await writeToDB(
             DB_DATA_KEY,
@@ -3032,37 +3089,67 @@ function TabsTrigger({ value, activeValue, onClick, children }) {
     </button>
   );
 }
-function TabsContent({
+
+const StableTabBody = React.memo(
+  function StableTabBody({ children }) {
+    return children;
+  },
+  (previous, next) => next.isActive === false
+);
+
+const MemoizedCEODecisionCentre = React.memo(CEODecisionCentre);
+
+const MemoizedDailyRemittanceCentre = React.memo(
+  DailyRemittanceCentre
+);
+
+const MemoizedHomeExpensesCentre = React.memo(
+  HomeExpensesCentre
+);
+// Keep previously prepared sections mounted, but do not ask React to
+// reconcile an inactive section whenever another section is selected.
+// When a section becomes active it receives the latest children and data.
+const TabsContent = React.memo(function TabsContent({
   value,
   activeValue,
   children,
   keepAlive = false,
+  preload = false,
 }) {
   const isActive = value === activeValue;
-
   const [hasBeenOpened, setHasBeenOpened] = useState(
-    isActive || keepAlive
+    isActive || preload
   );
 
   useEffect(() => {
-    if (isActive && !hasBeenOpened) {
+    if (
+      (isActive || preload) &&
+      !hasBeenOpened
+    ) {
       setHasBeenOpened(true);
     }
-  }, [isActive, hasBeenOpened]);
+  }, [isActive, preload, hasBeenOpened]);
 
-  if (!isActive && (!keepAlive || !hasBeenOpened)) {
-    return null;
-  }
+  if (!isActive && (!keepAlive || !hasBeenOpened)) return null;
 
   return (
-    <div
-      className={isActive ? 'block' : 'hidden'}
-      aria-hidden={!isActive}
-    >
-      {children}
+    <div className={isActive ? 'block' : 'hidden'} aria-hidden={!isActive}>
+      <StableTabBody isActive={isActive}>
+        {children}
+      </StableTabBody>
     </div>
   );
-}
+}, (previous, next) => {
+  // Always update the selected screen, including changes to live sales,
+  // stock and Journal-derived state. Refresh a hidden screen on selection.
+  if (previous.value !== next.value) return false;
+  if (previous.keepAlive !== next.keepAlive) return false;
+  if (previous.preload !== next.preload) return false;
+  const wasActive = previous.value === previous.activeValue;
+  const isActive = next.value === next.activeValue;
+  if (wasActive !== isActive) return false;
+  return !isActive;
+});
 
         function StatCard({ title, value, subtitle = '', icon: Icon, color = 'bg-orange-300' }) {
   return (
@@ -3096,7 +3183,13 @@ function TabsContent({
     </div>
   );
 }
-function Login({ onLogin, users, language, setLanguage }) {
+function Login({
+  onLogin,
+  users,
+  language,
+  setLanguage,
+  loginReady = true,
+}) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -3108,6 +3201,17 @@ const loginRequestInProgress = useRef(false);
 
 const submit = async (e) => {
   e.preventDefault();
+
+  if (!loginReady) {
+    setError(
+      t(
+        language,
+        'Preparing user accounts. Please wait a moment.',
+        'Inaandaa taarifa za watumiaji. Tafadhali subiri kidogo.'
+      )
+    );
+    return;
+  }
 
   if (loginRequestInProgress.current) return;
 
@@ -3134,11 +3238,31 @@ const submit = async (e) => {
   setError('');
 
   try {
+    const loginStartedAt = performance.now();
+
+    // Ensure a previous cashier's sign-out has finished
+    // before authenticating the next cashier.
+    await pendingPosSignOut;
+
+    console.log(
+      '[POS LOGIN] Previous sign-out wait:',
+      Math.round(performance.now() - loginStartedAt),
+      'ms'
+    );
+
+    const authStartedAt = performance.now();
+
     const { data: signInData, error: authError } =
       await supabase.auth.signInWithPassword({
         email: found.email,
         password: typedPassword,
       });
+
+    console.log(
+      '[POS LOGIN] Supabase authentication:',
+      Math.round(performance.now() - authStartedAt),
+      'ms'
+    );
 
     if (authError) {
   console.error('SUPABASE LOGIN EXACT ERROR:', {
@@ -3162,7 +3286,6 @@ const submit = async (e) => {
       authMessage.includes('invalid login credentials') ||
       authMessage.includes('invalid credentials')
     );
-
   if (isInvalidCredentials) {
     setError(
       t(
@@ -3175,8 +3298,8 @@ const submit = async (e) => {
     setError(
       t(
         language,
-        'Supabase is temporarily unavailable. Please try again.',
-        'Mtandao haupatikani kwa sasa. Tafadhali jaribu tena baadae.'
+        'The network is currently unavailable. Please try again later.',
+        'Mtandao haupatikani kwa sasa. Tafadhali jaribu tena baadaye.'
       )
     );
   }
@@ -3194,8 +3317,8 @@ const submit = async (e) => {
     setError(
       t(
         language,
-        'Login failed. Please try again.',
-        'Kuingia kumeshindikana. Tafadhali jaribu tena.'
+        'The network is currently unavailable. Please try again later.',
+        'Mtandao haupatikani kwa sasa. Tafadhali jaribu tena baadaye.'
       )
     );
   } finally {
@@ -3320,9 +3443,12 @@ const submit = async (e) => {
 <div className="space-y-3 pt-1">
   <Button
     type="submit"
+    disabled={!loginReady}
     className={`h-12 w-full rounded-2xl ${loginTheme.button} text-sm font-semibold text-white shadow-lg`}
   >
-    {t(language, 'Login', 'Ingia')}
+    {loginReady
+      ? t(language, 'Login', 'Ingia')
+      : t(language, 'Preparing login...', 'Inaandaa kuingia...')}
   </Button>
 </div>
 </form>
@@ -4969,6 +5095,45 @@ const bankCapital = latest
 );
 }
    
+const FastPosSearchInput = React.memo(function FastPosSearchInput({
+  value,
+  onSearchChange,
+  language,
+}) {
+  const [localSearch, setLocalSearch] = useState(value || '');
+
+  // Keep the field synchronized when the POS clears the search
+  // or a QR scan selects a product.
+  useEffect(() => {
+    setLocalSearch(value || '');
+  }, [value]);
+
+  // Typing updates only this small component.
+  // The main dashboard receives the query after typing pauses.
+  useEffect(() => {
+    if (localSearch === (value || '')) return;
+
+    const timer = setTimeout(() => {
+      onSearchChange(localSearch);
+    }, 120);
+
+    return () => clearTimeout(timer);
+  }, [localSearch, value, onSearchChange]);
+
+  return (
+    <Input
+      className="flex-[2]"
+      placeholder={t(
+        language,
+        'Type product name...',
+        'Andika jina la bidhaa...'
+      )}
+      value={localSearch}
+      onChange={(e) => setLocalSearch(e.target.value)}
+    />
+  );
+});
+
 function ShopDashboard({
   shop,
   data,
@@ -4985,26 +5150,124 @@ function ShopDashboard({
   syncMessage,
 }) {
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [openedTabs, setOpenedTabs] = useState(['dashboard']);
+  const [preparedHeavyTabs, setPreparedHeavyTabs] = useState([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let remittanceHandle = null;
+    let homeExpensesHandle = null;
+
+    const scheduleDuringIdle = (callback, timeout) => {
+      if (
+        typeof window.requestIdleCallback ===
+        'function'
+      ) {
+        return {
+          type: 'idle',
+          id: window.requestIdleCallback(
+            callback,
+            { timeout }
+          ),
+        };
+      }
+
+      return {
+        type: 'timeout',
+        id: window.setTimeout(
+          callback,
+          Math.min(timeout, 500)
+        ),
+      };
+    };
+
+    const cancelScheduledWork = (handle) => {
+      if (!handle) return;
+
+      if (
+        handle.type === 'idle' &&
+        typeof window.cancelIdleCallback ===
+          'function'
+      ) {
+        window.cancelIdleCallback(handle.id);
+        return;
+      }
+
+      window.clearTimeout(handle.id);
+    };
+
+    remittanceHandle = scheduleDuringIdle(() => {
+      if (cancelled) return;
+
+      setPreparedHeavyTabs((previous) =>
+        previous.includes('remittance')
+          ? previous
+          : [...previous, 'remittance']
+      );
+
+      homeExpensesHandle =
+        scheduleDuringIdle(() => {
+          if (cancelled) return;
+
+          setPreparedHeavyTabs((previous) =>
+            previous.includes('homeExpenses')
+              ? previous
+              : [...previous, 'homeExpenses']
+          );
+        }, 2500);
+    }, 1500);
+
+    return () => {
+      cancelled = true;
+      cancelScheduledWork(remittanceHandle);
+      cancelScheduledWork(homeExpensesHandle);
+    };
+  }, []);
+
+  const openShopTab = (tabValue) => {
+    if (activeTab === tabValue) return;
+
+    setOpenedTabs((previous) =>
+      previous.includes(tabValue)
+        ? previous
+        : [...previous, tabValue]
+    );
+
+    setActiveTab(tabValue);
+  };
+
+  const readLatestHomeExpensesData = React.useCallback(
+    () => readFromDB(DB_DATA_KEY),
+    []
+  );
+
   const [quickSearch, setQuickSearch] = useState('');
   const dashboardLoadingText = 'Inapakia taarifa...';
   const shopWorkspaceLabel = t(language, 'Shop Workspace', 'Eneo la Kazi la Duka');
-  const monthlySalesGoal = getFixedShopMonthlySalesTarget(data, shop.id);
+  const monthlySalesGoal = useMemo(
+    () => getFixedShopMonthlySalesTarget(data, shop.id),
+    [data, shop.id]
+  );
 
   const today = startOfDay(new Date());
   const todayIso = todayISO(today);
   const yesterdayIso = todayISO(addDays(today, -1));
 
-  const shopSalesForGoal = (data.sales || []).filter(
-    (sale) => String(sale.shop_id || sale.shopId || '') === String(shop.id)
-  );
+  const { todaySalesForGoal, yesterdaySalesForGoal } = useMemo(() => {
+    const shopSalesForGoal = (data.sales || []).filter(
+      (sale) => String(sale.shop_id || sale.shopId || '') === String(shop.id)
+    );
 
-  const todaySalesForGoal = shopSalesForGoal
-    .filter((sale) => String(sale.date || sale.created_at || '').slice(0, 10) === todayIso)
-    .reduce((sum, sale) => sum + Number(sale.total || 0), 0);
+    const todaySalesForGoal = shopSalesForGoal
+      .filter((sale) => String(sale.date || sale.created_at || '').slice(0, 10) === todayIso)
+      .reduce((sum, sale) => sum + Number(sale.total || 0), 0);
 
-  const yesterdaySalesForGoal = shopSalesForGoal
-    .filter((sale) => String(sale.date || sale.created_at || '').slice(0, 10) === yesterdayIso)
-    .reduce((sum, sale) => sum + Number(sale.total || 0), 0);
+    const yesterdaySalesForGoal = shopSalesForGoal
+      .filter((sale) => String(sale.date || sale.created_at || '').slice(0, 10) === yesterdayIso)
+      .reduce((sum, sale) => sum + Number(sale.total || 0), 0);
+
+    return { todaySalesForGoal, yesterdaySalesForGoal };
+  }, [data.sales, shop.id, todayIso, yesterdayIso]);
 
   const dailyGoalFromMonthly = monthlySalesGoal.hasGoal && monthlySalesGoal.daysInMonth
     ? Math.round(Number(monthlySalesGoal.goal || 0) / Number(monthlySalesGoal.daysInMonth || 1))
@@ -6324,20 +6587,45 @@ const [stockSearch, setStockSearch] = useState('');
     setCartDraftChecked(false);
 
     const draft = getCartDraft(shop.id);
+    const restoredCart = Array.isArray(draft?.cart)
+      ? draft.cart
+      : [];
 
-    if (draft?.cart?.length) {
-      setPendingCartDraft(draft);
-      setCartDraftDecisionRequired(true);
-      setConfirmDeleteCartDraft(false);
-      setCart([]);
-    } else {
-      setPendingCartDraft(null);
-      setCartDraftDecisionRequired(false);
-      setConfirmDeleteCartDraft(false);
+    // Never open the old decision window.
+    setPendingCartDraft(null);
+    setCartDraftDecisionRequired(false);
+    setConfirmDeleteCartDraft(false);
+
+    if (restoredCart.length > 0) {
+      // Preserve and restore every unfinished-cart item.
+      setCart(restoredCart);
+
+      const restoredMessage = t(
+        language,
+        `${restoredCart.length} products from your unfinished sale have been restored to the Sales cart.`,
+        `Bidhaa ${restoredCart.length} za mauzo ambayo hayajakamilika yamerejeshwa kwenye eneo la Mauzo.`
+      );
+
+      setSyncMessage(restoredMessage);
+
+      const messageTimer = window.setTimeout(() => {
+        setSyncMessage((currentMessage) =>
+          currentMessage === restoredMessage
+            ? ''
+            : currentMessage
+        );
+      }, 6000);
+
+      setCartDraftChecked(true);
+
+      return () => {
+        window.clearTimeout(messageTimer);
+      };
     }
 
+    setCart([]);
     setCartDraftChecked(true);
-  }, [shop.id]);
+  }, [shop.id, language, setSyncMessage]);
 
   useEffect(() => {
     if (!cartDraftChecked) return;
@@ -7152,7 +7440,14 @@ const shopCalculationData = useMemo(() => {
   salesJournalLoading,
   salesJournalError,
 ]);
-
+const shopOnlyDecisionData = useMemo(
+  () =>
+    buildShopOnlyData(
+      shopCalculationData,
+      shop.id
+    ),
+  [shopCalculationData, shop.id]
+);
 const pendingSupabaseSales = useMemo(
   () =>
     sales.filter(
@@ -7853,10 +8148,13 @@ notes: latest.notes || '',
     })
     .filter(Boolean);
 }, [data.mobileMoneyEntries, data.shops, reportPreset, reportDateValue]);
-const dashboardDateValue =
-  reportPreset === 'date'
-    ? { start: reportStartDate, end: reportEndDate }
-    : reportDate;
+const dashboardDateValue = useMemo(
+  () =>
+    reportPreset === 'date'
+      ? { start: reportStartDate, end: reportEndDate }
+      : reportDate,
+  [reportPreset, reportStartDate, reportEndDate, reportDate]
+);
 
 const dashboardSales = useMemo(
   () =>
@@ -7903,32 +8201,12 @@ const dashboardFilteredSales = useMemo(
   [dashboardSales, reportPreset, dashboardDateValue]
 );
 
-if (String(shop.id) === 'shop-2' && reportPreset === 'today') {
-  console.log('LIVE SHOP2 TODAY CHECK', {
-    shopId: shop.id,
-    reportPreset,
-    reportDateValue: dashboardDateValue,
-    dashboardSalesCount: dashboardSales.length,
-    filteredSalesCount: dashboardFilteredSales.length,
-    filteredSalesTotal: dashboardFilteredSales.reduce(
-      (a, s) => a + Number(s.total || 0),
-      0
-    ),
-    filteredSalesRows: dashboardFilteredSales.map((s) => ({
-      id: s.id,
-      total: Number(s.total || 0),
-      saved_date: s.date,
-      created_at: s.created_at,
-      items_count: Array.isArray(s.items) ? s.items.length : 0,
-    })),
-  });
-}
-
 const todaySales = dashboardFilteredSales.reduce(
   (a, s) => a + Number(s.total || 0),
   0
 );
 
+const { liveRemittancePosition, selectedShopRemittanceSummary } = useMemo(() => {
 const liveRemittancePosition =
   getLiveRemittanceShopPosition({
     data: shopCalculationData,
@@ -8030,6 +8308,8 @@ const selectedShopRemittanceSummary =
       cashAmount: 0,
     }
   );
+return { liveRemittancePosition, selectedShopRemittanceSummary };
+}, [shopCalculationData, shop.id, reportPreset, dashboardDateValue, todayIso]);
 const remittanceNormalAmount = Number(
   liveRemittancePosition?.normalAmountRequiredToSubmit ||
     liveRemittancePosition?.amountRequiredToSubmit ||
@@ -8144,14 +8424,28 @@ const bankFloat = latestMobileEntry ? getBankFloatTotal(latestMobileEntry) : 0;
 const mobileCommission = latestMobileEntry ? getMobileCommissionTotal(latestMobileEntry) : 0;
 const bankCommission = latestMobileEntry ? getBankCommissionTotal(latestMobileEntry) : 0;
 
-  const quickProducts =
-  quickSearch.trim() === ''
-    ? []
-    : products
+  // Prepare searchable product names only when the product list changes.
+  const searchablePosProducts = useMemo(
+    () =>
+      products
         .filter((p) => !p.archived)
-        .filter((p) =>
-          p.name.toLowerCase().includes(quickSearch.toLowerCase())
-        );
+        .map((p) => ({
+          product: p,
+          searchName: String(p.name || '').toLowerCase(),
+        })),
+    [products]
+  );
+
+  // Search only when the query or prepared product list changes.
+  const quickProducts = useMemo(() => {
+    const query = quickSearch.trim().toLowerCase();
+
+    if (!query) return [];
+
+    return searchablePosProducts
+      .filter(({ searchName }) => searchName.includes(query))
+      .map(({ product }) => product);
+  }, [searchablePosProducts, quickSearch]);
 
  const stockValueRows = useMemo(
   () =>
@@ -11353,14 +11647,20 @@ banks: mobileMoneyForm.banks.map((b) => ({
       ),
       ['reports', t(language, 'Reports', 'Ripoti')],
     ].map(([value, label]) => (
-      <TabsTrigger key={value} value={value} activeValue={activeTab} onClick={() => setActiveTab(value)}>
+      <TabsTrigger
+        key={value}
+        value={value}
+        activeValue={activeTab}
+        onClick={() => openShopTab(value)}
+      >
         {label}
       </TabsTrigger>
     ))}
   </TabsList>
 </div>
 
-     <TabsContent value="dashboard" activeValue={activeTab}>
+     {openedTabs.includes("dashboard") && (
+<TabsContent value="dashboard" activeValue={activeTab} keepAlive>
      {String(data.currentUser?.role || '') !== 'owner' &&
 failedSupabaseSalesCount > 0 ? (
   <div className="mb-4 rounded-2xl border-2 border-red-400 bg-red-50 px-5 py-4 text-red-900 shadow-sm">
@@ -11579,11 +11879,8 @@ sendingSupabaseSalesCount > 0 ? (
   </Card>
 
   <div className="mt-6">
-    <CEODecisionCentre
-  data={buildShopOnlyData(
-    shopCalculationData,
-    shop.id
-  )}
+    <MemoizedCEODecisionCentre
+  data={shopOnlyDecisionData}
   language={language}
   scope="shop"
   lockedShopId={shop.id}
@@ -11594,9 +11891,11 @@ sendingSupabaseSalesCount > 0 ? (
 />
   </div>
 </TabsContent>
+)}
 
 
-      <TabsContent value="products" activeValue={activeTab}>
+      {openedTabs.includes("products") && (
+<TabsContent value="products" activeValue={activeTab} keepAlive>
         <div className="grid gap-4 xl:grid-cols-2">
           <Card>
             <CardHeader>
@@ -11743,8 +12042,10 @@ sendingSupabaseSalesCount > 0 ? (
           </Card>
         </div>
       </TabsContent>
+)}
 
-      <TabsContent value="purchases" activeValue={activeTab}>
+      {openedTabs.includes("purchases") && (
+<TabsContent value="purchases" activeValue={activeTab} keepAlive>
         <div className="grid gap-4 xl:grid-cols-2">
           <Card>
             <CardHeader>
@@ -11988,8 +12289,10 @@ sendingSupabaseSalesCount > 0 ? (
           </Card>
         </div>
       </TabsContent>
+)}
 
-           <TabsContent value="pos" activeValue={activeTab}>
+           {openedTabs.includes("pos") && (
+<TabsContent value="pos" activeValue={activeTab} keepAlive>
         <div className="mb-2 flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2">
           <div className="flex items-center gap-2 text-sm font-medium">
             <span
@@ -13260,11 +13563,10 @@ sendingSupabaseSalesCount > 0 ? (
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="flex items-center gap-2">
-  <Input
-    className="flex-[2]"
-    placeholder={t(language, 'Type product name...', 'Andika jina la bidhaa...')}
+  <FastPosSearchInput
     value={quickSearch}
-    onChange={(e) => setQuickSearch(e.target.value)}
+    onSearchChange={setQuickSearch}
+    language={language}
   />
   <Input
     className="flex-1"
@@ -13445,8 +13747,10 @@ sendingSupabaseSalesCount > 0 ? (
           </Card>
         </div>
       </TabsContent>
+)}
 
-      <TabsContent value="expenses" activeValue={activeTab}>
+      {openedTabs.includes("expenses") && (
+<TabsContent value="expenses" activeValue={activeTab} keepAlive>
         <div className="grid gap-4 xl:grid-cols-2">
           <Card>
             <CardHeader>
@@ -13485,13 +13789,15 @@ sendingSupabaseSalesCount > 0 ? (
  
         </div>
       </TabsContent>
+)}
 
       <TabsContent
   value="remittance"
   activeValue={activeTab}
   keepAlive
+  preload={preparedHeavyTabs.includes('remittance')}
 >
-      <DailyRemittanceCentre
+      <MemoizedDailyRemittanceCentre
   data={shopCalculationData}
   saveData={saveData}
   currentUser={data.currentUser}
@@ -13508,8 +13814,9 @@ sendingSupabaseSalesCount > 0 ? (
   value="homeExpenses"
   activeValue={activeTab}
   keepAlive
+  preload={preparedHeavyTabs.includes('homeExpenses')}
 >
-        <HomeExpensesCentre
+        <MemoizedHomeExpensesCentre
   data={shopCalculationData}
           saveData={saveData}
           shop={shop}
@@ -13517,13 +13824,12 @@ sendingSupabaseSalesCount > 0 ? (
           currentUser={data.currentUser}
           writeJournalSale={writeSalesJournalRecord}
           syncPendingSales={processSyncQueue}
-          readLatestPosData={() =>
-            readFromDB(DB_DATA_KEY)
-          }
+          readLatestPosData={readLatestHomeExpensesData}
         />
       </TabsContent>
 
-      <TabsContent value="credit" activeValue={activeTab}>
+      {openedTabs.includes("credit") && (
+<TabsContent value="credit" activeValue={activeTab} keepAlive>
         <div className="grid gap-4 xl:grid-cols-2">
           <Card>
             <CardHeader>
@@ -13596,8 +13902,10 @@ sendingSupabaseSalesCount > 0 ? (
           </Card>
         </div>
       </TabsContent>
+)}
 
-      <TabsContent value="change" activeValue={activeTab}>
+      {openedTabs.includes("change") && (
+<TabsContent value="change" activeValue={activeTab} keepAlive>
         <div className="grid gap-4 xl:grid-cols-2">
           <Card>
             <CardHeader>
@@ -13675,8 +13983,10 @@ sendingSupabaseSalesCount > 0 ? (
           </Card>
         </div>
       </TabsContent>
+)}
 
-<TabsContent value="gas" activeValue={activeTab}>
+{openedTabs.includes("gas") && (
+<TabsContent value="gas" activeValue={activeTab} keepAlive>
   <GasBusinessSection
     Card={Card}
     CardHeader={CardHeader}
@@ -13713,14 +14023,18 @@ onDeleteGas={deleteGas}
   />
 
 </TabsContent>
-<TabsContent value="rental" activeValue={activeTab}>
+)}
+{openedTabs.includes("rental") && (
+<TabsContent value="rental" activeValue={activeTab} keepAlive>
   <RentalPropertySection
     language={language}
     data={data}
     saveData={saveData}
   />
 </TabsContent>
-      <TabsContent value="reports" activeValue={activeTab}>
+)}
+      {openedTabs.includes("reports") && (
+<TabsContent value="reports" activeValue={activeTab} keepAlive>
         <Card>
           <CardHeader>
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -14853,8 +15167,10 @@ onDeleteGas={deleteGas}
           </CardContent>
         </Card>
       </TabsContent>
+)}
 
-      <TabsContent value="mobilemoney" activeValue={activeTab}>
+      {openedTabs.includes("mobilemoney") && (
+<TabsContent value="mobilemoney" activeValue={activeTab} keepAlive>
         <div className="grid gap-4 xl:grid-cols-2">
           <Card>
             <CardHeader>
@@ -15552,6 +15868,7 @@ onDeleteGas={deleteGas}
 </Card>
 </div>
 </TabsContent>
+)}
 </AppShell>
 );
 }
@@ -15574,6 +15891,9 @@ const [decisionCentreSalesLoaded, setDecisionCentreSalesLoaded] = useState(false
 const [isHydrating, setIsHydrating] = useState(true);
 const [hasLoadedInitialData, setHasLoadedInitialData] = useState(false);
 const [dashboardDataReady, setDashboardDataReady] = useState(false);
+const [startupStatus, setStartupStatus] = useState('');
+const [startupProgress, setStartupProgress] = useState(0);
+const startupGenerationRef = useRef(0);
 const monthlyTargetSyncRef = useRef(new Set());
 const lastAutomaticProductRefreshRef = useRef(0);
 
@@ -16876,9 +17196,12 @@ const pendingQueueItems = readSyncQueue().filter(
     syncAndReloadConfirmedSales('Checking sync...');
   }
 
-  refreshTimer = window.setInterval(async () => {
-    if (!navigator.onLine) return;
+  let isPollingSales = false;
 
+  refreshTimer = window.setInterval(async () => {
+    if (!navigator.onLine || isPollingSales || isRefreshingConfirmedSales) return;
+
+    isPollingSales = true;
     try {
       await processSyncQueue();
 
@@ -16999,8 +17322,10 @@ const pendingQueueItems = readSyncQueue().filter(
         'Automatic Supabase sales refresh failed:',
         refreshError
       );
+    } finally {
+      isPollingSales = false;
     }
-  }, 5000);
+  }, 20000);
 
   return () => {
     window.removeEventListener('online', goOnline);
@@ -17018,7 +17343,7 @@ const pendingQueueItems = readSyncQueue().filter(
 ]);
 
 useEffect(() => {
-  if (!activeShopId) return;
+  if (!activeShopId || !dashboardDataReady) return;
 
   const loadProductsForShop = async () => {
     if (!navigator.onLine) {
@@ -17187,8 +17512,8 @@ useEffect(() => {
     }
   };
 
-  loadProductsForShop();
-
+  // Initial products are already prepared by readData().
+  // Fetch again only when Supabase announces a product change.
   const productsChannel = supabase
     .channel(`products-changes-${activeShopId}`)
     .on(
@@ -17208,7 +17533,7 @@ useEffect(() => {
   return () => {
     supabase.removeChannel(productsChannel);
   };
-}, [activeShopId]);
+}, [activeShopId, dashboardDataReady]);
 
 useEffect(() => {
   if (!activeShopId) return;
@@ -17844,14 +18169,40 @@ const importBackup = () => {
   }
 };
 const handleLogin = async (user) => {
+  // Keep only the identity and access fields needed by the POS.
+  // Do not store an unnecessarily large user object.
   const sessionUser = {
-    ...user,
+    id: user.id || null,
     auth_user_id: user.auth_user_id || null,
+    username: user.username || '',
+    name: user.name || '',
+    role: user.role || '',
+    shop_id: user.shop_id || user.shopId || user.shopid || null,
+    shopId: user.shop_id || user.shopId || user.shopid || null,
   };
 
-  writeStorage(STORAGE_SESSION_KEY, sessionUser);
+  try {
+    writeStorage(STORAGE_SESSION_KEY, sessionUser);
+  } catch (error) {
+    if (
+      error?.name !== 'QuotaExceededError' &&
+      error?.code !== 22 &&
+      error?.code !== 1014
+    ) {
+      throw error;
+    }
+
+    console.warn(
+      'Browser storage is full. Login will continue in memory without deleting business data.'
+    );
+  }
 
 setDashboardDataReady(false);
+setStartupProgress(1);
+  const startupGeneration = ++startupGenerationRef.current;
+  setStartupStatus(
+    t(language, 'Preparing your shop data...', 'Inaandaa taarifa za duka lako...')
+  );
 
 const shopId =
   user.role === 'shop'
@@ -17863,74 +18214,7 @@ setData((prev) => ({
   ...prev,
   currentUser: sessionUser,
 }));
-  let loaded;
 
-  try {
-    loaded = await readData({ preferFresh: false });
-  } catch (error) {
-    console.error('Login data loading failed. Falling back to local saved data:', error);
-    loaded = await readData({ preferFresh: false });
-  }
-
-  let products = Array.isArray(loaded.products) ? loaded.products : [];
-
-  if (false && shopId && navigator.onLine) {
-    try {
-      const { data: freshProducts, error } = await supabase
-        .from('products')
-        .select('*')
-        .eq('shop_id', shopId);
-
-      if (error) {
-        console.error('Fresh product loading failed during login:', error);
-      } else if (Array.isArray(freshProducts) && freshProducts.length > 0) {
-        products = freshProducts.map((p) =>
-          normalizeProduct({
-            id: p.id,
-            name: p.name,
-            buyPrice: Number(p.buyingprice || p.buyPrice || 0),
-            sellPrice: Number(p.sellingprice || p.sellPrice || 0),
-            stockBaseQty: Number(p.stock || p.stockBaseQty || p.stockQty || 0),
-            stockQty: Number(p.stock || p.stockBaseQty || p.stockQty || 0),
-            shop_id: String(p.shop_id || p.shopid || shopId || '').trim(),
-            baseUnit: p.baseunit || p.baseUnit || 'pc',
-            minStockLevel: Number(p.minstocklevel || p.minStockLevel || 5),
-            expiryDate: p.expirydate || p.expiryDate || '',
-            qrCode: p.qrcode || p.qrCode || '',
-            subUnitsRaw: p.subunitsraw || p.subUnitsRaw || '',
-            archived: Boolean(p.archived),
-            createdAt: p.createdAt || (p.created_at ? String(p.created_at).slice(0, 10) : ''),
-            confirmed: true,
-          })
-        );
-      } else {
-        console.warn('No fresh products returned during login. Keeping loaded/local products.');
-      }
-    } catch (error) {
-      console.error('Fresh product loading crashed during login:', error);
-    }
-  }
-
-  const strictProducts = shopId
-    ? products.filter(
-        (p) =>
-          String(p?.shop_id || p?.shopId || p?.shopid || '').trim() === String(shopId).trim()
-      )
-    : products;
-
-  setData((prev) => ({
-    ...loaded,
-    users: loaded.users?.length ? loaded.users : seedData.users,
-    products: strictProducts.map((p) => {
-      const existing = (prev.products || []).find((x) => String(x.id) === String(p.id));
-
-      return existing?.archived
-        ? { ...normalizeProduct(p), archived: true }
-        : normalizeProduct(p);
-    }),
-    expenses: loaded.expenses || prev.expenses || [],
-    currentUser: sessionUser,
-  }));
 
   if (navigator.onLine) {
     const mergeRowsById = (existingRows = [], incomingRows = []) => {
@@ -17960,6 +18244,9 @@ setData((prev) => ({
 
   const applyBackgroundData = (loadedData) => {
   setData((prev) => {
+    const previousProductsById = new Map(
+      (prev.products || []).map((product) => [String(product.id), product])
+    );
     const activeUserId = String(
       prev.currentUser?.auth_user_id ||
         prev.currentUser?.id ||
@@ -18099,7 +18386,7 @@ const mergedRentSmsAttempts = mergeRowsById(
                 ? loadedData.products
                 : prev.products || []
           ).map((p) => {
-            const existing = (prev.products || []).find((x) => String(x.id) === String(p.id));
+            const existing = previousProductsById.get(String(p.id));
 
             return existing?.archived
               ? { ...normalizeProduct(p), archived: true }
@@ -18161,11 +18448,31 @@ const loadCurrentOperationalData = async () => {
     const operationalData = await readData({
       preferFresh: true,
       salesMode: 'month',
+      onProgress: (progress) => {
+        if (
+          startupGenerationRef.current ===
+          startupGeneration
+        ) {
+          setStartupProgress(progress);
+        }
+      },
     });
 
+    // A delayed response from an older login must never open another user's POS.
+    if (startupGenerationRef.current !== startupGeneration) return;
     applyBackgroundData(operationalData);
 
-    setDashboardDataReady(true);
+    setStartupProgress(10);
+    setStartupStatus('');
+
+    window.requestAnimationFrame(() => {
+      if (
+        startupGenerationRef.current ===
+        startupGeneration
+      ) {
+        setDashboardDataReady(true);
+      }
+    });
 
     setSyncMessage(
       t(
@@ -18180,7 +18487,19 @@ const loadCurrentOperationalData = async () => {
       error
     );
 
-    setDashboardDataReady(true);
+    if (startupGenerationRef.current !== startupGeneration) return;
+    // The existing locally hydrated data remains available on failure.
+    setStartupProgress(10);
+    setStartupStatus('');
+
+    window.requestAnimationFrame(() => {
+      if (
+        startupGenerationRef.current ===
+        startupGeneration
+      ) {
+        setDashboardDataReady(true);
+      }
+    });
 
     setSyncMessage(
       t(
@@ -18192,7 +18511,38 @@ const loadCurrentOperationalData = async () => {
   }
 };
 
-loadCurrentOperationalData();
+    // Start preparing operational data after React has had
+    // an opportunity to render the authenticated session.
+    // Do not introduce an artificial 1.5-second wait.
+    window.requestAnimationFrame(() => {
+      window.setTimeout(() => {
+        const currentUser = latestDataRef.current?.currentUser;
+
+        const currentUserId = String(
+          currentUser?.auth_user_id ||
+          currentUser?.id ||
+          ''
+        ).trim();
+
+        const loginUserId = String(
+          sessionUser?.auth_user_id ||
+          sessionUser?.id ||
+          ''
+        ).trim();
+
+        // A previous login must not initiate a refresh
+        // after logout or after another user logs in.
+        if (!currentUserId || currentUserId !== loginUserId) {
+          return;
+        }
+
+        console.time('[POS STARTUP] Operational data preparation');
+
+        void loadCurrentOperationalData().finally(() => {
+          console.timeEnd('[POS STARTUP] Operational data preparation');
+        });
+      }, 0);
+    });
   }
 };
 
@@ -18227,30 +18577,38 @@ ensureCurrentMonthSalesTargets(selectedShopId).catch((error) => {
   console.error('Monthly sales target background check failed:', error);
 });
 };
-const logout = async () => {
-  try {
-    await supabase.auth.signOut();
-  } catch (error) {
-    console.error(
-      'Supabase logout failed, but local session will still be cleared:',
-      error
-    );
-  } finally {
-    writeStorage(STORAGE_SESSION_KEY, null);
-    setActiveShopId(null);
-    setDashboardDataReady(false);
+const logout = () => {
+  ++startupGenerationRef.current;
+  setStartupStatus('');
+  setStartupProgress(0);
+  // Close the visible POS session immediately.
+  writeStorage(STORAGE_SESSION_KEY, null);
+  setActiveShopId(null);
+  setDashboardDataReady(false);
 
-    setData((prev) => ({
-      ...prev,
-      currentUser: null,
-    }));
-  }
+  setData((prev) => ({
+    ...prev,
+    currentUser: null,
+  }));
+
+  // Clear Supabase authentication without making the
+  // visible logout screen wait for a network response.
+  pendingPosSignOut = supabase.auth.signOut({ scope: 'local' })
+    .then(({ error }) => {
+      if (error) {
+        console.error('Supabase sign-out failed:', error);
+      }
+    })
+    .catch((error) => {
+      console.error('Supabase sign-out failed:', error);
+    });
 };
 
 useEffect(() => {
   const currentUser = data?.currentUser;
   const userShopId = String(currentUser?.shop_id || currentUser?.shopId || '').trim();
 
+  if (!dashboardDataReady) return;
   if (String(currentUser?.role || '') !== 'shop') return;
   if (!userShopId) return;
   if (decisionCentreSalesLoaded) return;
@@ -18282,23 +18640,61 @@ useEffect(() => {
   };
 
   loadDecisionCentreSales();
-}, [data?.currentUser, decisionCentreSalesLoaded]);
-if (!hasLoadedInitialData) {
+}, [data?.currentUser, decisionCentreSalesLoaded, dashboardDataReady]);
+if (!data.currentUser) {
   return (
-    <div className="min-h-screen flex items-center justify-center text-sm text-slate-500">
-      Loading POS...
-    </div>
+    <Login
+      onLogin={handleLogin}
+      users={data.users}
+      language={language}
+      setLanguage={setLanguage}
+      loginReady={hasLoadedInitialData && !isHydrating}
+    />
   );
 }
-if (isHydrating) {
-  return (
-    <div className="min-h-screen flex items-center justify-center text-sm text-slate-500">
-      Loading POS...
-    </div>
-  );
-}
-  if (!data.currentUser) {
-    return <Login onLogin={handleLogin} users={data.users} language={language} setLanguage={setLanguage} />;
+
+  if (!dashboardDataReady) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-emerald-50 px-4">
+        <div className="w-full max-w-md rounded-3xl border border-emerald-100 bg-white p-8 text-center shadow-xl">
+          <div className="mx-auto mb-5 h-12 w-12 animate-spin rounded-full border-4 border-emerald-100 border-t-emerald-600" />
+          <h1 className="text-xl font-bold text-slate-900">
+            {t(language, 'Preparing POS', 'Inaandaa mfumo wa mauzo')}
+          </h1>
+          <p className="mt-3 text-sm text-slate-600">
+            {startupStatus || t(language, 'Loading shop information...', 'Inapakia taarifa za duka...')}
+          </p>
+
+          <div className="mt-4 text-sm font-black text-emerald-700">
+            {t(language, 'Preparing', 'Inaandaa')}:{' '}
+            {Math.max(1, startupProgress)}/10
+          </div>
+
+          <div className="mt-2 h-2 overflow-hidden rounded-full bg-emerald-100">
+            <div
+              className="h-full rounded-full bg-emerald-600 transition-all duration-300"
+              style={{
+                width: `${Math.max(
+                  10,
+                  Math.min(100, startupProgress * 10)
+                )}%`,
+              }}
+            />
+          </div>
+
+          <p className="mt-3 text-xs text-slate-500">
+            {t(language, 'Please wait. Your saved transactions remain protected.', 'Tafadhali subiri. Taarifa za mauzo zilizohifadhiwa zinaendelea kulindwa.')}
+          </p>
+          <button
+            type="button"
+            onClick={logout}
+            className="mt-6 rounded-xl border border-slate-200 px-5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            {t(language, 'Sign out', 'Toka')}
+          </button>
+        </div>
+      </div>
+    );
   }
 
   const selectedShopId =
