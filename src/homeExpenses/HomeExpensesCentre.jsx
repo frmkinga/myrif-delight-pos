@@ -1,4 +1,9 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { supabase } from '../supabaseClient';
 import {
   getDailyEssentialHomeExpensesTarget,
@@ -700,6 +705,8 @@ export default function HomeExpensesCentre({
     useRef(false);
   const cashLock = useRef(false);
 
+  const pooledHomeExpensesSyncRef = useRef('');
+
   const shopId = String(shop?.id || '').trim();
 
   const isShopOne = shopId === 'shop-1';
@@ -900,6 +907,7 @@ const previousMonthKey = useMemo(
 
     gasContributions =
       roundHomeCashDisplay(gasContributions);
+
     const confirmedFundingBreakdown = (
       data?.centralFundTransactions || []
     ).reduce(
@@ -930,6 +938,12 @@ const previousMonthKey = useMemo(
             ''
         );
 
+        const sourceFundType = String(
+          transaction.sourceFundType ||
+            transaction.source_fund_type ||
+            ''
+        ).toLowerCase();
+
         if (
           dateKey < currentMonthRange.startKey ||
           dateKey > currentMonthRange.endKey
@@ -959,6 +973,16 @@ const previousMonthKey = useMemo(
           'home_expense_commission_confirmed'
         ) {
           totals.confirmedCommissionFunding += amount;
+        } else if (
+          transactionType === 'fund_accrual' &&
+          sourceFundType === 'shop_profit'
+        ) {
+          totals.confirmedShopFunding += amount;
+        } else if (
+          transactionType === 'fund_accrual' &&
+          sourceFundType === 'gas_profit'
+        ) {
+          totals.confirmedGasFunding += amount;
         } else {
           totals.otherConfirmedFunding += amount;
         }
@@ -966,16 +990,32 @@ const previousMonthKey = useMemo(
         return totals;
       },
       {
+        confirmedShopFunding: 0,
+        confirmedGasFunding: 0,
         confirmedCommissionFunding: 0,
         otherConfirmedFunding: 0,
       }
     );
 
+    const confirmedShopContributions =
+      roundHomeCashDisplay(
+        confirmedFundingBreakdown.confirmedShopFunding
+      );
+
+    const confirmedGasContributions =
+      roundHomeCashDisplay(
+        confirmedFundingBreakdown.confirmedGasFunding
+      );
+
     commissionContributions =
-      confirmedFundingBreakdown.confirmedCommissionFunding;
+      roundHomeCashDisplay(
+        confirmedFundingBreakdown.confirmedCommissionFunding
+      );
 
     const confirmedHomeFundingTransactions =
-      confirmedFundingBreakdown.otherConfirmedFunding;
+      roundHomeCashDisplay(
+        confirmedFundingBreakdown.otherConfirmedFunding
+      );
 
     /*
  * From 1 September 2026, the permanent Supabase ledger
@@ -988,14 +1028,24 @@ const previousMonthKey = useMemo(
  */
 const permanentFundingStartDate = '2026-09-01';
 
+const usePermanentFunding =
+  currentMonthRange.startKey >= permanentFundingStartDate;
+
+const displayedShopContributions =
+  usePermanentFunding
+    ? confirmedShopContributions
+    : shopContributions;
+
+const displayedGasContributions =
+  usePermanentFunding
+    ? confirmedGasContributions
+    : gasContributions;
+
 const fundedSoFar =
-  currentMonthRange.startKey >= permanentFundingStartDate
-    ? commissionContributions +
-      confirmedHomeFundingTransactions
-    : shopContributions +
-      gasContributions +
-      commissionContributions +
-      confirmedHomeFundingTransactions;
+  displayedShopContributions +
+  displayedGasContributions +
+  commissionContributions +
+  confirmedHomeFundingTransactions;
 
     const itemsTaken = currentMonthHomeExpenseItems.reduce(
       (sum, row) => sum + Number(row.total || 0),
@@ -1010,129 +1060,52 @@ const fundedSoFar =
     const totalSpent = itemsTaken + cashTaken;
 
 /*
- * PERMANENT HOME EXPENSES FUND
+ * HOME EXPENSES BALANCE AND ONE TRUE DEBT
  *
- * From 1 September 2026 the balance no longer comes from
- * rebuilding historical shop/gas calculations.
+ * The expected contribution accumulates daily.
+ * Cash and products taken remain genuine Home Expenses.
  *
- * Money enters the fund only through permanent fund_accrual
- * records already saved in centralFundTransactions.
+ * Required funding is whichever is greater:
+ * 1. accumulated daily targets, or
+ * 2. actual cash and products taken.
  *
- * Once entered, it remains there permanently until Home
- * Expenses are actually used.
+ * Stronger days automatically reduce deficits from weaker days.
  */
-const PERMANENT_HOME_FUNDS_START_DATE =
-  '2026-09-01';
-
-const permanentHomeFundTodayKey = todayISO();
-
-const permanentHomeExpensesAccrued = (
-  Array.isArray(data?.centralFundTransactions)
-    ? data.centralFundTransactions
-    : []
-).reduce((sum, transaction) => {
-  const transactionDateKey = String(
-    transaction?.transactionDate ||
-      transaction?.transaction_date ||
-      transaction?.created_at ||
-      ''
-  ).slice(0, 10);
-
-  const transactionType = String(
-    transaction?.transactionType ||
-      transaction?.transaction_type ||
-      ''
-  ).toLowerCase();
-
-  const transactionStatus = String(
-    transaction?.status || ''
-  ).toLowerCase();
-
-  const destinationFundKey = String(
-    transaction?.destinationFundKey ||
-      transaction?.destination_fund_key ||
-      ''
-  ).trim();
-
-  if (
-    transactionStatus !== 'confirmed' ||
-    transactionType !== 'fund_accrual' ||
-    destinationFundKey !== 'homeExpenses' ||
-    transactionDateKey <
-      PERMANENT_HOME_FUNDS_START_DATE ||
-    transactionDateKey >
-      permanentHomeFundTodayKey
-  ) {
-    return sum;
-  }
-
-  return (
-    sum +
-    Math.max(
-      0,
-      Number(transaction?.amount || 0)
-    )
+const accumulatedDailyTarget =
+  currentMonthDateKeys.reduce(
+    (sum, dateKey) =>
+      sum +
+      Math.max(
+        0,
+        Number(
+          getDailyEssentialHomeExpensesTarget(dateKey) || 0
+        )
+      ),
+    0
   );
-}, 0);
+
+const requiredFunding = Math.max(
+  accumulatedDailyTarget,
+  totalSpent
+);
 
 /*
- * Products physically taken for Home Expenses are genuine
- * expenditure and therefore reduce the permanent fund.
+ * This is actual money remaining after cash and products taken.
+ * It cannot be displayed as a negative second debt.
  */
-const permanentHomeExpenseItemsTaken =
-  getHomeExpenseItemRows(data?.sales || [])
-    .filter(
-      (row) =>
-        String(row?.date || '') >=
-          PERMANENT_HOME_FUNDS_START_DATE &&
-        String(row?.date || '') <=
-          permanentHomeFundTodayKey
-    )
-    .reduce(
-      (sum, row) =>
-        sum + Math.max(0, Number(row?.total || 0)),
-      0
-    );
+const balanceRemaining = Math.max(
+  0,
+  fundedSoFar - totalSpent
+);
 
 /*
- * Cash deliberately taken from Home Expenses is also genuine
- * expenditure and therefore reduces the permanent fund.
+ * This is the only Home Expenses debt:
+ * the shortage between required funding and confirmed contributions.
  */
-const permanentHomeExpenseCashTaken =
-  cashTransactions
-    .filter(
-      (row) =>
-        String(row?.date || '') >=
-          PERMANENT_HOME_FUNDS_START_DATE &&
-        String(row?.date || '') <=
-          permanentHomeFundTodayKey
-    )
-    .reduce(
-      (sum, row) =>
-        sum + Math.max(0, Number(row?.amount || 0)),
-      0
-    );
-
-const permanentHomeExpensesBalance =
-  permanentHomeExpensesAccrued -
-  permanentHomeExpenseItemsTaken -
-  permanentHomeExpenseCashTaken;
-
-/*
- * August keeps the existing historical calculation.
- * From September the permanent Supabase ledger controls
- * the actual fund balance.
- */
-const balanceRemaining =
-  permanentHomeFundTodayKey >=
-  PERMANENT_HOME_FUNDS_START_DATE
-    ? permanentHomeExpensesBalance
-    : fundedSoFar - totalSpent;
-
-const amountOwed =
-  balanceRemaining < 0
-    ? Math.abs(balanceRemaining)
-    : 0;
+const amountOwed = Math.max(
+  0,
+  requiredFunding - fundedSoFar
+);
     const unfundedBudgetBalance = Math.max(
       0,
       Number(HOME_EXPENSES_MONTHLY_BUDGET.target || 0) -
@@ -1141,14 +1114,16 @@ const amountOwed =
 
     return {
       monthlyBudget: HOME_EXPENSES_MONTHLY_BUDGET.target,
-      shopContributions,
-      gasContributions,
+      shopContributions: displayedShopContributions,
+      gasContributions: displayedGasContributions,
       commissionContributions,
       otherConfirmedFunding: confirmedHomeFundingTransactions,
       fundedSoFar,
       itemsTaken,
       cashTaken,
       totalSpent,
+      accumulatedDailyTarget,
+      requiredFunding,
       balanceRemaining,
       amountOwed,
       unfundedBudgetBalance,
@@ -1550,11 +1525,17 @@ const permanentHomeExpensesCollectedToday = (
  */
 const permanentFundingStartDate = '2026-09-01';
 
+const liveContributionsToday =
+  shopContributionsToday +
+  gasContributionsToday;
+
 const collectedToday =
   todayKey >= permanentFundingStartDate
-    ? confirmedFundingToday
-    : shopContributionsToday +
-      gasContributionsToday +
+    ? Math.max(
+        confirmedFundingToday,
+        liveContributionsToday
+      )
+    : liveContributionsToday +
       confirmedFundingToday;
 
     const productsUsedToday = currentMonthHomeExpenseItems
@@ -1572,7 +1553,7 @@ const collectedToday =
 
     const remainingOldDebt = Math.max(
       0,
-      totalUsedSoFar - totalCollectedSoFar
+      Number(fundingSummary.amountOwed || 0)
     );
 
     const oldDebtBeforeToday = Math.max(
@@ -1616,6 +1597,90 @@ return {
   fundSavingToday,
 };
   }, [data, currentMonthHomeExpenseItems, cashTransactions, fundingSummary]);
+
+  /*
+   * Preserve the exact reconciled Home Expenses amount displayed
+   * on the owner screen. The Supabase function uses GREATEST(),
+   * so an older browser cannot reduce an amount already saved.
+   */
+  useEffect(() => {
+    const userRole = String(
+      currentUser?.role || ''
+    ).toLowerCase();
+
+    if (userRole !== 'owner') {
+      return;
+    }
+
+    const todayKey = todayISO();
+
+    if (todayKey < '2026-09-01') {
+      return;
+    }
+
+    const dailyLimit =
+      Math.round(
+        Number(
+          getDailyEssentialHomeExpensesTarget(todayKey) || 0
+        ) / 50
+      ) * 50;
+
+    const displayedAmount =
+      Math.round(
+        Math.max(
+          0,
+          Number(
+            homeExpensesDailyClosingSummary.collectedToday || 0
+          )
+        ) / 50
+      ) * 50;
+
+    const amountToPreserve = Math.min(
+      dailyLimit,
+      displayedAmount
+    );
+
+    if (amountToPreserve <= 0) {
+      return;
+    }
+
+    const syncSignature =
+      `${todayKey}:${amountToPreserve}`;
+
+    if (
+      pooledHomeExpensesSyncRef.current ===
+      syncSignature
+    ) {
+      return;
+    }
+
+    pooledHomeExpensesSyncRef.current =
+      syncSignature;
+
+    const preservePooledHomeExpenses = async () => {
+      const { error } = await supabase.rpc(
+        'upsert_permanent_home_expenses_accrual',
+        {
+          p_transaction_date: todayKey,
+          p_amount: amountToPreserve,
+        }
+      );
+
+      if (error) {
+        pooledHomeExpensesSyncRef.current = '';
+
+        console.error(
+          'Home Expenses pooled amount could not be preserved:',
+          error
+        );
+      }
+    };
+
+    preservePooledHomeExpenses();
+  }, [
+    currentUser?.role,
+    homeExpensesDailyClosingSummary.collectedToday,
+  ]);
 
   const commissionConfirmationId = `home-expense-commission-${currentMonthRange.monthKey}`;
 
@@ -2853,6 +2918,66 @@ const moneyReceived =
   reportRange,
   cashTransactions,
 ]);
+  const shopHomeContributionRows = useMemo(() => {
+    const todayKey = todayISO();
+
+    return (Array.isArray(data?.shops) ? data.shops : []).map(
+      (fundingShop) => {
+        const fundingShopId = String(
+          fundingShop?.id || ''
+        ).trim();
+
+        const position = getLiveRemittanceShopPosition({
+          data,
+          shopId: fundingShopId,
+          calculationDateKey: todayKey,
+        });
+
+        const contribution =
+          getHomeExpensesFundingFromPosition(
+            position,
+            todayKey
+          );
+
+        const shopContribution = Math.max(
+          0,
+          Number(contribution?.shopContribution || 0)
+        );
+
+        const gasContribution = Math.max(
+          0,
+          Number(contribution?.gasContribution || 0)
+        );
+
+        return {
+          id: fundingShopId,
+          name:
+            fundingShop?.name ||
+            fundingShopId,
+          shopContribution,
+          gasContribution,
+          totalContribution:
+            shopContribution +
+            gasContribution,
+        };
+      }
+    );
+  }, [
+    data,
+    data?.shops,
+    data?.sales,
+    data?.products,
+    data?.gasEntries,
+    data?.dailyRemittances,
+  ]);
+
+  const totalShopHomeContributionToday =
+    shopHomeContributionRows.reduce(
+      (total, row) =>
+        total +
+        Number(row.totalContribution || 0),
+      0
+    );
 
   const ledgerRows = useMemo(() => {
     const fundingRows = [
@@ -3808,12 +3933,12 @@ const moneyReceived =
               </div>
 
               <div className={`rounded-2xl border p-4 ${
-                fundingSummary.balanceRemaining < 0
+                fundingSummary.amountOwed > 0
                   ? 'border-red-100 bg-red-50'
                   : 'border-emerald-100 bg-emerald-50'
               }`}>
                 <h4 className={`text-sm font-black uppercase tracking-wide ${
-                  fundingSummary.balanceRemaining < 0
+                  fundingSummary.amountOwed > 0
                     ? 'text-red-800'
                     : 'text-emerald-800'
                 }`}>
@@ -3849,20 +3974,24 @@ const moneyReceived =
                     </strong>
                   </div>
 
-                  <div className={`mt-3 flex items-center justify-between border-t pt-3 text-base font-black ${
-                    fundingSummary.balanceRemaining < 0
-                      ? 'border-red-200 text-red-900'
-                      : 'border-emerald-200 text-emerald-900'
-                  }`}>
-                    <span>{t(language, 'Net balance', 'Salio halisi')}</span>
-                    <span>TZS {money(fundingSummary.balanceRemaining)}</span>
+                  <div className="mt-3 flex items-center justify-between border-t border-slate-200 pt-3 text-base font-black text-slate-900">
+                    <span>
+                      {t(
+                        language,
+                        'Target through today',
+                        'Lengo hadi leo'
+                      )}
+                    </span>
+                    <span>
+                      TZS {money(fundingSummary.accumulatedDailyTarget)}
+                    </span>
                   </div>
                 </div>
               </div>
             </div>
           </div>
 
-          {fundingSummary.balanceRemaining < 0 ? (
+          {fundingSummary.amountOwed > 0 ? (
             <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-black text-red-800">
               {t(
                 language,
@@ -4001,45 +4130,114 @@ const moneyReceived =
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-4">
-            <h3 className="text-lg font-black text-slate-950">
-              {t(
-                language,
-                'Full Home Expenses Ledger',
-                'Ledger Kamili ya Matumizi ya Nyumbani'
-              )}
-            </h3>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-black text-slate-950">
+                  {t(
+                    language,
+                    'Shop Contributions to Home Expenses',
+                    'Michango ya Maduka kwenye Matumizi ya Nyumbani'
+                  )}
+                </h3>
 
-            <div className="mt-3 overflow-x-auto">
+                <p className="mt-1 text-sm text-slate-500">
+                  {t(
+                    language,
+                    'Live contributions calculated from today’s shop performance.',
+                    'Michango ya moja kwa moja inayotokana na mwenendo wa mauzo ya leo.'
+                  )}
+                </p>
+              </div>
+
+              <div className="rounded-xl bg-emerald-50 px-4 py-2 text-right ring-1 ring-emerald-200">
+                <div className="text-xs font-black uppercase tracking-wide text-emerald-700">
+                  {t(
+                    language,
+                    'Total today',
+                    'Jumla ya Leo'
+                  )}
+                </div>
+
+                <div className="text-xl font-black text-emerald-900">
+                  TZS {money(totalShopHomeContributionToday)}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 overflow-x-auto">
               <table className="min-w-full text-left text-sm">
                 <thead className="bg-slate-100 text-xs uppercase text-slate-600">
                   <tr>
-                    <th className="px-3 py-2">{t(language, 'Date', 'Tarehe')}</th>
-                    <th className="px-3 py-2">{t(language, 'Description', 'Maelezo')}</th>
-                    <th className="px-3 py-2 text-right">{t(language, 'In', 'Inaingia')}</th>
-                    <th className="px-3 py-2 text-right">{t(language, 'Out', 'Inatoka')}</th>
-                    <th className="px-3 py-2 text-right">{t(language, 'Balance', 'Salio')}</th>
+                    <th className="px-3 py-3">
+                      {t(language, 'Shop', 'Duka')}
+                    </th>
+
+                    <th className="px-3 py-3 text-right">
+                      {t(
+                        language,
+                        'From shop',
+                        'Kutoka Dukani'
+                      )}
+                    </th>
+
+                    <th className="px-3 py-3 text-right">
+                      {t(
+                        language,
+                        'From gas',
+                        'Kutoka Gesi'
+                      )}
+                    </th>
+
+                    <th className="px-3 py-3 text-right">
+                      {t(
+                        language,
+                        'Total contribution',
+                        'Jumla ya Mchango'
+                      )}
+                    </th>
                   </tr>
                 </thead>
+
                 <tbody>
-                  {ledgerRows.map((row) => (
-                    <tr key={row.id} className="border-b">
-                      <td className="px-3 py-2">{row.date}</td>
-                      <td className="px-3 py-2">{row.description}</td>
-                      <td className="px-3 py-2 text-right">TZS {money(row.inAmount)}</td>
-                      <td className="px-3 py-2 text-right">TZS {money(row.outAmount)}</td>
-                      <td className={`px-3 py-2 text-right font-black ${row.balance < 0 ? 'text-red-700' : 'text-emerald-700'}`}>
-                        TZS {money(row.balance)}
+                  {shopHomeContributionRows.map((row) => (
+                    <tr
+                      key={row.id}
+                      className="border-b border-slate-200 last:border-b-0"
+                    >
+                      <td className="px-3 py-3 font-bold text-slate-900">
+                        {row.name}
+                      </td>
+
+                      <td className="px-3 py-3 text-right">
+                        TZS {money(row.shopContribution)}
+                      </td>
+
+                      <td className="px-3 py-3 text-right">
+                        TZS {money(row.gasContribution)}
+                      </td>
+
+                      <td className="px-3 py-3 text-right font-black text-emerald-700">
+                        TZS {money(row.totalContribution)}
                       </td>
                     </tr>
                   ))}
 
-                  {!ledgerRows.length ? (
-                    <tr>
-                      <td colSpan="5" className="px-3 py-5 text-center text-slate-500">
-                        {t(language, 'No ledger movement yet.', 'Bado hakuna miamala kwenye ledger.')}
-                      </td>
-                    </tr>
-                  ) : null}
+                  <tr className="bg-emerald-50">
+                    <td
+                      colSpan="3"
+                      className="px-3 py-3 font-black text-emerald-900"
+                    >
+                      {t(
+                        language,
+                        'Total contributed today',
+                        'Jumla iliyochangwa leo'
+                      )}
+                    </td>
+
+                    <td className="px-3 py-3 text-right text-lg font-black text-emerald-900">
+                      TZS {money(totalShopHomeContributionToday)}
+                    </td>
+                  </tr>
                 </tbody>
               </table>
             </div>

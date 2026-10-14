@@ -13811,8 +13811,6 @@ sendingSupabaseSalesCount > 0 ? (
       <TabsContent
   value="remittance"
   activeValue={activeTab}
-  keepAlive
-  preload={preparedHeavyTabs.includes('remittance')}
 >
       <MemoizedDailyRemittanceCentre
   data={shopCalculationData}

@@ -9176,8 +9176,6 @@ useEffect(() => {
       .upsert(snapshotRows, { onConflict: 'id' })
       .select();
 
-    if (cancelled) return;
-
     if (error) {
       homeFundingSnapshotSaveRef.current.delete(todayKey);
       console.error(
@@ -9767,48 +9765,116 @@ useEffect(() => {
       return;
     }
 
-    const shops = Array.isArray(data?.shops)
-      ? data.shops
-      : [];
+    /*
+     * Read every shop's saved contribution directly from
+     * Supabase. A shop computer must not calculate or replace
+     * contributions belonging to other shops.
+     */
+    const {
+      data: savedHomeExpenseSnapshots,
+      error: snapshotLoadError,
+    } = await supabase
+      .from('centralFundTransactions')
+      .select(
+        'id, transaction_type, source_shop_id, amount, status'
+      )
+      .eq('transaction_date', todayKey)
+      .eq('destination_fund_key', 'homeExpenses')
+      .eq('status', 'snapshot')
+      .in('transaction_type', [
+        'home_expense_shop_snapshot',
+        'home_expense_gas_snapshot',
+      ]);
 
-    const pooledHomeExpensesAmount = shops.reduce(
-      (total, shop) => {
-        const shopId = String(
-          shop?.id || ''
-        ).trim();
+    if (snapshotLoadError) {
+      console.error(
+        'Home Expenses shop snapshots could not be loaded:',
+        snapshotLoadError
+      );
+      return;
+    }
 
-        if (!shopId) {
-          return total;
-        }
-
-        const position =
-          getLiveRemittanceShopPosition({
-            data,
-            shopId,
-            calculationDateKey: todayKey,
-          });
-
-        return (
-          total +
-          Math.max(
-            0,
-            Number(
-              position?.shopHomeExpensesContribution ||
-                0
-            )
-          ) +
-          Math.max(
-            0,
-            Number(
-              position
-                ?.pooledGasHomeExpensesContribution ||
-                0
-            )
-          )
-        );
-      },
+    /*
+     * Each shop and gas source has one unique daily snapshot.
+     * Add all those independently saved amounts to obtain the
+     * true pooled contribution for the day.
+     */
+    const savedSnapshotsTotal = (
+      Array.isArray(savedHomeExpenseSnapshots)
+        ? savedHomeExpenseSnapshots
+        : []
+    ).reduce(
+      (total, snapshot) =>
+        total +
+        Math.max(
+          0,
+          Number(snapshot?.amount || 0)
+        ),
       0
     );
+    /*
+     * The owner can see every shop and therefore reconciles
+     * any contribution snapshot that has not yet been saved
+     * by an individual shop computer.
+     */
+    const liveOwnerPoolTotal =
+      resolvedRole === 'owner'
+        ? (Array.isArray(data?.shops) ? data.shops : []).reduce(
+            (total, shop) => {
+              const shopId = String(shop?.id || '').trim();
+
+              if (!shopId) return total;
+
+              const position = getLiveRemittanceShopPosition({
+                data,
+                shopId,
+                calculationDateKey: todayKey,
+              });
+
+              return (
+                total +
+                Math.max(
+                  0,
+                  Number(
+                    position?.shopHomeExpensesContribution || 0
+                  )
+                ) +
+                Math.max(
+                  0,
+                  Number(
+                    position?.pooledGasHomeExpensesContribution || 0
+                  )
+                )
+              );
+            },
+            0
+          )
+        : 0;
+
+    const reconciledSnapshotsTotal = Math.max(
+      savedSnapshotsTotal,
+      liveOwnerPoolTotal
+    )
+    /*
+     * Preserve the agreed daily limit. The database function
+     * still uses GREATEST(), so an already-confirmed pooled
+     * contribution cannot later be reduced.
+     */
+    const dailyHomeExpensesLimit =
+      Math.round(
+        Number(
+          getDailyEssentialHomeExpensesTarget(todayKey) || 0
+        ) / 50
+      ) * 50;
+
+    const pooledHomeExpensesAmount = Math.min(
+      dailyHomeExpensesLimit,
+      Math.round(reconciledSnapshotsTotal / 50) * 50
+    );
+
+    if (pooledHomeExpensesAmount <= 0) {
+      return;
+    }
 
     const pooledTransactionId =
       `fund-accrual-${todayKey}-home-pooled`;
@@ -9842,10 +9908,6 @@ useEffect(() => {
           p_amount: pooledHomeExpensesAmount,
         }
       );
-
-    if (cancelled) {
-      return;
-    }
 
     if (error) {
       console.error(
