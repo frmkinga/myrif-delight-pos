@@ -79,6 +79,11 @@ const DB_NAME = 'rafikiai_pos_db';
 const DB_VERSION = 1;
 const DB_STORE = 'pos_data';
 const DB_DATA_KEY = 'app_data';
+
+// CEO historical reporting cache — separate from operational POS data.
+const CEO_HISTORY_CACHE_KEY = 'ceo_daily_sales_summary_v1';
+const CEO_HISTORY_TTL_MS = 6 * 60 * 60 * 1000;
+
 const APP_BACKUP_VERSION = 'v9';
 const BACKUP_KEYS = [
   'rafikiai_multi_shop_pos_backup_1',
@@ -3956,6 +3961,102 @@ const [passwordMessage, setPasswordMessage] = useState('');
 const [ownerSalesSource, setOwnerSalesSource] = useState([]);
 const [ownerSalesLoading, setOwnerSalesLoading] = useState(true);
 
+const [ceoHistoricalDaily, setCeoHistoricalDaily] = useState([]);
+const [ceoHistoricalReady, setCeoHistoricalReady] = useState(false);
+
+// CEO historical reporting only.
+// Never merge this data into operational sales or the cashier Journal.
+useEffect(() => {
+  if (!dashboardDataReady) return;
+
+  let cancelled = false;
+
+  const loadCeoHistoricalSummary = async () => {
+    try {
+      const cached = await readFromDB(CEO_HISTORY_CACHE_KEY);
+
+      if (cancelled) return;
+
+      if (Array.isArray(cached?.rows)) {
+        setCeoHistoricalDaily(cached.rows);
+        setCeoHistoricalReady(true);
+      }
+
+      const cacheIsFresh =
+        cached?.savedAt &&
+        Date.now() - Number(cached.savedAt) < CEO_HISTORY_TTL_MS;
+
+      if (cacheIsFresh || !navigator.onLine) return;
+
+      const from = new Date();
+      from.setMonth(from.getMonth() - 12, 1);
+
+      const safeRows = [];
+
+      let cursor = new Date(
+        `${todayISO(from)}T12:00:00`
+      );
+
+      const lastDay = new Date(
+        `${todayISO()}T12:00:00`
+      );
+
+      // Fetch small aggregated batches rather than individual sales.
+      while (cursor <= lastDay) {
+        const end = new Date(cursor);
+
+        end.setMonth(end.getMonth() + 4);
+        end.setDate(end.getDate() - 1);
+
+        if (end > lastDay) {
+          end.setTime(lastDay.getTime());
+        }
+
+        const { data: chunk, error } = await supabase.rpc(
+          'ceo_sales_daily_summary',
+          {
+            p_from: todayISO(cursor),
+            p_to: todayISO(end),
+          }
+        );
+
+        if (error) throw error;
+
+        if (!Array.isArray(chunk)) {
+          throw new Error('Invalid CEO historical summary');
+        }
+
+        safeRows.push(...chunk);
+
+        cursor = new Date(end);
+        cursor.setDate(cursor.getDate() + 1);
+      }
+
+      if (cancelled) return;
+
+      // Replace the cache only after all batches succeed.
+      setCeoHistoricalDaily(safeRows);
+      setCeoHistoricalReady(true);
+
+      await writeToDB(CEO_HISTORY_CACHE_KEY, {
+        savedAt: Date.now(),
+        rows: safeRows,
+      });
+    } catch (error) {
+      console.error(
+        'CEO historical daily summary unavailable:',
+        error
+      );
+    }
+  };
+
+  void loadCeoHistoricalSummary();
+
+  return () => {
+    cancelled = true;
+  };
+}, [dashboardDataReady]);
+
 /*
  * Every Owner Dashboard calculation must use only sales
  * that have reached Supabase. Pending local shop sales remain
@@ -4015,7 +4116,7 @@ setAppData(nextData);
   setNewPasswordInput('');
   setConfirmPasswordInput('');
 };
-    const shouldLoadOldOwnerSalesFromSupabase = false;
+    const shouldLoadOldOwnerSalesFromSupabase = true;
 
   useEffect(() => {
     if (!shouldLoadOldOwnerSalesFromSupabase) {
@@ -4103,7 +4204,7 @@ setAppData(nextData);
         }));
       } catch (error) {
         console.error('Failed to load old owner sales:', error);
-        setOwnerSalesSource([]);
+        // Preserve previously loaded records; never erase sales on a failed read.
       } finally {
         setOwnerSalesLoading(false);
       }
@@ -4116,9 +4217,11 @@ setAppData(nextData);
   .filter((sale) => sale.confirmed !== false)
   .map((sale) => ({
     ...sale,
-    date: sale.created_at
-      ? todayISO(new Date(sale.created_at))
-      : sale.date,
+    // The recorded sale date controls daily/monthly reporting.
+    // created_at is only a fallback for records without a sale date.
+    date: sale.date
+      ? String(sale.date).slice(0, 10)
+      : (sale.created_at ? todayISO(new Date(sale.created_at)) : ''),
   }));
 
   const ownerDateValue =
@@ -5105,6 +5208,8 @@ const bankCapital = latest
   {dashboardDataReady && !ownerSalesLoading ? (
     <MemoizedCEODecisionCentre
   data={ownerConfirmedCalculationData}
+  historicalDaily={ceoHistoricalDaily}
+  historicalReady={ceoHistoricalReady}
   language={language}
   ownerPeriod={ownerPeriod}
   selectedPeriod={ownerPeriod}
@@ -6824,9 +6929,41 @@ useEffect(() => {
   const [creditRows, setCreditRows] = useState([{ ...emptyCreditRow }]);
   const [changeRows, setChangeRows] = useState([{ ...emptyChangeRow }]);
   const [reportPreset, setReportPreset] = useState('today');
-const [reportDate, setReportDate] = useState(todayISO());
-const [reportStartDate, setReportStartDate] = useState(todayISO());
-const [reportEndDate, setReportEndDate] = useState(todayISO());
+  // The selected menu option can be a draft; reportPreset remains the applied period.
+  const [reportPresetSelection, setReportPresetSelection] = useState('today');
+  const [reportDate, setReportDate] = useState(todayISO());
+  const [reportStartDate, setReportStartDate] = useState(todayISO());
+  const [reportEndDate, setReportEndDate] = useState(todayISO());
+  const [draftReportStartDate, setDraftReportStartDate] = useState('');
+  const [draftReportEndDate, setDraftReportEndDate] = useState('');
+  const [reportDateError, setReportDateError] = useState('');
+
+  const selectReportPeriod = (nextPreset) => {
+    setReportPresetSelection(nextPreset);
+    setReportDateError('');
+    if (nextPreset !== 'date') {
+      setReportPreset(nextPreset);
+    }
+  };
+
+  const applyCustomReportDates = () => {
+    if (!draftReportStartDate || !draftReportEndDate) {
+      setReportDateError(t(language, 'Choose both dates.', 'Chagua tarehe zote mbili.'));
+      return;
+    }
+    if (draftReportStartDate > draftReportEndDate) {
+      setReportDateError(t(language, 'Start date cannot be after end date.', 'Tarehe ya mwanzo haiwezi kuwa baada ya tarehe ya mwisho.'));
+      return;
+    }
+    if (draftReportEndDate > todayISO()) {
+      setReportDateError(t(language, 'End date cannot be in the future.', 'Tarehe ya mwisho haiwezi kuwa ya baadaye.'));
+      return;
+    }
+    setReportStartDate(draftReportStartDate);
+    setReportEndDate(draftReportEndDate);
+    setReportPreset('date');
+    setReportDateError('');
+  };
 
 useEffect(() => {
   const now = startOfDay(new Date());
@@ -11516,8 +11653,8 @@ banks: mobileMoneyForm.banks.map((b) => ({
 
                <select
   className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm"
-  value={reportPreset}
-  onChange={(e) => setReportPreset(e.target.value)}
+  value={reportPresetSelection}
+  onChange={(e) => selectReportPeriod(e.target.value)}
 >
   <option value="today">{t(language, 'Today', 'Leo')}</option>
   <option value="date">{t(language, 'Custom Date Range', 'Chagua tarehe')}</option>
@@ -11531,20 +11668,30 @@ banks: mobileMoneyForm.banks.map((b) => ({
   <option value="year">{t(language, 'This year', 'Mwaka huu')}</option>
 </select>
 
-{reportPreset === 'date' ? (
-  <div className="flex gap-2">
+{reportPresetSelection === 'date' ? (
+  <div className="flex flex-wrap items-center gap-2">
     <Input
       type="date"
-      value={reportStartDate}
-      onChange={(e) => setReportStartDate(e.target.value)}
+      aria-label={t(language, 'Start date', 'Tarehe ya mwanzo')}
+      value={draftReportStartDate}
+      max={todayISO()}
+      onChange={(e) => { setDraftReportStartDate(e.target.value); setReportDateError(''); }}
       className="w-40"
     />
     <Input
       type="date"
-      value={reportEndDate}
-      onChange={(e) => setReportEndDate(e.target.value)}
+      aria-label={t(language, 'End date', 'Tarehe ya mwisho')}
+      value={draftReportEndDate}
+      max={todayISO()}
+      onChange={(e) => { setDraftReportEndDate(e.target.value); setReportDateError(''); }}
       className="w-40"
     />
+    <Button type="button" onClick={applyCustomReportDates}>
+      {t(language, 'Show Report', 'Onyesha Taarifa')}
+    </Button>
+    {reportDateError ? (
+      <span role="alert" className="text-xs font-semibold text-red-600">{reportDateError}</span>
+    ) : null}
   </div>
 ) : null}
 
@@ -12612,12 +12759,8 @@ sendingSupabaseSalesCount > 0 ? (
 
                           <select
                             className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
-                            value={reportPreset}
-                            onChange={(e) =>
-                              setReportPreset(
-                                e.target.value
-                              )
-                            }
+                            value={reportPresetSelection}
+                            onChange={(e) => selectReportPeriod(e.target.value)}
                           >
                             <option value="today">
                               {t(
@@ -12701,54 +12844,21 @@ sendingSupabaseSalesCount > 0 ? (
                           </select>
                         </div>
 
-                        {reportPreset === 'date' ? (
-                          <>
+                        {reportPresetSelection === 'date' ? (
+                          <div className="flex flex-wrap items-end gap-2">
                             <div>
-                              <div className="mb-1 text-xs font-medium text-slate-500">
-                                {t(
-                                  language,
-                                  'From',
-                                  'Kuanzia'
-                                )}
-                              </div>
-
-                              <Input
-                                type="date"
-                                value={
-                                  reportStartDate
-                                }
-                                onChange={(e) =>
-                                  setReportStartDate(
-                                    e.target.value
-                                  )
-                                }
-                                className="w-40"
-                              />
+                              <div className="mb-1 text-xs text-slate-500">{t(language, 'From', 'Kuanzia')}</div>
+                              <Input type="date" value={draftReportStartDate} max={todayISO()}
+                                onChange={(e) => { setDraftReportStartDate(e.target.value); setReportDateError(''); }} className="w-40" />
                             </div>
-
                             <div>
-                              <div className="mb-1 text-xs font-medium text-slate-500">
-                                {t(
-                                  language,
-                                  'To',
-                                  'Mpaka'
-                                )}
-                              </div>
-
-                              <Input
-                                type="date"
-                                value={
-                                  reportEndDate
-                                }
-                                onChange={(e) =>
-                                  setReportEndDate(
-                                    e.target.value
-                                  )
-                                }
-                                className="w-40"
-                              />
+                              <div className="mb-1 text-xs text-slate-500">{t(language, 'To', 'Mpaka')}</div>
+                              <Input type="date" value={draftReportEndDate} max={todayISO()}
+                                onChange={(e) => { setDraftReportEndDate(e.target.value); setReportDateError(''); }} className="w-40" />
                             </div>
-                          </>
+                            <Button type="button" onClick={applyCustomReportDates}>{t(language, 'Show Report', 'Onyesha Taarifa')}</Button>
+                            {reportDateError ? <span role="alert" className="text-xs text-red-600">{reportDateError}</span> : null}
+                          </div>
                         ) : null}
                       </div>
 
@@ -14104,7 +14214,7 @@ onDeleteGas={deleteGas}
                   <option value="profitCompare">{t(language, 'Purchases vs Sales vs Profit', 'Manunuzi dhidi ya Mauzo na Faida')}</option>
                 </select>
 
-                <select className="rounded-xl border border-slate-200 px-3 py-2 text-sm" value={reportPreset} onChange={(e) => setReportPreset(e.target.value)}>
+                <select className="rounded-xl border border-slate-200 px-3 py-2 text-sm" value={reportPresetSelection} onChange={(e) => selectReportPeriod(e.target.value)}>
   <option value="today">{t(language, 'Today', 'Leo')}</option>
   <option value="yesterday">{t(language, 'Yesterday', 'Jana')}</option>
   <option value="date">{t(language, 'Custom range', 'Chagua tarehe')}</option>
@@ -14117,20 +14227,30 @@ onDeleteGas={deleteGas}
   <option value="year">{t(language, 'This year', 'Mwaka huu')}</option>
 </select>
 
-        {reportPreset === 'date' ? (
-  <div className="flex gap-2">
+        {reportPresetSelection === 'date' ? (
+  <div className="flex flex-wrap items-center gap-2">
     <Input
       type="date"
-      value={reportStartDate}
-      onChange={(e) => setReportStartDate(e.target.value)}
+      aria-label={t(language, 'Start date', 'Tarehe ya mwanzo')}
+      value={draftReportStartDate}
+      max={todayISO()}
+      onChange={(e) => { setDraftReportStartDate(e.target.value); setReportDateError(''); }}
       className="w-40"
     />
     <Input
       type="date"
-      value={reportEndDate}
-      onChange={(e) => setReportEndDate(e.target.value)}
+      aria-label={t(language, 'End date', 'Tarehe ya mwisho')}
+      value={draftReportEndDate}
+      max={todayISO()}
+      onChange={(e) => { setDraftReportEndDate(e.target.value); setReportDateError(''); }}
       className="w-40"
     />
+    <Button type="button" onClick={applyCustomReportDates}>
+      {t(language, 'Show Report', 'Onyesha Taarifa')}
+    </Button>
+    {reportDateError ? (
+      <span role="alert" className="text-xs font-semibold text-red-600">{reportDateError}</span>
+    ) : null}
   </div>
 ) : null}
               </div>
@@ -18619,43 +18739,66 @@ const logout = () => {
     });
 };
 
+// Reporting-only historical sales: shared by shop dashboard and CEO Centre.
+// Never write this history into the operational POS/Journal state.
 useEffect(() => {
-  const currentUser = data?.currentUser;
-  const userShopId = String(currentUser?.shop_id || currentUser?.shopId || '').trim();
+  if (!dashboardDataReady || !navigator.onLine) return;
 
-  if (!dashboardDataReady) return;
-  if (String(currentUser?.role || '') !== 'shop') return;
-  if (!userShopId) return;
-  if (decisionCentreSalesLoaded) return;
-  if (!navigator.onLine) return;
+  const currentUser = data?.currentUser;
+  const userShopId = String(
+    currentUser?.role === 'shop'
+      ? (currentUser?.shop_id || currentUser?.shopId || '')
+      : (activeShopId || '')
+  ).trim();
+
+  if (!userShopId) {
+    setDecisionCentreSales([]);
+    setDecisionCentreSalesLoaded(false);
+    return;
+  }
+
+  let cancelled = false;
+  setDecisionCentreSalesLoaded(false);
+  setDecisionCentreSales([]);
 
   const loadDecisionCentreSales = async () => {
     try {
-      const { data: longSales, error } = await supabase
-        .from('sales')
-        .select('*')
-        .eq('shop_id', userShopId)
-        .gte('date', daysAgoISO(180))
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      setDecisionCentreSales((longSales || []).map((sale) => ({
+      const pageSize = 1000;
+      let offset = 0;
+      const allSales = [];
+      while (true) {
+        const { data: page, error } = await supabase
+          .from('sales')
+          .select('*')
+          .eq('shop_id', userShopId)
+          .gte('date', daysAgoISO(180))
+          .order('created_at', { ascending: false })
+          .range(offset, offset + pageSize - 1);
+        if (error) throw error;
+        if (cancelled) return;
+        const rows = Array.isArray(page) ? page : [];
+        allSales.push(...rows);
+        if (rows.length < pageSize) break;
+        offset += pageSize;
+      }
+      if (cancelled) return;
+      setDecisionCentreSales(allSales.map((sale) => ({
         ...sale,
         shop_id: String(sale?.shop_id || '').trim(),
-        date: sale?.date || (sale?.created_at ? String(sale.created_at).slice(0, 10) : todayISO()),
+        date: sale?.date
+          ? String(sale.date).slice(0, 10)
+          : (sale?.created_at ? todayISO(new Date(sale.created_at)) : ''),
         confirmed: true,
       })));
-
       setDecisionCentreSalesLoaded(true);
     } catch (error) {
-      console.error('Failed to load Decision Centre long sales history:', error);
-      setDecisionCentreSalesLoaded(true);
+      console.error('Historical shop reporting sales could not be loaded:', error);
+      if (!cancelled) setDecisionCentreSalesLoaded(false);
     }
   };
-
   loadDecisionCentreSales();
-}, [data?.currentUser, decisionCentreSalesLoaded, dashboardDataReady]);
+  return () => { cancelled = true; };
+}, [data?.currentUser?.role, data?.currentUser?.shop_id, data?.currentUser?.shopId, activeShopId, dashboardDataReady]);
 if (!data.currentUser) {
   return (
     <Login
@@ -18750,7 +18893,16 @@ return (
   <>
 <ShopDashboard
   shop={shop}
-  data={data}
+  data={{
+    ...data,
+    // Historical Supabase records are reporting-only and never alter cashier state.
+    sales: mergeRowsById(
+      data.sales || [],
+      decisionCentreSales.filter((sale) =>
+        String(sale?.shop_id || '') === String(shop.id)
+      )
+    ),
+  }}
   saveData={saveData}
   logout={logout}
   canBack={data.currentUser.role === 'owner'}
