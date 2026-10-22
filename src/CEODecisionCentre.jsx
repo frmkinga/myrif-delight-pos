@@ -4334,7 +4334,7 @@ function CeoSidebar({ viewMode, setViewMode, language, isShopScope = false }) {
         </div>
         <div>
           <div className="text-xl font-black text-emerald-800">
-            {isShopScope ? (sw ? 'Kituo cha Duka' : 'Shop Centre') : (sw ? 'Yumbani Multi Shop pos' : 'Yumbani Multipos')}
+            {isShopScope ? (sw ? 'Nyumbani Shop' : 'Nyumbani Shop') : (sw ? 'Nyumbani Multi Shop pos' : 'Nyumbani Multipos')}
           </div>
           <div className="text-xs font-semibold text-slate-400">
             Smart Retail
@@ -4383,14 +4383,14 @@ function CeoSidebar({ viewMode, setViewMode, language, isShopScope = false }) {
   );
 }
 
-function SelectControl({ label, value, onChange, children }) {
+function SelectControl({ label, value, onChange, children, darkLabel = false }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs font-black uppercase tracking-wide text-slate-500">{label}</span>
+      <span className={`mb-1 block text-xs font-black uppercase tracking-wide ${darkLabel ? "text-[#f3d295]" : "text-slate-500"}`}>{label}</span>
       <select
         value={value}
         onChange={onChange}
-        className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800 shadow-sm outline-none transition focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
+        className="w-full rounded-2xl border border-[#b88b45]/60 bg-[#102542] px-3 py-2 text-sm font-bold text-[#f3d295] shadow-sm outline-none transition focus:border-[#f3d295] focus:ring-2 focus:ring-[#b88b45]/30 [&>option]:bg-[#102542] [&>option]:text-[#f3d295]"
       >
         {children}
       </select>
@@ -4515,10 +4515,10 @@ function RecommendationCard({
 
   return (
     <div
-      className={`overflow-hidden rounded-3xl border bg-white shadow-sm ${
+      className={`overflow-hidden rounded-3xl border shadow-sm ${
         isCritical
-          ? 'border-red-200 border-l-4 border-l-red-500'
-          : 'border-amber-200 border-l-4 border-l-amber-500'
+          ? 'border-[#d5b16c]/55 border-l-4 border-l-[#102746] bg-gradient-to-br from-white to-[#f7f9fc]'
+          : 'border-[#d5b16c]/55 border-l-4 border-l-[#b89250] bg-gradient-to-br from-white to-[#fffaf0]'
       }`}
     >
       <div className="p-5">
@@ -4544,7 +4544,7 @@ function RecommendationCard({
               {rec.title}
             </h4>
 
-            <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4">
               <p className="text-xs font-black uppercase tracking-wide text-slate-500">
                 {sw
                   ? 'Hatua ya Kuchukua'
@@ -4566,7 +4566,7 @@ function RecommendationCard({
           <div className="flex shrink-0 flex-wrap gap-2 lg:w-56 lg:flex-col">
             <button
               type="button"
-              className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-slate-800"
+              className="rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-emerald-700"
               onClick={() =>
                 onDecision(rec, 'Done')
               }
@@ -4578,7 +4578,7 @@ function RecommendationCard({
 
             <button
               type="button"
-              className="rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
+              className="rounded-2xl border border-sky-200 bg-sky-50 px-5 py-3 text-sm font-bold text-sky-800 transition hover:bg-sky-100"
               onClick={() =>
                 onDecision(rec, 'Planned')
               }
@@ -5188,65 +5188,40 @@ function MiniSparkline({ rows = [], dataKey = 'value', stroke = '#38bdf8' }) {
 function MiniKpiCard({ label, value, trend, rows, dataKey, stroke, tone = 'blue', language, currentValue = 0, previousValue = 0 }) {
   const sw = language !== 'en';
   const toneMap = {
-    blue: 'from-blue-50 to-cyan-50 text-blue-700',
-    emerald: 'from-emerald-50 to-teal-50 text-emerald-700',
-    orange: 'from-orange-50 to-rose-50 text-orange-700',
-    violet: 'from-violet-50 to-fuchsia-50 text-violet-700',
+    blue: { header: 'bg-sky-700', border: 'border-sky-200', surface: 'bg-sky-50/70', bar: 'bg-sky-600', text: 'text-sky-800' },
+    emerald: { header: 'bg-emerald-700', border: 'border-emerald-200', surface: 'bg-emerald-50/70', bar: 'bg-emerald-600', text: 'text-emerald-800' },
+    orange: { header: 'bg-orange-700', border: 'border-orange-200', surface: 'bg-orange-50/70', bar: 'bg-orange-600', text: 'text-orange-800' },
+    violet: { header: 'bg-violet-700', border: 'border-violet-200', surface: 'bg-violet-50/70', bar: 'bg-violet-600', text: 'text-violet-800' },
   };
+  const colors = toneMap[tone] || toneMap.blue;
+  const maxValue = Math.max(Number(currentValue || 0), Number(previousValue || 0), 1);
+  const currentWidth = Number(currentValue || 0) > 0 ? Math.max(4, Number(currentValue) / maxValue * 100) : 0;
+  const previousWidth = Number(previousValue || 0) > 0 ? Math.max(4, Number(previousValue) / maxValue * 100) : 0;
 
   return (
-    <div className={`overflow-hidden rounded-[28px] border border-white/70 bg-gradient-to-br ${toneMap[tone] || toneMap.blue} p-4 shadow-lg shadow-slate-200/60`}>
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-black uppercase tracking-wide opacity-75">{label}</p>
-          <p className="mt-2 text-2xl font-black tracking-tight text-slate-950">{value}</p>
-        </div>
-        <span className={`rounded-full px-3 py-1 text-xs font-black ring-1 ${trendClass(trend)}`}>
+    <div className={`overflow-hidden rounded-2xl border ${colors.border} bg-white shadow-md shadow-slate-200/60`}>
+      <div className={`${colors.header} px-4 py-3 text-white`}>
+        <p className="text-xs font-black uppercase tracking-wide text-white/90">{label}</p>
+        <p className="mt-1 text-2xl font-black tracking-tight text-white">{value}</p>
+      </div>
+      <div className={`space-y-3 ${colors.surface} p-4`}>
+        <span className={`inline-flex rounded-full border border-white bg-white px-3 py-1 text-xs font-black shadow-sm ${trendClass(trend)}`}>
           {getTrendLabel(trend, language, dataKey)}
         </span>
-      </div>
-      <div className="mt-3 rounded-2xl bg-white/70 p-3 shadow-inner">
-        <div className="space-y-3">
-          <div>
-            <div className="mb-1 flex items-center justify-between gap-3 text-[11px] font-black text-slate-700">
-              <span>{sw ? 'Kipindi hiki' : 'This period'}</span>
-              <span>TZS {money(currentValue)}</span>
-            </div>
-            <div className="h-3 overflow-hidden rounded-full bg-slate-100">
-              <div
-                className="h-full rounded-full bg-blue-500"
-                style={{
-                  width: `${Math.max(
-                    4,
-                    (Number(currentValue || 0) / Math.max(Number(currentValue || 0), Number(previousValue || 0), 1)) * 100
-                  )}%`,
-                }}
-              />
-            </div>
+        <div className="rounded-xl border border-white bg-white p-3 shadow-sm">
+          <div className="mb-1 flex items-center justify-between gap-3 text-xs font-bold text-slate-800">
+            <span>{sw ? 'Kipindi hiki' : 'This period'}</span><span>TZS {money(currentValue)}</span>
           </div>
-
-          <div>
-            <div className="mb-1 flex items-center justify-between gap-3 text-[11px] font-black text-slate-500">
-              <span>{sw ? 'Kipindi kilichopita' : 'Previous period'}</span>
-              <span>TZS {money(previousValue)}</span>
-            </div>
-            <div className="h-3 overflow-hidden rounded-full bg-slate-100">
-              <div
-                className="h-full rounded-full bg-slate-300"
-                style={{
-                  width: `${Math.max(
-                    4,
-                    (Number(previousValue || 0) / Math.max(Number(currentValue || 0), Number(previousValue || 0), 1)) * 100
-                  )}%`,
-                }}
-              />
-            </div>
+          <div className="h-3 overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full ${colors.bar}`} style={{ width: `${currentWidth}%` }} /></div>
+          <div className="mb-1 mt-3 flex items-center justify-between gap-3 text-xs font-bold text-slate-600">
+            <span>{sw ? 'Kipindi kilichopita' : 'Previous period'}</span><span>TZS {money(previousValue)}</span>
           </div>
+          <div className="h-3 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-slate-400" style={{ width: `${previousWidth}%` }} /></div>
         </div>
+        <p className={`rounded-xl border border-white bg-white px-3 py-2 text-xs font-semibold leading-5 ${colors.text}`}>
+          {getMiniKpiExplanation(dataKey, trend, language, currentValue, previousValue)}
+        </p>
       </div>
-      <p className="mt-2 rounded-2xl bg-white/65 px-3 py-2 text-xs font-semibold leading-5 text-slate-600">
-        {getMiniKpiExplanation(dataKey, trend, language, currentValue, previousValue)}
-      </p>
     </div>
   );
 }
@@ -6180,20 +6155,20 @@ ${effectiveQuestion || (language === 'en' ? 'Explain the business performance an
 
         <main className="min-w-0 flex-1 bg-gradient-to-br from-slate-50 via-white to-emerald-50/50">
           <div className="overflow-hidden border-white/70 bg-white/55 backdrop-blur-xl">
-        <div className="border-b border-slate-100 bg-white px-6 py-5">
+        <div className="border-b border-[#b88b45]/35 bg-[#102542] px-6 py-5">
           <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
             <div>
-              <h2 className="text-3xl font-black tracking-tight text-emerald-950 md:text-4xl">
+              <h2 className="text-3xl font-black tracking-tight text-white md:text-4xl">
                 {t('title')}
               </h2>
-              <p className="mt-2 max-w-3xl text-sm font-medium leading-6 text-slate-500">
+              <p className="mt-2 max-w-3xl text-sm font-medium leading-6 text-slate-200">
                 {analytics.businessMessage}
               </p>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-3 xl:min-w-[620px]">
                             {!ownerPeriod ? (
-                <SelectControl label={t('period')} value={period} onChange={(e) => setPeriod(e.target.value)}>
+                <SelectControl darkLabel label={t('period')} value={period} onChange={(e) => setPeriod(e.target.value)}>
                   <option value="today">{t('today')}</option>
                   <option value="yesterday">{t('yesterday')}</option>
                   <option value="week">{t('week')}</option>
@@ -6208,17 +6183,17 @@ ${effectiveQuestion || (language === 'en' ? 'Explain the business performance an
               ) : null}
 
               {isShopScope ? (
-                <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800 shadow-sm">
+                <div className="rounded-2xl border border-[#b88b45]/50 bg-[#203651] px-4 py-2 text-sm font-semibold text-[#f3d295] shadow-sm">
                   {sw ? 'Taarifa za duka hili pekee' : 'This shop only'}
                 </div>
               ) : (
-                <SelectControl label={t('shop')} value={shopFilter} onChange={(e) => setShopFilter(e.target.value)}>
+                <SelectControl darkLabel label={t('shop')} value={shopFilter} onChange={(e) => setShopFilter(e.target.value)}>
                   <option value="all">{t('allShops')}</option>
                   {(data?.shops || []).map((shop) => <option key={shop.id} value={shop.id}>{shop.name}</option>)}
                 </SelectControl>
               )}
 
-              <SelectControl label={t('view')} value={viewMode} onChange={(e) => setViewMode(e.target.value)}>
+              <SelectControl darkLabel label={t('view')} value={viewMode} onChange={(e) => setViewMode(e.target.value)}>
                 <option value="summary">{sw ? 'Muhtasari' : 'Summary'}</option>
                 <option value="products">{sw ? 'Bidhaa' : 'Products'}</option>
                 <option value="risk">{sw ? 'Hatari' : 'Risks'}</option>
@@ -6230,13 +6205,13 @@ ${effectiveQuestion || (language === 'en' ? 'Explain the business performance an
           </div>
 
           {period === 'custom' ? (
-            <div className="mt-5 grid gap-3 rounded-3xl border border-slate-100 bg-slate-50 p-4 sm:grid-cols-2">
+            <div className="mt-5 grid gap-3 rounded-3xl border border-[#b88b45]/40 bg-[#203651] p-4 sm:grid-cols-2">
               <label className="block">
-                <span className="mb-1 block text-xs font-bold uppercase text-slate-500">{t('startDate')}</span>
+                <span className="mb-1 block text-xs font-bold uppercase text-[#f3d295]">{t('startDate')}</span>
                 <input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800" />
               </label>
               <label className="block">
-                <span className="mb-1 block text-xs font-bold uppercase text-slate-500">{t('endDate')}</span>
+                <span className="mb-1 block text-xs font-bold uppercase text-[#f3d295]">{t('endDate')}</span>
                 <input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800" />
               </label>
             </div>
@@ -6247,7 +6222,7 @@ ${effectiveQuestion || (language === 'en' ? 'Explain the business performance an
     {viewMode === 'summary' ? (
   <>
     <div
-      className="mb-5 rounded-[24px] border border-slate-100 bg-white p-3 shadow-sm shadow-slate-200/70"
+      className="mb-5 rounded-[24px] border border-[#b88b45]/40 bg-[#102542] p-3 shadow-sm shadow-slate-200/70"
       style={{ fontFamily: '"Century Gothic", CenturyGothic, Arial, sans-serif' }}
     >
       <div className="flex flex-wrap gap-2">
@@ -6267,8 +6242,8 @@ ${effectiveQuestion || (language === 'en' ? 'Explain the business performance an
             onClick={() => setSummaryView(item.id)}
             className={`rounded-full px-4 py-2 text-xs font-semibold transition ${
               summaryView === item.id
-                ? 'bg-emerald-600 text-white shadow-sm'
-                : 'bg-slate-50 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700'
+                ? 'bg-[#d7ac43] text-[#102542] shadow-sm'
+                : 'bg-[#203651] text-white hover:bg-[#2d4769] hover:text-[#f3d295]'
             }`}
           >
             {item.label}
@@ -6445,7 +6420,7 @@ ${effectiveQuestion || (language === 'en' ? 'Explain the business performance an
               ) : null}
 
               {summaryView === 'quick-priorities' ? (
-                <DropdownPanel title={sw ? 'Mambo ya Haraka kwa Mmiliki' : 'Owner Quick Priorities'} subtitle={sw ? 'Haya ni mambo machache muhimu zaidi, si kila taarifa ya mfumo.' : 'Only the most important current items are shown here.'} badge={`${visibleRecommendations.slice(0, 5).length} ${sw ? 'vitu' : 'items'}`} defaultOpen tone="amber">
+                <DropdownPanel title={sw ? 'Mambo ya Haraka kwa Mmiliki' : 'Owner Quick Priorities'} subtitle={sw ? 'Haya ni mambo machache muhimu zaidi, si kila taarifa ya mfumo.' : 'Only the most important current items are shown here.'} badge={`${visibleRecommendations.slice(0, 5).length} ${sw ? 'vitu' : 'items'}`} defaultOpen tone="emerald">
                   <div className="grid gap-4 lg:grid-cols-2">
                     {visibleRecommendations.slice(0, 4).map((rec) => (
                       <RecommendationCard key={rec.id} rec={rec} actionRecord={actions[rec.id]} onDecision={handleDecision} language={language} />

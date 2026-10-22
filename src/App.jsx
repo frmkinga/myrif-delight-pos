@@ -3072,7 +3072,7 @@ function Label({ className = '', children }) {
 }
 function TabsList({ children }) {
   return (
-    <div className="mb-6 flex flex-wrap gap-2 rounded-[28px] border border-slate-200 bg-white/90 p-2 shadow-md backdrop-blur-sm sticky top-0 z-[999]">
+    <div className="mb-6 flex flex-wrap gap-2 rounded-[28px] border border-[#CDE9D8] bg-[#EAF8EF] p-2 shadow-md sticky top-0 z-[999]">
       {children}
     </div>
   );
@@ -3086,8 +3086,8 @@ function TabsTrigger({ value, activeValue, onClick, children }) {
       className={cn(
         'rounded-2xl px-4 py-2 text-sm font-medium transition-all duration-200 shadow-sm',
         active
-          ? 'bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-600 text-white shadow-md'
-          : 'bg-white/80 text-slate-700 hover:bg-white hover:text-slate-900'
+          ? 'bg-[#D4AF37] text-[#102746] font-semibold shadow-md ring-1 ring-[#F3D77A]'
+          : 'bg-[#1C3558] text-white hover:bg-[#2C4B72] hover:text-[#F3D77A]'
       )}
     >
       {children}
@@ -3156,33 +3156,33 @@ const TabsContent = React.memo(function TabsContent({
   return !isActive;
 });
 
-        function StatCard({ title, value, subtitle = '', icon: Icon, color = 'bg-orange-300' }) {
+        function StatCard({ title, value, subtitle = '', icon: Icon, color: _color }) {
   return (
-    <div className={`rounded-2xl ${color} px-5 py-4 shadow-md`}>
+    <div className="rounded-2xl border border-[#B99050] bg-[#20344D] px-5 py-4 shadow-md">
       <div className="flex items-center justify-between">
         <div className="min-w-0">
-          <div className="text-sm font-semibold text-slate-800">
+          <div className="text-sm font-semibold text-[#F2D39B]">
             {title}
           </div>
 
           <div className="mt-1 flex items-baseline gap-1">
-            <span className="text-sm font-semibold text-slate-700">
+            <span className="text-sm font-semibold text-white">
               TZS
             </span>
-            <span className="text-2xl font-bold text-slate-800 tracking-tight">
+            <span className="text-2xl font-bold text-white tracking-tight">
               {String(value).replace('TZS', '').trim()}
             </span>
           </div>
 
           {subtitle ? (
-            <div className="mt-1 text-xs text-slate-700">
+            <div className="mt-1 text-xs text-slate-200">
               {subtitle}
             </div>
           ) : null}
         </div>
 
-        <div className="rounded-xl bg-white/80 p-2 shadow-sm">
-          <Icon className="h-5 w-5 text-slate-800" />
+        <div className="rounded-xl border border-[#B99050]/60 bg-[#102139] p-2 shadow-sm">
+          <Icon className="h-5 w-5 text-[#F2D39B]" />
         </div>
       </div>
     </div>
@@ -3200,8 +3200,6 @@ function Login({
   const [error, setError] = useState('');
 
 
-const loginTheme = getWeeklyLoginTheme();
-const loginWelcomeMessage = '';
 const loginRequestInProgress = useRef(false);
 
 const submit = async (e) => {
@@ -3333,132 +3331,102 @@ const submit = async (e) => {
 
   return (
     <AppShell>
-      <div className={`min-h-screen bg-[url('/login-bg.png')] bg-cover bg-center ${loginTheme.page}`}>
-        <div className={`min-h-screen ${loginTheme.overlay} px-4 py-6 md:px-8`}>
-          <div className="mx-auto flex min-h-[calc(100vh-3rem)] max-w-6xl items-center justify-center">
-            <div className="grid w-full overflow-hidden rounded-[36px] border border-white/20 bg-white/10 shadow-2xl backdrop-blur-xl lg:grid-cols-2">
-              <div className={`relative hidden min-h-[620px] flex-col justify-between overflow-hidden ${loginTheme.panel} p-8 text-white lg:flex`}>
-                <div className="absolute -left-16 -top-16 h-52 w-52 rounded-full bg-white/15 blur-3xl" />
-                <div className="absolute -bottom-20 right-0 h-72 w-72 rounded-full bg-fuchsia-300/20 blur-3xl" />
-
-                <div className="relative z-10">
-                  <div className="inline-flex rounded-full border border-white/25 bg-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-white/90">
-                    Myrif Delight
-                  </div>
-
-                  <h1 className="mt-6 max-w-md text-4xl font-semibold leading-tight">
-                    {t(language, 'Welcome back.', 'Karibu tena, Huduma bora, fahari yetu')}
-                  </h1>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;500;600;700;800&display=swap');`}</style>
+      <div className="relative min-h-screen overflow-hidden bg-[#09182d] text-[#f8f4e9]" style={{ fontFamily: "'Source Sans 3', 'Segoe UI', sans-serif" }}>
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_80%_18%,rgba(200,166,106,0.19),transparent_35%),radial-gradient(ellipse_at_10%_85%,rgba(40,70,111,0.55),transparent_48%),linear-gradient(135deg,#09182d,#172e4c_55%,#0a182b)]" />
+        <div className="pointer-events-none absolute -right-28 top-12 h-96 w-96 rounded-full bg-[#c8a66a]/10 blur-[100px]" />
+        <div className="relative mx-auto flex min-h-screen max-w-6xl items-center justify-center px-4 py-10 sm:px-6 lg:px-8">
+          <div className="grid w-full overflow-hidden rounded-[30px] border border-[#c8a66a]/45 bg-[#14253e]/85 shadow-[0_30px_100px_rgba(0,0,0,0.45),0_0_35px_rgba(200,166,106,0.12)] backdrop-blur-xl lg:grid-cols-[1.05fr_0.95fr]">
+            <div className="relative hidden min-h-[590px] flex-col justify-between overflow-hidden border-r border-[#c8a66a]/25 p-9 lg:flex xl:p-12">
+              <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_15%_12%,rgba(200,166,106,0.13),transparent_36%),linear-gradient(145deg,rgba(35,61,94,0.8),rgba(8,22,42,0.55))]" />
+              <div className="relative z-10">
+                <div className="inline-flex items-center rounded-full border border-[#c8a66a]/60 bg-[#c8a66a]/10 px-5 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-[#f1d7a4]">
+                  Myrif Delight
                 </div>
-
-                <div className="relative z-10 grid gap-4">
-                  <div className="rounded-3xl border border-white/20 bg-white/10 p-5 backdrop-blur-md">
-                    <div className="text-sm font-medium text-white/90">
-                    
-                    </div>
-                    <div className="mt-2 text-xs leading-6 text-white/75">
-                      {t(
-  language,
-  'Built for gas, transactions and shop operations.',
-  'Biashara ya gesi, miamala na maduka.'
-)}
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="rounded-3xl border border-white/20 bg-white/10 p-4 backdrop-blur-md">
-                      <div className="text-2xl font-semibold">5</div>
-                      <div className="mt-1 text-xs text-white/75">
-                        {t(language, 'Connected shops', 'Maduka yaliyounganishwa')}
-                      </div>
-                    </div>
-
-                    <div className="rounded-3xl border border-white/20 bg-white/10 p-4 backdrop-blur-md">
-                      <div className="text-2xl font-semibold">
-  {t(language, 'Quality-service', 'Huduma Bora')}
-</div>
-<div className="mt-1 text-xs text-white/75">
-  {t(language, 'Gas, transactions and shop operations', 'Biashara ya gesi, miamala na maduka')}
-</div>
-                    </div>
-                  </div>
-                </div>
+                <h1 className="mt-9 max-w-lg text-4xl font-semibold leading-tight tracking-tight text-[#fff8e9] xl:text-5xl">
+                  {t(language, 'Welcome back.', 'karibu tena')}
+                </h1>
+                <p className="mt-4 max-w-md text-lg text-[#e4c58f]">
+                  {t(language, 'Quality products and services, our pride.', 'Bidhaa na huduma bora, fahari yetu.')}
+                </p>
+                <div className="mt-8 h-px max-w-xs bg-gradient-to-r from-[#c8a66a]/75 to-transparent" />
               </div>
-
-              <div className="flex items-center bg-white/70 p-4 backdrop-blur-xl sm:p-6 md:p-8 lg:p-10">
-                <div className="mx-auto w-full max-w-md">
-                  <div className="mb-6 flex items-start justify-between gap-4">
-                    <div>
-
-                      <h2 className="mt-4 text-3xl font-semibold text-slate-900">
-                        {t(language, 'Please identify yourself', 'Tafadhali jitambulishe')}
-                      </h2>
-
-
-                      {loginWelcomeMessage ? (
-  <div className="mt-3 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800 shadow-sm">
-    {loginWelcomeMessage}
-  </div>
-) : null}
-                    </div>
-
-                    <select
-                      className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm outline-none transition focus:border-indigo-400"
-                      value={language}
-                      onChange={(e) => setLanguage(e.target.value)}
-                    >
-                      <option value="sw">Kiswahili</option>
-                      <option value="en">English</option>
-                    </select>
+              <div className="relative z-10 space-y-5">
+                <div className="rounded-3xl border border-[#c8a66a]/35 bg-white/[0.05] p-6 shadow-[inset_0_0_25px_rgba(200,166,106,0.04)]">
+                  <div className="text-sm font-medium text-[#f3dbad]">
+                    {t(language, 'We take pride in efficiency and caring for our customers.', 'Ufanisi na kujali mahitaji ya wateja wetu ndiyo fahari yetu.')}
                   </div>
-
-                  <div className="rounded-[32px] border border-white/60 bg-white/80 p-5 shadow-xl">
-                    <form onSubmit={submit} className="space-y-5">
-                      <div>
-                        <Label className="mb-2 text-sm font-medium text-slate-700">
-                          {t(language, 'Username', 'Jina la mtumiaji')}
-                        </Label>
-                        <Input
-                          value={username}
-                          onChange={(e) => setUsername(e.target.value)}
-                          placeholder={t(language, 'Enter username', 'Weka jina la mtumiaji')}
-                          className={`h-12 rounded-2xl border-slate-200 bg-white/90 px-4 text-sm shadow-sm ${loginTheme.focusUser}`}
-                        />
-                      </div>
-
-                      <div>
-  <Label className="mb-2 text-sm font-medium text-slate-700">
-    {t(language, 'Password', 'Nenosiri')}
-  </Label>
-  <Input
-    type="password"
-    value={password}
-    onChange={(e) => setPassword(e.target.value)}
-    placeholder={t(language, 'Enter password', 'Weka nenosiri')}
-    className={`h-12 rounded-2xl border-slate-200 bg-white/90 px-4 text-sm shadow-sm ${loginTheme.focusPassword}`}
-  />
-</div>
-
-{error ? (
-  <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
-    {error}
-  </div>
-) : null}
-
-<div className="space-y-3 pt-1">
-  <Button
-    type="submit"
-    disabled={!loginReady}
-    className={`h-12 w-full rounded-2xl ${loginTheme.button} text-sm font-semibold text-white shadow-lg`}
-  >
-    {loginReady
-      ? t(language, 'Login', 'Ingia')
-      : t(language, 'Preparing login...', 'Inaandaa kuingia...')}
-  </Button>
-</div>
-</form>
-</div>
+                  <p className="mt-2 text-sm leading-7 text-slate-300">
+                    {t(language, 'Excellence in service, innovation and sustainable growth.', 'Tunajivunia ubora wa huduma, ubunifu na ukuaji endelevu.')}
+                  </p>
                 </div>
+
+              </div>
+            </div>
+            <div className="flex items-center bg-[#0c1b30]/75 px-5 py-10 sm:px-9 lg:px-10 xl:px-12">
+              <div className="mx-auto w-full max-w-md">
+                <div className="mb-8 flex items-start justify-between gap-4">
+                  <div>
+                    <div className="mb-3 text-xs font-semibold uppercase tracking-[0.22em] text-[#c8a66a]">
+                      Myrif Delight
+                    </div>
+                    <h2 className="text-2xl font-semibold leading-tight text-[#fff8e9] sm:text-3xl">
+                      {t(language, 'Please identify yourself', 'Tafadhali jitambulishe')}
+                    </h2>
+                  </div>
+                  <select
+                    className="rounded-xl border border-[#c8a66a]/50 bg-[#172b46] px-3 py-2 text-sm text-[#f5e7cd] outline-none focus:border-[#e4c58f]"
+                    value={language}
+                    onChange={(e) => setLanguage(e.target.value)}
+                  >
+                    <option value="sw">Kiswahili</option>
+                    <option value="en">English</option>
+                  </select>
+                </div>
+                <div className="rounded-[26px] border border-[#c8a66a]/55 bg-gradient-to-br from-[#25344c]/90 to-[#12243c]/95 p-5 shadow-[0_0_0_5px_rgba(200,166,106,0.06),0_18px_40px_rgba(0,0,0,0.3)] sm:p-7">
+                  <form onSubmit={submit} className="space-y-5">
+                    <div>
+                      <Label className="mb-2 text-sm font-medium text-[#f1d7a4]">
+                        {t(language, 'Username', 'Jina la mtumiaji')}
+                      </Label>
+                      <Input
+                        value={username}
+                        onChange={(e) => setUsername(e.target.value)}
+                        placeholder={t(language, 'Enter username', 'Weka jina la mtumiaji')}
+                        className="h-12 rounded-xl border-[#c8a66a]/35 bg-[#f8f9fc] px-4 text-sm text-slate-900 shadow-sm focus:border-[#c8a66a] focus:ring-[#c8a66a]/20"
+                      />
+                    </div>
+                    <div>
+                      <Label className="mb-2 text-sm font-medium text-[#f1d7a4]">
+                        {t(language, 'Password', 'Nenosiri')}
+                      </Label>
+                      <Input
+                        type="password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder={t(language, 'Enter password', 'Weka nenosiri')}
+                        className="h-12 rounded-xl border-[#c8a66a]/35 bg-[#f8f9fc] px-4 text-sm text-slate-900 shadow-sm focus:border-[#c8a66a] focus:ring-[#c8a66a]/20"
+                      />
+                    </div>
+                    {error ? (
+                      <div className="rounded-xl border border-red-300/50 bg-red-950/40 px-4 py-3 text-sm text-red-100" role="alert">
+                        {error}
+                      </div>
+                    ) : null}
+                    <Button
+                      type="submit"
+                      disabled={!loginReady}
+                      className="h-12 w-full rounded-xl border border-[#e9cd95] bg-gradient-to-r from-[#b18a4c] via-[#d8b777] to-[#b18a4c] text-sm font-bold text-[#14233b] shadow-[0_5px_22px_rgba(200,166,106,0.22)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {loginReady
+                        ? t(language, 'Login', 'Ingia')
+                        : t(language, 'Preparing login...', 'Inaandaa kuingia...')}
+                    </Button>
+                  </form>
+                </div>
+                <p className="mt-6 text-center text-xs text-slate-400">
+                  {t(language, 'Quality service. Lasting trust.', 'Huduma bora. Uaminifu wa kudumu.')}
+                </p>
               </div>
             </div>
           </div>
@@ -4880,14 +4848,14 @@ const totalBankCapital =
 />
 </div>
 
-<Card className="mt-6 border-white/40 bg-white/70 shadow-lg backdrop-blur-md">
+<Card className="mt-6 border-[#B99050]/60 bg-[#101F35] shadow-lg">
   <CardHeader>
-    <CardTitle>{t(language, 'Business Profit Breakdown', 'Muhtasari wa Faida za Biashara')}</CardTitle>
+    <CardTitle className="text-[#F2D39B]">{t(language, 'Business Profit Breakdown', 'Muhtasari wa Faida za Biashara')}</CardTitle>
   </CardHeader>
 
   <CardContent>
   <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6 text-sm">
-    <div className="rounded-2xl bg-gradient-to-r from-fuchsia-500/15 to-purple-600/15 p-3 font-medium">
+    <div className="rounded-2xl border border-[#D7B572] bg-[#B99050] p-3 font-semibold text-[#101F35]">
   {t(
     language,
     'Retail Profit',
@@ -4895,23 +4863,23 @@ const totalBankCapital =
   )}: TZS {currency(displayedRetailNetProfit)}
 </div>
 
-    <div className="rounded-2xl bg-gradient-to-r from-orange-400/15 to-pink-500/15 p-3 font-medium">
+    <div className="rounded-2xl border border-[#D7B572] bg-[#B99050] p-3 font-semibold text-[#101F35]">
       {t(language, 'Gas Profit', 'Faida ya Gesi')}: TZS {currency(totalGasProfit)}
     </div>
 
-    <div className="rounded-2xl bg-gradient-to-r from-cyan-500/15 to-sky-600/15 p-3 font-medium">
+    <div className="rounded-2xl border border-[#D7B572] bg-[#B99050] p-3 font-semibold text-[#101F35]">
       {t(language, 'Mobile Money Commission', 'Kamisheni za Simu')}: TZS {currency(totalMobileWakalaCommission)}
     </div>
 
-    <div className="rounded-2xl bg-gradient-to-r from-blue-500/15 to-indigo-600/15 p-3 font-medium">
+    <div className="rounded-2xl border border-[#D7B572] bg-[#B99050] p-3 font-semibold text-[#101F35]">
       {t(language, 'Bank Commission', 'Kamisheni za Benki')}: TZS {currency(totalBankWakalaCommission)}
     </div>
 
-    <div className="rounded-2xl bg-gradient-to-r from-emerald-500/15 to-teal-600/15 p-3 font-medium">
+    <div className="rounded-2xl border border-[#D7B572] bg-[#B99050] p-3 font-semibold text-[#101F35]">
       {t(language, 'Total Wakala Commission', 'Jumla ya Kamisheni ya Wakala')}: TZS {currency(totalWakalaCommission)}
     </div>
 
-    <div className="rounded-2xl bg-gradient-to-r from-violet-500/20 to-indigo-700/20 p-3 font-semibold">
+    <div className="rounded-2xl border border-[#D7B572] bg-[#B99050] p-3 font-semibold text-[#101F35]">
       {t(language, 'Total Business Profit', 'Jumla ya Faida za Biashara')}: TZS {currency(totalBusinessProfit)}
     </div>
   </div>
@@ -11785,7 +11753,7 @@ banks: mobileMoneyForm.banks.map((b) => ({
         </div>
       ) : null}
 
-      <div className="mb-6 rounded-[30px] bg-[linear-gradient(135deg,rgba(255,255,255,0.88),rgba(248,250,255,0.94),rgba(255,244,250,0.94))] p-2 shadow-lg ring-1 ring-slate-200/70">
+      <div className="mb-6">
   <TabsList>
     {[
       ['dashboard', t(language, 'Dashboard', 'Dashibodi')],
@@ -11868,7 +11836,6 @@ sendingSupabaseSalesCount > 0 ? (
   title={`${t(language, 'Sales', 'Mauzo')} - ${shopPeriodLabel}`}
   value={`TZS ${currency(todaySales)}`}
   icon={ShoppingCart}
-  color="bg-orange-300"
 />
 
 <StatCard
@@ -11881,21 +11848,18 @@ sendingSupabaseSalesCount > 0 ? (
     selectedShopRemittanceSummary.cashAmount
   )}`}
   icon={AlertTriangle}
-  color="bg-red-300"
 />
 
 <StatCard
   title={`${t(language, 'Profit', 'Faida')} - ${shopPeriodLabel}`}
   value={`TZS ${currency(todayProfit)}`}
   icon={Wallet}
-  color="bg-green-300"
 />
 
 <StatCard
   title={t(language, 'Expiry Alerts', 'Bidhaa zinazokaribia ku-expire')}
   value={`${expiringSoonCount}`}
   icon={AlertTriangle}
-  color="bg-rose-300"
 />
 
 
@@ -11914,7 +11878,6 @@ sendingSupabaseSalesCount > 0 ? (
     : ''
 }
   icon={HandCoins}
-  color="bg-cyan-300"
 />
 
 <StatCard
@@ -11932,7 +11895,6 @@ sendingSupabaseSalesCount > 0 ? (
     : ''
 }
   icon={Building2}
-  color="bg-blue-300"
 />
 </div>
 
@@ -12016,26 +11978,26 @@ sendingSupabaseSalesCount > 0 ? (
   </div>
 ) : null}
 
-  <Card className="mt-6 border-white/50 bg-[linear-gradient(135deg,rgba(255,255,255,0.92),rgba(248,250,255,0.96),rgba(255,244,250,0.96))] shadow-lg backdrop-blur-md">
+  <Card className="mt-6 border-[#B99050]/60 bg-[#101F35] shadow-lg">
     <CardHeader>
-      <CardTitle>{t(language, 'Business Profit Breakdown', 'Muhtasari wa Faida za Biashara')}</CardTitle>
+      <CardTitle className="text-[#F2D39B]">{t(language, 'Business Profit Breakdown', 'Muhtasari wa Faida za Biashara')}</CardTitle>
     </CardHeader>
 
     <CardContent>
       <div className="grid gap-3 md:grid-cols-4 text-sm">
-        <div className="rounded-2xl bg-gradient-to-r from-fuchsia-100 to-pink-100 p-3 font-medium text-slate-800">
+        <div className="rounded-2xl border border-[#D7B572] bg-[#B99050] p-3 font-semibold text-[#101F35]">
           {t(language, 'Retail Profit', 'Faida ya Duka')}: TZS {currency(todayRetailProfit)}
         </div>
 
-        <div className="rounded-2xl bg-gradient-to-r from-orange-100 to-rose-100 p-3 font-medium text-slate-800">
+        <div className="rounded-2xl border border-[#D7B572] bg-[#B99050] p-3 font-semibold text-[#101F35]">
           {t(language, 'Gas Profit', 'Faida ya Gesi')}: TZS {currency(todayGasProfit)}
         </div>
 
-        <div className="rounded-2xl bg-gradient-to-r from-cyan-100 to-sky-100 p-3 font-medium text-slate-800">
+        <div className="rounded-2xl border border-[#D7B572] bg-[#B99050] p-3 font-semibold text-[#101F35]">
           {t(language, 'Wakala Commission', 'Kamisheni ya Wakala')}: TZS {currency(todayWakalaCommission)}
         </div>
 
-        <div className="rounded-2xl bg-gradient-to-r from-violet-100 to-indigo-100 p-3 font-semibold text-slate-900">
+        <div className="rounded-2xl border border-[#D7B572] bg-[#B99050] p-3 font-semibold text-[#101F35]">
           {t(language, 'Total Business Profit', 'Jumla ya Faida za Biashara')}: TZS {currency(totalBusinessProfit)}
         </div>
       </div>
@@ -18841,7 +18803,7 @@ if (!data.currentUser) {
           </div>
 
           <p className="mt-3 text-xs text-slate-500">
-            {t(language, 'Please wait. Your saved transactions remain protected.', 'Tafadhali subiri. Taarifa za mauzo zilizohifadhiwa zinaendelea kulindwa.')}
+            {t(language, 'Please wait. Your saved transactions remain protected.', 'Tafadhali subiri. Taarifa zinaendelea kupakiwa.')}
           </p>
           <button
             type="button"
