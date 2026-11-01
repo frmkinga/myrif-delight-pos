@@ -79,6 +79,42 @@ const addMonthsISO = (dateStr, months) => {
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
 };
 
+// Every subsequent monthly water reading opens on the 21st
+// of the month following the latest confirmed reading.
+const getNextWaterReadingOpenDate = (lastDate) => {
+  if (!lastDate) return '';
+
+  const [year, month] = String(lastDate)
+    .split('-')
+    .map(Number);
+
+  if (!year || !month) return '';
+
+  const nextMonth =
+    month === 12 ? 1 : month + 1;
+
+  const nextYear =
+    month === 12 ? year + 1 : year;
+
+  return `${nextYear}-${String(nextMonth).padStart(
+    2,
+    '0'
+  )}-21`;
+};
+
+// Do not create or prefill the next reading before its
+// monthly opening date.
+const defaultNewWaterReadingDate = (lastDate) => {
+  if (!lastDate) return todayISO();
+
+  const openDate =
+    getNextWaterReadingOpenDate(lastDate);
+
+  return openDate && todayISO() >= openDate
+    ? openDate
+    : '';
+};
+
 const daysBetween = (fromStr, toStr) => {
   if (!fromStr || !toStr) return null;
   const from = new Date(fromStr);
@@ -957,6 +993,7 @@ useEffect(() => {
 });
 
 const [isWaterPaymentOpen, setIsWaterPaymentOpen] = useState(false);
+const [waterBillHistorySelection, setWaterBillHistorySelection] = useState({});
 const [isSavingWaterPayment, setIsSavingWaterPayment] = useState(false);
 
 const [
@@ -1399,18 +1436,35 @@ const rentOverdueAccounts = activeRentAccounts.filter((account) => {
 });
 
 
-const meterPreviewUnitsUsed = Math.max(
-  0,
-  Number(meterForm.currentUnits || 0) -
-    Number(meterForm.previousUnits || 0)
-);
+const hasCurrentMeterReading =
+  String(
+    meterForm.currentUnits ?? ''
+  ).trim() !== '';
 
-const meterPreviewTotal = Math.max(
-  0,
-  meterPreviewUnitsUsed *
-    Number(meterForm.costPerUnit || 0) -
-    Number(meterForm.discount || 0)
-);
+const meterPreviewUnitsUsed =
+  hasCurrentMeterReading
+    ? Math.max(
+        0,
+        Number(meterForm.currentUnits) -
+          Number(
+            meterForm.previousUnits || 0
+          )
+      )
+    : null;
+
+const meterPreviewTotal =
+  hasCurrentMeterReading
+    ? Math.max(
+        0,
+        Number(meterPreviewUnitsUsed) *
+          Number(
+            meterForm.costPerUnit || 0
+          ) -
+          Number(
+            meterForm.discount || 0
+          )
+      )
+    : null;
 
 const meterPreviewNextReading = meterForm.readingDate
   ? addMonthsISO(meterForm.readingDate, 1)
@@ -4289,6 +4343,88 @@ const cancelWaterSupplierBill = async (bill) => {
 };
 
   const saveMeter = async () => {
+  // Always revalidate the opening reading against the latest persisted bill.
+  // This prevents a stale browser cache from creating an inconsistent invoice.
+  if (meterForm.houseNumber && meterForm.meterNumber && !meterForm.id) {
+    const shopId = data?.currentUser?.shop_id || data?.currentUser?.shopId || 'shop-1';
+    const { data: latestBills, error: readingCheckError } = await supabase
+      .from('waterBills')
+      .select('readingDate,currentUnits')
+      .eq('shop_id', shopId)
+      .eq('houseNumber', meterForm.houseNumber)
+      .eq('meterNumber', meterForm.meterNumber)
+      .order('readingDate', { ascending: false })
+      .limit(1);
+    if (readingCheckError) {
+      alert(`Imeshindikana kuhakiki usomaji wa mwisho: ${readingCheckError.message}`);
+      return;
+    }
+    const latest = latestBills?.[0];
+    if (latest && (
+      String(meterForm.previousReadingDate || '') !== String(latest.readingDate || '') ||
+      Number(meterForm.previousUnits) !== Number(latest.currentUnits)
+    )) {
+      setMeterForm((previous) => ({
+  ...previous,
+  previousReadingDate:
+    latest.readingDate || '',
+  previousUnits: String(
+    latest.currentUnits ?? ''
+  ),
+  readingDate:
+    defaultNewWaterReadingDate(
+      latest.readingDate
+    ),
+  nextReadingDate:
+    getNextWaterReadingOpenDate(
+      latest.readingDate
+    ),
+}));
+      alert('Usomaji uliopita umesasishwa kulingana na ankara ya mwisho. Hakiki taarifa kisha uhifadhi tena.');
+      return;
+    }
+  }
+  // Existing meters may receive only one new monthly reading,
+// beginning on the 21st of the following month.
+if (
+  !meterForm.id &&
+  hasExistingMeter &&
+  meterForm.previousReadingDate
+) {
+  const readingOpenDate =
+    getNextWaterReadingOpenDate(
+      meterForm.previousReadingDate
+    );
+
+  if (
+    readingOpenDate &&
+    todayISO() < readingOpenDate
+  ) {
+    alert(
+      t(
+        language,
+        `The next reading will be available on ${readingOpenDate}.`,
+        `Usomaji mpya utafunguliwa tarehe ${readingOpenDate}.`
+      )
+    );
+    return;
+  }
+
+  if (
+    readingOpenDate &&
+    meterForm.readingDate &&
+    meterForm.readingDate < readingOpenDate
+  ) {
+    alert(
+      t(
+        language,
+        `The new reading date cannot be earlier than ${readingOpenDate}.`,
+        `Tarehe ya usomaji mpya haiwezi kuwa kabla ya ${readingOpenDate}.`
+      )
+    );
+    return;
+  }
+}
   if (
     !meterForm.houseNumber ||
     !meterForm.meterNumber ||
@@ -4312,6 +4448,18 @@ meterForm.currentUnits === ''
   }
 
   
+  if (!meterForm.id && meterForm.readingDate > todayISO()) {
+    alert('Huwezi kuhifadhi usomaji wa tarehe ya baadaye. Weka tarehe ambayo mita ilisomwa kweli.');
+    return;
+  }
+
+  if (!meterForm.id && meterForm.previousReadingDate && meterForm.readingDate &&
+      meterForm.readingDate <= meterForm.previousReadingDate) {
+    alert('Tarehe ya usomaji mpya lazima iwe baada ya tarehe ya usomaji uliopita (' +
+      meterForm.previousReadingDate + '). Chagua tarehe inayofuata kabla ya kuhifadhi.');
+    return;
+  }
+
 if (
   meterForm.previousReadingDate &&
   meterForm.readingDate &&
@@ -4515,9 +4663,7 @@ const waterBillRecord = {
   meterNumber: meterForm.meterNumber,
   billingPeriodStart:
     meterForm.previousReadingDate || null,
-  billingPeriodEnd: meterForm.readingDate
-    ? addDaysISO(meterForm.readingDate, -1)
-    : null,
+  billingPeriodEnd: meterForm.readingDate || null,
   readingDate: meterForm.readingDate || null,
   previousUnits: Number(meterForm.previousUnits || 0),
   currentUnits: Number(meterForm.currentUnits || 0),
@@ -5157,9 +5303,9 @@ const openWaterBillCorrectionForm = (bill) => {
     previousUnits: String(
       Number(bill.previousUnits || 0)
     ),
-    currentUnits: String(
-      Number(bill.currentUnits || 0)
-    ),
+    // Keep the invoice's previous reading, but require the user to enter
+    // the corrected current reading explicitly.
+    currentUnits: '',
     costPerUnit: String(
       Number(
         bill.costPerUnit || WATER_UNIT_PRICE
@@ -5189,6 +5335,11 @@ const saveWaterBillCorrection = async () => {
         'Ankara ya maji iliyochaguliwa haijapatikana.'
       )
     );
+    return;
+  }
+
+  if (String(waterBillCorrectionForm.currentUnits ?? '').trim() === '') {
+    alert('Weka Usomaji wa Sasa kabla ya kuhifadhi marekebisho.');
     return;
   }
 
@@ -6510,25 +6661,126 @@ const startNewRentPayment = (row) => {
   setActiveTab('houses');
 };
 
+// Reconcile the next reading against the latest persisted invoice, not the
+// potentially stale lastReading fields in the permanent meter register.
+const refreshPreviousWaterReading = async (houseNumber, meterNumber) => {
+  if (!houseNumber || !meterNumber) return;
+  const shopId = data?.currentUser?.shop_id || data?.currentUser?.shopId || 'shop-1';
+  const { data: confirmedBills, error } = await supabase
+    .from('waterBills')
+    .select('*')
+    .eq('shop_id', shopId)
+    .eq('houseNumber', houseNumber)
+    .eq('meterNumber', meterNumber)
+    .order('readingDate', { ascending: false });
+
+  if (error) {
+    console.error('Unable to reconcile previous water reading:', error);
+    alert('Imeshindikana kuhakiki usomaji wa mwisho wa mita. Tafadhali jaribu tena kabla ya kuhifadhi ankara.');
+    return;
+  }
+
+  const latest = (confirmedBills || []).find(
+    (bill) => bill.readingDate && bill.currentUnits !== null && bill.currentUnits !== undefined
+  );
+  if (!latest) return;
+
+  setMeterForm((previous) => {
+    if (String(previous.houseNumber) !== String(houseNumber) ||
+        String(previous.meterNumber) !== String(meterNumber) ||
+        previous.id) return previous;
+   return {
+  ...previous,
+  previousReadingDate:
+    latest.readingDate,
+  previousUnits: String(
+    latest.currentUnits
+  ),
+  readingDate:
+    defaultNewWaterReadingDate(
+      latest.readingDate
+    ),
+  nextReadingDate:
+    getNextWaterReadingOpenDate(
+      latest.readingDate
+    ),
+};
+  });
+};
+
 const startNewMeterReading = (row) => {
+  const latestConfirmedBill = waterBills
+    .filter(
+      (bill) =>
+        String(bill.houseNumber || '') ===
+          String(row.houseNumber || '') &&
+        String(bill.meterNumber || '') ===
+          String(row.meterNumber || '')
+    )
+    .sort((a, b) =>
+      String(b.readingDate || '').localeCompare(
+        String(a.readingDate || '')
+      )
+    )[0];
+
+  const previousReadingDate =
+    latestConfirmedBill?.readingDate ||
+    row.lastReadingDate ||
+    row.readingDate ||
+    '';
+
+  const previousUnits =
+    latestConfirmedBill?.currentUnits ??
+    row.lastReading ??
+    row.currentUnits ??
+    '';
+
+  const readingOpenDate =
+    getNextWaterReadingOpenDate(
+      previousReadingDate
+    );
+
+  if (
+    previousReadingDate &&
+    readingOpenDate &&
+    todayISO() < readingOpenDate
+  ) {
+    alert(
+      t(
+        language,
+        `The next monthly reading will be available on ${readingOpenDate}.`,
+        `Usomaji wa mwezi unaofuata utafunguliwa tarehe ${readingOpenDate}.`
+      )
+    );
+    return;
+  }
+
   setMeterForm({
     id: '',
     houseNumber: row.houseNumber || '',
     meterType: row.meterType || 'Water',
     meterNumber: row.meterNumber || '',
-    readingDate: todayISO(),
+    readingDate: previousReadingDate
+      ? readingOpenDate
+      : todayISO(),
     paymentReceived: 'No',
     paymentDate: '',
     amountReceived: '',
-previousReadingDate:
-  row.lastReadingDate || row.readingDate || '',
-previousUnits: String(row.lastReading ?? row.currentUnits ?? ''),
+    previousReadingDate,
+    previousUnits: String(previousUnits),
     currentUnits: '',
-    costPerUnit: String(row.costPerUnit ?? WATER_UNIT_PRICE),
+    costPerUnit: String(
+      row.costPerUnit ?? WATER_UNIT_PRICE
+    ),
     discount: '',
-    nextReadingDate: '',
+    nextReadingDate: readingOpenDate,
     notes: '',
   });
+
+  void refreshPreviousWaterReading(
+    row.houseNumber || '',
+    row.meterNumber || ''
+  );
 
   setActiveTab('meters');
 };
@@ -6805,6 +7057,50 @@ const waterBillsThisMonth = waterBills.filter(
         bill.createdAt
     )
 );
+
+// Complete water-account register for the current billing screen.
+// Historical invoices are used for identity only, never as current charges.
+const waterAccountKey = (row) =>
+  String(row?.meterNumber || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '') ||
+  String(row?.houseNumber || '').trim().toUpperCase();
+
+const waterAccountDirectory = Array.from(
+  [...waterMeters, ...waterBills, ...meters].reduce((map, row) => {
+    const key = waterAccountKey(row);
+    if (!key) return map;
+    const existing = map.get(key);
+    const candidate = {
+      houseNumber: row.houseNumber || '',
+      meterNumber: row.meterNumber || '',
+      tenantName: row.tenantName || '',
+      active: row.active,
+    };
+    // Prefer registered meter identity, while filling missing tenant names
+    // from the latest available historical invoice.
+    if (!existing) map.set(key, candidate);
+    else map.set(key, {
+      ...existing,
+      houseNumber: existing.houseNumber || candidate.houseNumber,
+      meterNumber: existing.meterNumber || candidate.meterNumber,
+      tenantName: existing.tenantName || candidate.tenantName,
+    });
+    return map;
+  }, new Map()).values()
+).filter((row) => row.active !== false);
+
+const billedWaterAccountKeys = new Set(waterBillsThisMonth.map(waterAccountKey));
+const waterAccountsWithoutCurrentBill = waterAccountDirectory.filter(
+  (account) => !billedWaterAccountKeys.has(waterAccountKey(account))
+);
+
+// One consistent account row, with access to every historical invoice.
+const waterAccountRows = waterAccountDirectory.map((account) => {
+  const bills = waterBills
+    .filter((bill) => waterAccountKey(bill) === waterAccountKey(account))
+    .sort((a, b) => String(b.readingDate || b.billingPeriodStart || b.created_at || '').localeCompare(String(a.readingDate || a.billingPeriodStart || a.created_at || '')));
+  const currentBill = bills.find((bill) => waterBillsThisMonth.some((current) => String(current.id) === String(bill.id)));
+  return { account, bills, currentBill, latestBill: currentBill || bills[0] || null };
+}).sort((a,b) => String(a.account.houseNumber).localeCompare(String(b.account.houseNumber)));
 
 const waterPaymentsThisMonth = waterPayments.filter(
   (payment) =>
@@ -7850,17 +8146,9 @@ const serviceChargeSections = [
               type="number"
               min="0"
               step="0.01"
-              value={
-                waterBillCorrectionForm.previousUnits
-              }
-              onChange={(e) =>
-                setWaterBillCorrectionForm(
-                  (previous) => ({
-                    ...previous,
-                    previousUnits: e.target.value,
-                  })
-                )
-              }
+              value={waterBillCorrectionForm.previousUnits}
+              readOnly
+              className="bg-slate-100 text-slate-700 cursor-not-allowed"
             />
 
             <Input
@@ -8009,6 +8297,10 @@ const serviceChargeSections = [
             )}
           />
 
+          <p className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+            Jaza sababu ya marekebisho, kisha bonyeza Hifadhi Marekebisho. Ikiwa kuna taarifa isiyokamilika au malipo yanayozidi ankara mpya, mfumo utaonyesha sababu badala ya kuzima kitufe.
+          </p>
+
           <div className="flex flex-col-reverse gap-3 border-t border-slate-200 pt-5 sm:flex-row sm:justify-end">
             <Button
               type="button"
@@ -8026,15 +8318,7 @@ const serviceChargeSections = [
             <Button
               type="button"
               className="min-w-[220px] bg-cyan-800 hover:bg-cyan-900 disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={
-                isSavingWaterBillCorrection ||
-                !waterBillCorrectionForm.reason.trim() ||
-                correctedCurrentUnits <
-                  correctedPreviousUnits ||
-                correctedCostPerUnit <= 0 ||
-                correctedBillAmount <
-                  amountAlreadyPaid
-              }
+              disabled={isSavingWaterBillCorrection}
               onClick={saveWaterBillCorrection}
             >
               {isSavingWaterBillCorrection
@@ -14902,311 +15186,65 @@ const serviceChargeSections = [
             </thead>
 
             <tbody>
-              {waterBillsThisMonth.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={8}
-                    className="px-4 py-10 text-center text-slate-500"
-                  >
-                    {t(
-                      language,
-                      'No water bills have been recorded for the current period.',
-                      'Hakuna ankara za maji zilizorekodiwa katika kipindi cha sasa.'
-                    )}
-                  </td>
-                </tr>
-              ) : (
-                waterBillsThisMonth.map((bill) => {
-                  const billAmount = Number(
-                    bill.currentBillAmount ||
-                      bill.totalPayable ||
-                      bill.totalAmount ||
-                      bill.amount ||
-                      0
-                  );
-
-                  const previousReading = Number(
-                    bill.previousUnits || 0
-                  );
-
-                  const currentReading = Number(
-                    bill.currentUnits || 0
-                  );
-
-                  const unitsUsed = Number(
-                    bill.unitsUsed ??
-                      Math.max(
-                        0,
-                        currentReading -
-                          previousReading
-                      )
-                  );
-
-                  const pricePerUnit = Number(
-                    bill.costPerUnit ||
-                      WATER_UNIT_PRICE ||
-                      0
-                  );
-
-                  const balance = Math.max(
-                    0,
-                    Number(bill.balance || 0)
-                  );
-
-                  const amountPaid = Math.max(
-                    0,
-                    Number(
-                      bill.amountPaid ??
-                        (billAmount - balance)
-                    )
-                  );
-
-                  const hasNoConsumption =
-                    unitsUsed <= 0 &&
-                    billAmount <= 0;
-
-                  const paymentIdsForBill =
-                    waterPaymentAllocations
-                      .filter(
-                        (allocation) =>
-                          String(
-                            allocation.billId || ''
-                          ) ===
-                          String(bill.id || '')
-                      )
-                      .map((allocation) =>
-                        String(
-                          allocation.paymentId || ''
-                        )
-                      );
-
-                  const paymentDatesForBill =
-                    waterPayments
-                      .filter((payment) =>
-                        paymentIdsForBill.includes(
-                          String(payment.id || '')
-                        )
-                      )
-                      .map(
-                        (payment) =>
-                          payment.paymentDate ||
-                          payment.paidAt?.slice(
-                            0,
-                            10
-                          ) ||
-                          payment.created_at?.slice(
-                            0,
-                            10
-                          ) ||
-                          ''
-                      )
-                      .filter(Boolean)
-                      .sort();
-
-                  const latestPaymentDate =
-                    paymentDatesForBill.length > 0
-                      ? paymentDatesForBill[
-                          paymentDatesForBill.length -
-                            1
-                        ]
-                      : '-';
-
-                  return (
-                    <tr
-                      key={`water-billing-${bill.id}`}
-                      className="border-b border-slate-300 bg-white align-middle transition last:border-b-0 hover:bg-slate-50"
-                    >
-                      <td className="px-4 py-4">
-                        <p className="font-bold text-slate-900">
-                          {bill.houseNumber || '-'}
-                        </p>
-
-                        <div className="mt-1 flex items-center gap-1 text-xs text-slate-500">
-                          <span className="font-semibold text-slate-700">
-                            {bill.meterNumber || '-'}
-                          </span>
-
-                          <span>·</span>
-
-                          <span>
-                            {bill.readingDate ||
-                              bill.billDate ||
-                              bill.created_at?.slice(
-                                0,
-                                10
-                              ) ||
-                              '-'}
-                          </span>
-                        </div>
-                      </td>
-
-                      <td className="px-4 py-4">
-                        <p className="truncate font-semibold text-slate-900">
-                          {bill.tenantName || '-'}
-                        </p>
-
-                        <button
-                          type="button"
-                          className="mt-1 text-xs font-semibold text-slate-500 hover:text-slate-900 hover:underline"
-                          onClick={() =>
-                            openWaterBillCorrectionForm(
-                              bill
-                            )
-                          }
-                        >
-                          {t(
-                            language,
-                            'Correct Bill',
-                            'Sahihisha Ankara'
-                          )}
-                        </button>
-                      </td>
-
-                      <td className="px-4 py-4">
-                        <div className="flex items-center gap-2 font-semibold text-slate-800">
-                          <span>
-                            {formatQty(
-                              previousReading
-                            )}
-                          </span>
-
-                          <span className="text-slate-400">
-                            →
-                          </span>
-
-                          <span>
-                            {formatQty(
-                              currentReading
-                            )}
-                          </span>
-                        </div>
-
-                        <div className="mt-1 text-xs text-slate-500">
-                          <span className="font-semibold text-slate-700">
-                            {formatQty(unitsUsed)}{' '}
-                            {t(
-                              language,
-                              'units',
-                              'uniti'
-                            )}
-                          </span>
-
-                          <span>
-                            {' '}· TZS{' '}
-                            {currency(pricePerUnit)}/
-                            {t(
-                              language,
-                              'unit',
-                              'uniti'
-                            )}
-                          </span>
-                        </div>
-                      </td>
-
-                      <td className="px-4 py-4 text-right">
-                        <p className="font-bold text-slate-900">
-                          TZS {currency(billAmount)}
-                        </p>
-                      </td>
-
-                      <td className="px-4 py-4 text-right">
-                        <p className="font-bold text-slate-900">
-                          TZS {currency(amountPaid)}
-                        </p>
-
-                        {latestPaymentDate !== '-' && (
-                          <p className="mt-1 text-xs text-slate-500">
-                            {latestPaymentDate}
-                          </p>
-                        )}
-                      </td>
-
-                      <td className="px-4 py-4 text-right">
-                        <p
-                          className={`font-bold ${
-                            balance > 0
-                              ? 'text-red-700'
-                              : 'text-slate-900'
-                          }`}
-                        >
-                          TZS {currency(balance)}
-                        </p>
-                      </td>
-
-                      <td className="px-4 py-4 text-center">
-                        <span
-                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${
-                            hasNoConsumption
-                              ? 'bg-slate-100 text-slate-600'
-                              : balance <= 0
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : 'bg-red-100 text-red-700'
-                          }`}
-                        >
-                          {hasNoConsumption
-                            ? t(
-                                language,
-                                'No Use',
-                                'Hakuna'
-                              )
-                            : balance <= 0
-                              ? t(
-                                  language,
-                                  'Paid',
-                                  'Imelipwa'
-                                )
-                              : amountPaid > 0
-                                ? t(
-                                    language,
-                                    'Partial',
-                                    'Sehemu'
-                                  )
-                                : t(
-                                    language,
-                                    'Unpaid',
-                                    'Deni'
-                                  )}
-                        </span>
-                      </td>
-
-                      <td className="px-4 py-4 text-center">
-                        {hasNoConsumption ? (
-                          <span className="text-xs font-semibold text-slate-500">
-                            {t(
-                              language,
-                              'No Payment',
-                              'Hakuna Malipo'
-                            )}
-                          </span>
-                        ) : balance > 0 ? (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              startWaterPayment(bill)
-                            }
-                            className="rounded-lg bg-slate-800 px-3 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-slate-900"
-                          >
-                            {t(
-                              language,
-                              'Pay',
-                              'Lipa'
-                            )}
+              {waterAccountRows.length === 0 ? (
+                <tr><td colSpan={8} className="px-4 py-10 text-center text-slate-600">Hakuna akaunti za maji zilizopatikana.</td></tr>
+              ) : waterAccountRows.map(({ account, bills, currentBill, latestBill }) => {
+                const accountKey = waterAccountKey(account);
+                const selectedId = waterBillHistorySelection[accountKey];
+                const bill = bills.find((entry) => String(entry.id) === String(selectedId)) || latestBill;
+                const isCurrentBill = Boolean(bill && waterBillsThisMonth.some((entry) => String(entry.id) === String(bill.id)));
+                const previousReading = bill ? Number(bill.previousUnits || 0) : null;
+                const currentReading = bill ? Number(bill.currentUnits || 0) : null;
+                const unitsUsed = bill ? Number(bill.unitsUsed ?? Math.max(0, currentReading - previousReading)) : null;
+                const billAmount = bill ? Number(bill.currentBillAmount ?? bill.totalPayable ?? 0) : null;
+                const amountPaid = bill ? Number(bill.amountPaid || 0) : null;
+                const balance = bill ? Number(bill.balance || 0) : null;
+                const historyDate = (row) => row.readingDate || row.billingPeriodStart || row.created_at?.slice(0,10) || 'Tarehe haipo';
+                return (
+                  <tr key={`water-account-${accountKey}`} className="border-b border-slate-200 bg-white align-middle hover:bg-blue-50/40">
+                    <td className="px-3 py-4">
+                      <p className="font-bold text-slate-900">{account.houseNumber || bill?.houseNumber || '-'}</p>
+                      <p className="mt-1 text-xs font-semibold text-slate-600">{account.meterNumber || bill?.meterNumber || '-'}</p>
+                    </td>
+                    <td className="px-3 py-4">
+                      <p className="font-semibold text-slate-900 break-words">{account.tenantName || bill?.tenantName || 'Jina halijawekwa'}</p>
+                      {bills.length > 0 ? (
+                        <div className="mt-2 space-y-2">
+                          <label className="block text-xs font-semibold text-slate-600">Chagua ankara ya kusahihisha</label>
+                          <select aria-label={`Historia ya ankara ${account.houseNumber}`} value={bill?.id || ''}
+                            onChange={(event) => setWaterBillHistorySelection((prev) => ({ ...prev, [accountKey]: event.target.value }))}
+                            className="w-full max-w-[220px] rounded-lg border border-blue-300 bg-white px-2 py-2 text-xs font-semibold text-slate-900 focus:ring-2 focus:ring-blue-500">
+                            {bills.map((entry) => <option key={entry.id} value={entry.id}>{historyDate(entry)} · {currency(entry.currentBillAmount || 0)} TZS</option>)}
+                          </select>
+                          <button type="button" onClick={() => openWaterBillCorrectionForm(bill)}
+                            className="block rounded-lg bg-indigo-700 px-3 py-2 text-xs font-bold text-white shadow-sm hover:bg-indigo-800">
+                            Sahihisha Ankara
                           </button>
-                        ) : (
-                          <span className="text-xs font-semibold text-slate-600">
-                            ✓{' '}
-                            {t(
-                              language,
-                              'Complete',
-                              'Kamili'
-                            )}
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
+                        </div>
+                      ) : <span className="mt-2 block text-xs text-slate-500">Hakuna ankara ya zamani</span>}
+                    </td>
+                    <td className="px-3 py-4">
+                      {bill ? <><p className="font-semibold text-slate-900">{formatQty(previousReading)} <span className="text-slate-400">→</span> {formatQty(currentReading)}</p>
+                        <p className="mt-1 text-xs text-slate-600">{formatQty(unitsUsed)} uniti · TZS {currency(bill.costPerUnit || WATER_UNIT_PRICE)}/uniti</p>
+                        <p className="mt-1 text-xs text-slate-500">{historyDate(bill)}</p></> : <span className="text-slate-500">—</span>}
+                    </td>
+                    <td className="px-3 py-4 text-right font-bold text-slate-900">{bill ? `TZS ${currency(billAmount)}` : '—'}</td>
+                    <td className="px-3 py-4 text-right font-semibold text-slate-900">{bill ? `TZS ${currency(amountPaid)}` : '—'}</td>
+                    <td className={`px-3 py-4 text-right font-bold ${balance > 0 ? 'text-red-700' : 'text-slate-800'}`}>{bill ? `TZS ${currency(balance)}` : '—'}</td>
+                    <td className="px-2 py-4 text-center">
+                      {!bill ? <span className="inline-flex rounded-lg bg-amber-100 px-2 py-2 text-xs font-bold text-amber-900">Hakuna Ankara</span>
+                        : !isCurrentBill ? <span className="inline-flex rounded-lg bg-blue-100 px-2 py-2 text-xs font-bold text-blue-900">Ankara ya Zamani</span>
+                        : balance <= 0 ? <span className="inline-flex rounded-lg bg-emerald-100 px-2 py-2 text-xs font-bold text-emerald-800">Imelipwa</span>
+                        : <span className="inline-flex rounded-lg bg-red-100 px-2 py-2 text-xs font-bold text-red-700">Deni</span>}
+                    </td>
+                    <td className="px-2 py-4 text-center">
+                      {bill && balance > 0 ? <button type="button" onClick={() => startWaterPayment(bill)} className="rounded-lg bg-slate-800 px-3 py-2 text-xs font-bold text-white shadow-sm hover:bg-slate-900">Lipa</button>
+                        : bill ? <span className="text-xs font-semibold text-emerald-700">Kamili</span>
+                        : <button type="button" onClick={() => setActiveWaterSection('readings')} className="rounded-lg bg-blue-700 px-3 py-2 text-xs font-bold text-white shadow-sm hover:bg-blue-800">Weka Usomaji</button>}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -16718,13 +16756,15 @@ const latestLegacyMeter = meters
       new Date(a.readingDate || a.created_at || 0).getTime()
   )[0];
 
-const latestMeter = permanentMeter
-  ? {
-      ...permanentMeter,
-      currentUnits: permanentMeter.lastReading,
-      readingDate: permanentMeter.lastReadingDate,
-    }
-  : latestLegacyMeter;
+const latestCorrectedBill = waterBills
+  .filter((bill) => String(bill.houseNumber || '') === String(selectedHouseNumber || '') && String(bill.meterNumber || '') === String(permanentMeter?.meterNumber || latestLegacyMeter?.meterNumber || ''))
+  .sort((a, b) => String(b.readingDate || '').localeCompare(String(a.readingDate || '')))[0];
+
+const latestMeter = latestCorrectedBill
+  ? { ...(permanentMeter || latestLegacyMeter || {}), currentUnits: latestCorrectedBill.currentUnits, readingDate: latestCorrectedBill.readingDate }
+  : permanentMeter
+    ? { ...permanentMeter, currentUnits: permanentMeter.lastReading, readingDate: permanentMeter.lastReadingDate }
+    : latestLegacyMeter;
 
   setMeterForm((p) => ({
   ...p,
@@ -16732,7 +16772,7 @@ const latestMeter = permanentMeter
   houseNumber: selectedHouseNumber,
   meterType: latestMeter?.meterType || 'Water',
   meterNumber: latestMeter?.meterNumber || '',
-  readingDate: todayISO(),
+  readingDate: defaultNewWaterReadingDate(latestMeter?.readingDate),
   paymentReceived: 'No',
   paymentDate: '',
  amountReceived: '',
@@ -16750,6 +16790,7 @@ previousUnits:
     nextReadingDate: '',
     notes: '',
   }));
+  void refreshPreviousWaterReading(selectedHouseNumber, latestMeter?.meterNumber || '');
 }}
 >
   <option value="">
@@ -16890,15 +16931,16 @@ const previousMeterReading = selectedPermanentMeter
   previousMeterReading?.readingDate ||
   '';
 
-  const billingPeriodEnd = meterForm.readingDate
-    ? addDaysISO(meterForm.readingDate, -1)
-    : '';
+  const billingPeriodEnd = meterForm.readingDate || '';
+  // Suggested date is one calendar month after the last confirmed reading.
+  // It is not evidence that a new reading has already been taken.
 
   return (
     <div className="space-y-3">
       <Input
   label={t(language, 'Current Reading Date', 'Tarehe ya Usomaji wa Sasa')}
   type="date"
+  max={todayISO()}
   value={meterForm.readingDate}
   onChange={(e) =>
     setMeterForm((p) => ({
@@ -16914,6 +16956,29 @@ const previousMeterReading = selectedPermanentMeter
     }))
   }
 />
+
+{hasExistingMeter &&
+  meterForm.previousReadingDate &&
+  !meterForm.readingDate && (
+    <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900">
+      Usomaji wa mwisho ni{' '}
+      <strong>
+        {meterForm.previousUnits || '-'} units
+      </strong>{' '}
+      wa tarehe{' '}
+      <strong>
+        {meterForm.previousReadingDate}
+      </strong>
+      . Usomaji wa mwezi unaofuata utafunguliwa
+      tarehe{' '}
+      <strong>
+        {getNextWaterReadingOpenDate(
+          meterForm.previousReadingDate
+        )}
+      </strong>
+      .
+    </p>
+  )}
 
 {hasExistingMeter && (
   <div
@@ -17025,9 +17090,9 @@ const previousMeterReading = selectedPermanentMeter
     </span>
 
     <span className="text-slate-600">
-      {t(language, 'Billing period', 'Kipindi cha ankara')}:{' '}
+      {t(language, 'Reading interval', 'Kipindi cha usomaji')}:{' '}
       <strong className="text-slate-900">
-        {billingPeriodStart && billingPeriodEnd
+        {billingPeriodStart && billingPeriodEnd && billingPeriodEnd > billingPeriodStart
           ? `${billingPeriodStart} — ${billingPeriodEnd}`
           : '-'}
       </strong>
@@ -17289,27 +17354,45 @@ className={
     </p>
   </div>
 
-  <div className="rounded-xl border border-cyan-200 bg-cyan-50 p-4">
-    <p className="text-sm text-cyan-700">
-      {t(language, 'Units Used', 'Units Zilizotumika')}
-    </p>
+<div className="rounded-xl border border-cyan-200 bg-cyan-50 p-4">
+  <p className="text-sm text-cyan-700">
+    {t(
+      language,
+      'New Bill Units',
+      'Units za Ankara Mpya'
+    )}
+  </p>
 
-    <p className="mt-1 text-lg font-bold text-cyan-900">
-      {meterForm.currentUnits === ''
-        ? '-'
-        : meterPreviewUnitsUsed}
-    </p>
-  </div>
+  <p className="mt-1 text-lg font-bold text-cyan-900">
+    {hasCurrentMeterReading
+      ? meterPreviewUnitsUsed
+      : t(
+          language,
+          'Not entered',
+          'Bado hujaweka'
+        )}
+  </p>
+</div>
 
-  <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
-    <p className="text-sm text-blue-700">
-      {t(language, 'Current Bill', 'Ankara ya Sasa')}
-    </p>
+<div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+  <p className="text-sm text-blue-700">
+    {t(
+      language,
+      'New Bill Amount',
+      'Kiasi cha Ankara Mpya'
+    )}
+  </p>
 
-    <p className="mt-1 text-lg font-bold text-blue-900">
-      TZS {currency(meterPreviewTotal)}
-    </p>
-  </div>
+  <p className="mt-1 text-lg font-bold text-blue-900">
+    {hasCurrentMeterReading
+      ? `TZS ${currency(meterPreviewTotal)}`
+      : t(
+          language,
+          'Not calculated',
+          'Bado hakijakokotolewa'
+        )}
+  </p>
+</div>
 
   <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
     <p className="text-sm text-amber-700">
@@ -17472,15 +17555,29 @@ className={
     <Button
   type="button"
   disabled={
-    isSavingMeter ||
-    !meterForm.houseNumber ||
-    !meterForm.meterNumber ||
-    meterForm.previousUnits === '' ||
-    (hasExistingMeter &&
-      (meterForm.currentUnits === '' ||
-        Number(meterForm.currentUnits) <
-          Number(meterForm.previousUnits || 0)))
-  }
+  isSavingMeter ||
+  !meterForm.houseNumber ||
+  !meterForm.meterNumber ||
+  meterForm.previousUnits === '' ||
+  (
+    hasExistingMeter &&
+    (
+      !meterForm.readingDate ||
+      (
+        meterForm.previousReadingDate &&
+        todayISO() <
+          getNextWaterReadingOpenDate(
+            meterForm.previousReadingDate
+          )
+      ) ||
+      meterForm.currentUnits === '' ||
+      Number(meterForm.currentUnits) <
+        Number(
+          meterForm.previousUnits || 0
+        )
+    )
+  )
+}
   className="min-w-[260px] bg-cyan-700 px-5 py-3 text-base font-bold hover:bg-cyan-800 disabled:cursor-not-allowed disabled:opacity-50"
   onClick={async () => {
     if (isSavingMeter) return;

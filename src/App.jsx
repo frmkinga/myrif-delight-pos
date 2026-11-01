@@ -9518,7 +9518,7 @@ if (error) {
   const removeProductRow = (index) => setNewProductRows((prev) => (prev.length === 1 ? prev : prev.filter((_, i) => i !== index)));
 
 const startEditProduct = (product) => {
-  setActiveTab('products');
+  openShopTab('products');
   setProductFormError('');
   setNewProductRows([
     {
